@@ -69,9 +69,11 @@ def chart(series, path, W=1200, H=500, pad=60):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--swaps", type=int, default=5); ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--frames-dir", default=str(pathlib.Path(tempfile.gettempdir()) / "fractadactyl-out" / "poc3"))
+    ap = argparse.ArgumentParser(description="PoC 3: render a chain of hidden swaps and an ever-deeper control, then compare timing.")
+    ap.add_argument("--swaps", type=int, default=5, help="number of hidden swaps in the chain")
+    ap.add_argument("--seed", type=int, default=0, help="random seed for chain planning")
+    ap.add_argument("--frames-dir", default=str(pathlib.Path(tempfile.gettempdir()) / "fractadactyl-out" / "poc3"),
+                    help="where to write rendered PNG frames")
     ap.add_argument("--control-budget", type=float, default=2400, help="seconds for control planning+render each")
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True); frames_dir = pathlib.Path(a.frames_dir)
