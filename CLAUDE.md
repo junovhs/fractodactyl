@@ -1,9 +1,3 @@
-# Agent instructions
-
-This repository is managed by Ishoo. In a local environment with Ishoo available, call `ishoo_brief` before substantive work and reconcile the ledger using `docs/spec/ISHOO-LEDGER.md`.
-
-Before implementation, read `README.md`, `SPEC.md`, all files under `docs/spec/`, and both reports under `docs/research/`.
-
-The old twin/minibrot-swap implementation, experiments, and media were intentionally removed from the working tree. They remain in Git history. Reuse old implementation details only when a new issue explicitly justifies them.
-
-If Ishoo tooling is unavailable, do not claim to update its ledger. Work only on a branch and leave ledger reconciliation for a local agent.
+<!-- ishoo:begin -->
+This repository is managed by Ishoo. Before handling the first user request, call the `ishoo_brief` MCP tool, and drive all issue, plan, and decision work through the `ishoo_*` MCP tools, never the Ishoo command-line interface. If those tools fail, retry: a dropped connection usually recovers on the next call. If Ishoo stays unavailable, never touch `main`: commit your work on a branch and push nothing (in a cloud session where Ishoo is not installed, push only that branch), then tell the user Ishoo must be enabled.
+<!-- ishoo:end -->
