@@ -1,0 +1,6 @@
+[package]
+name = "fd-samples"
+description = "Palette-independent sample file: schema and canonical codec (BASE-01)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

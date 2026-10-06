@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+# Zero third-party dependencies so far: every crate builds from std alone.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+
+[profile.dev]
+opt-level = 1

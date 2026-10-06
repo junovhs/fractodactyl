@@ -1,0 +1,9 @@
+[package]
+name = "fd-shade"
+description = "Late appearance passes over palette-independent samples (BASE-01 proof passes)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fd-samples = { path = "../fd-samples" }
