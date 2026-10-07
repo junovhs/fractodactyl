@@ -1,0 +1,43 @@
+name: koenigs-bench
+# PROB-08: manual timing of the all-double Koenigs deep-pixel pipeline against fd's
+# per-frame BLA renderer and a lean perturbation baseline, on one runner, with every
+# pixel scored against fd. Run with: gh workflow run koenigs-bench.yml
+on:
+  workflow_dispatch:
+    inputs:
+      threads:
+        description: render threads (same for every contestant)
+        default: "4"
+      runs:
+        description: timed runs per frame (best is reported)
+        default: "5"
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath gmpy2 numpy
+      - run: cargo build --release -j 4
+      - name: machine
+        run: nproc && lscpu | grep -E 'Model name|^CPU\(s\)'
+      - name: timing and scoring
+        run: |
+          THREADS=${{ inputs.threads }} RUNS=${{ inputs.runs }} \
+            bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/koenigs
+          cat out/koenigs/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: koenigs-bench
+          path: |
+            out/koenigs/report.md
+            out/koenigs/*.jsonl
+            out/koenigs/*-score.txt
+            out/koenigs/consts.txt

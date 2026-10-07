@@ -1,0 +1,12 @@
+[package]
+name = "koenigs-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Research bench (PROB-08), deliberately outside the fd workspace.
+[workspace]
+
+[profile.release]
+codegen-units = 1
+lto = true
