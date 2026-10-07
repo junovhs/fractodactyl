@@ -16,6 +16,8 @@ Suggested tile states:
 - `CERTIFIED_APPROXIMATE`: approximation has an explicit bound; accept if its projected error is below threshold.
 - `UNRESOLVED_BOUNDARY`: subdivide, supersample, raise precision, or fall back.
 
+The implemented rule (evidence gates, `E_px`, 0.25 px default, `fd lod`) is docs/spec/LOD.md.
+
 For every future chunk, determine the first frame where its current bound would exceed the allowed screen-space threshold. That is its **detail deadline**.
 
 Experiment directly with the user's intuition:

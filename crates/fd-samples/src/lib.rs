@@ -6,6 +6,7 @@
 mod class;
 mod column;
 mod header;
+pub mod lod;
 mod read;
 mod samples;
 mod wire;
