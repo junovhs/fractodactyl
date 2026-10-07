@@ -7,8 +7,9 @@ each job's cost before building, builds the chunks into the store with real buil
 on `--workers` threads, least slack first, and logs whether every chunk was ready
 before the frame that first uses it. Governed by DEC-02 (compile known paths offline;
 cold may stay expensive) and DEC-05 (frame deadlines drive refinement; thresholds
-experimental). Code: `crates/fd-cli/src/schedule.rs`. The full compiler (VIDE-01) builds
-on it; interactive prefetch is out of scope.
+experimental). Code: `crates/fd-cli/src/schedule.rs`. The full compiler `fd compile`
+(VIDE-01, COMPILE.md) runs the same jobs, estimates and dispatcher, and adds the BLA
+sharing mode `level` (one table per run of tile levels); interactive prefetch is out of scope.
 
 ```text
 fd schedule PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C] [--kernel K]

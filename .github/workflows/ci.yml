@@ -60,6 +60,16 @@ jobs:
           target/release/fd schedule "${args[@]}" --store out/schedule/live --on-miss report
           echo "== compiled ahead (DEC-02), lead 2 s: every chunk must be ready before its first-use frame"
           target/release/fd schedule "${args[@]}" --store out/schedule/ahead --lead 2
+      - name: Atlas v0 compiler (VIDE-01), the committed path regenerated, a 25-frame cut compiled and walked
+        run: |
+          set -euo pipefail
+          fd=target/release/fd; mkdir -p out/compile
+          eval "gen=($(sed -n 's/^# fd path zoom //p' bench/path-atlas-v0.txt))"
+          diff <(grep -v '^#' bench/path-atlas-v0.txt) <($fd path zoom "${gen[@]}" | grep -v '^#')
+          grep -v '^#' bench/path-atlas-v0.txt | awk 'NR % 30 == 1' > out/compile/cut.txt
+          $fd compile out/compile/cut.txt --store out/compile/atlas --size 128x72 --iter 100000 --workers 2 \
+            | grep -v '^\(frame\|job\) ' | tee out/compile/compile.txt
+          $fd manifest walk --store out/compile/atlas
       - name: independent-frame control (VIDE-03) along the valley path, every frame vs the oracle
         run: |
           set -euo pipefail

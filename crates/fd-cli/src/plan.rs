@@ -90,17 +90,24 @@ fn view(line: &str) -> Result<View, String> {
 }
 
 /// A frame's predicted tiles and the result of checking every sample against them.
-struct Footprint {
-    level: u32,
-    tiles: Vec<Tile>,
-    samples: u64,
-    unpredicted: u64,
+pub(crate) struct Footprint {
+    /// Tile level `L` of the frame.
+    pub(crate) level: u32,
+    /// Level-`L` tiles the frame's samples fall in, sorted.
+    pub(crate) tiles: Vec<Tile>,
+    /// The level-`L` tile holding the frame centre (the frame manifest's anchor).
+    pub(crate) anchor: Tile,
+    /// The centre's position inside `anchor`, in anchor sides from its top-left corner
+    /// (x right, y down), to within 2^-33.
+    pub(crate) at: (f64, f64),
+    pub(crate) samples: u64,
+    pub(crate) unpredicted: u64,
 }
 
 /// Tiles of side at most `tile_samples` sample spacings that the `nx x ny` grid of `v`
 /// touches. Prediction intersects each candidate tile with the frame's sample rectangle
 /// (separating axes, padded by `PAD`); the check then locates every sample.
-fn footprint(v: &View, nx: u32, ny: u32, tile_samples: u32) -> Result<Footprint, String> {
+pub(crate) fn footprint(v: &View, nx: u32, ny: u32, tile_samples: u32) -> Result<Footprint, String> {
     let p = Plane::new(v, nx, ny)?;
     // Coarsest level whose tile side 2^(2-L) is at most tile_samples * h.
     let lg = p.h_m.log2() + p.h_e as f64 + (tile_samples as f64).log2();
@@ -146,7 +153,7 @@ fn footprint(v: &View, nx: u32, ny: u32, tile_samples: u32) -> Result<Footprint,
         }
     }
     let tiles = predicted.iter().filter_map(|&(dx, dy)| neighbour(&centre, dx, dy)).collect();
-    Ok(Footprint { level, tiles, samples: nx as u64 * ny as u64, unpredicted })
+    Ok(Footprint { level, tiles, anchor: centre, at: (cx, cy), samples: nx as u64 * ny as u64, unpredicted })
 }
 
 /// Separating-axis test for two convex quadrilaterals, padded by `PAD`.

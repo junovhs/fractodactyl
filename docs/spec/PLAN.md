@@ -12,7 +12,8 @@ One frame per non-blank line, `#` starts a comment:
 re im width [rotation]
 ```
 
-The same file feeds `fd reuse` (ATLAS.md "Orbit reuse"), `fd schedule` (SCHEDULE.md) and `fd control`, the
+The same file feeds `fd reuse` (ATLAS.md "Orbit reuse"), `fd schedule` (SCHEDULE.md), `fd compile`
+(COMPILE.md, which also documents `fd path zoom`, a constant-rate zoom generator) and `fd control`, the
 independent-frame control renderer (SAMPLES.md "Independent-frame control").
 Fields mean exactly what `fd render --re --im --width --rotation` means (SAMPLES.md View);
 `re`/`im` are exact decimals of any length, so deep paths stay exact.
@@ -46,6 +47,6 @@ checked_samples S
 unpredicted 0
 ```
 
-Build cost and scheduling of the chunks a path needs: SCHEDULE.md (SCHE-02). Not
-here: fallback ancestors and envelopes, and
-byte estimates against the atlas budget.
+Build cost and scheduling of the chunks a path needs: SCHEDULE.md (SCHE-02). Byte
+estimates against the atlas budget and the manifests built from this plan: COMPILE.md
+(VIDE-01). Not built anywhere yet: fallback ancestors and envelopes.

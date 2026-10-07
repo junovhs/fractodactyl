@@ -3,10 +3,12 @@ mod addr;
 mod args;
 mod bench;
 mod chunk;
+mod compile;
 mod control;
 mod lod;
 mod manifest;
 mod orbit;
+mod path;
 mod plan;
 mod render;
 mod reuse;
@@ -55,8 +57,14 @@ usage:
   fd control PATH [--size WxH] [--ss N] [--iter N] [--columns C] [--threads N]
              [--kernel K] [--runs N] [-o DIR]
              [--oracle tools/oracle.py [--k K] [--python python3]]
+  fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]
+  fd compile PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
+             [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
+             [--fps F] [--lead S] [--workers N] [--policy slack|edf|first-use]
+             [--slab N] [--target BYTES] [--cap BYTES] [--on-miss fail|report]
   fd lod in.fds [--tile-px N] [--max-px E]
-exit: 0 ok, 1 fd schedule missed a deadline, 2 any other error";
+exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
+      2 any other error";
 
 /// Exit code of `fd schedule` when a chunk misses its first-use deadline (without
 /// `--on-miss report`). Every other failure (usage, build, I/O) exits 2.
@@ -77,6 +85,8 @@ fn main() {
         Some("reuse") => reuse::run(&argv[1..]),
         Some("schedule") => schedule::run(&argv[1..]),
         Some("control") => control::run(&argv[1..]),
+        Some("compile") => compile::run(&argv[1..]),
+        Some("path") => path::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };

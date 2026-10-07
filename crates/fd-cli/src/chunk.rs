@@ -110,7 +110,7 @@ pub(crate) fn report_target(s: &Store) -> Result<(), String> {
 
 /// Budget allocation class of a kind (docs/spec/ATLAS.md "Byte budget"): index into
 /// operators, evidence, manifests, other.
-fn class(kind: Kind) -> usize {
+pub(crate) fn class(kind: Kind) -> usize {
     match kind {
         Kind::ORBIT_SLAB | Kind::BLA | Kind::RETURN_MAP => 0,
         Kind::CERTIFICATE | Kind::EXACT_SAMPLE | Kind::SAMPLES => 1,
@@ -120,7 +120,7 @@ fn class(kind: Kind) -> usize {
 }
 
 /// A byte count: an integer with an optional KiB, MiB or GiB suffix.
-fn bytes(flag: &str, v: &str) -> Result<u64, String> {
+pub(crate) fn bytes(flag: &str, v: &str) -> Result<u64, String> {
     let (num, unit) = [("GiB", 1u64 << 30), ("MiB", 1 << 20), ("KiB", 1 << 10)]
         .iter()
         .find_map(|&(sfx, unit)| v.strip_suffix(sfx).map(|n| (n, unit)))

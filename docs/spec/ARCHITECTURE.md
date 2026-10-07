@@ -96,7 +96,8 @@ Each chunk has:
 - expected work saved.
 
 Schedule by deadline/slack, not simply spatial distance.
-The implemented scheduler (jobs, deadlines, cost model, `fd schedule`) is docs/spec/SCHEDULE.md.
+The implemented scheduler (jobs, deadlines, cost model, `fd schedule`) is docs/spec/SCHEDULE.md;
+the compiler built on it (`fd compile`, Atlas v0) is docs/spec/COMPILE.md.
 
 ### Temporal reuse
 Keep distinct:
