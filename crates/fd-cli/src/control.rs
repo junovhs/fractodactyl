@@ -5,20 +5,29 @@
 //! carried from one frame to the next. It prints one fd-control/1 JSON line per frame
 //! with the fd-bench/1 metric fields, then one totals line: the baseline the atlas
 //! player is compared against (BENC-01).
+//!
+//! `--bla per-frame` is the stronger independent control (BENC-01 arm B): each frame
+//! computes its own reference orbit and builds its own BLA table over it for its own
+//! largest `|dc|` (the `fd compile --bla frame` contract: `eps` = `orbit::EPS`, every
+//! level up to the first with no valid block), inside the frame's clock, then renders
+//! with it; a table with no valid block is skipped as `fd play` skips one. Nothing is
+//! kept for the next frame.
 use crate::args::Args;
-use crate::bench::{measure, q, run_oracle};
+use crate::bench::{measure, peak_rss, q, reset_peak_rss, run_oracle, sample_bytes, Frame};
+use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
-use fd_kernel::{reference_bits, Params};
-use fd_samples::View;
+use fd_kernel::{bla_dc_max, reference_bits, render_bla, render_with, Bla, BlaStats, Params};
+use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
+use std::time::Instant;
 
-const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--runs N] [-o DIR] [--oracle tools/oracle.py [--k K] [--python P]]";
+const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation"];
     let known: Vec<&str> =
-        FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["runs", "oracle", "k", "python"]).collect();
+        FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["runs", "oracle", "every", "k", "python", "bla"]).collect();
     let a = Args::parse(argv, &known)?;
     let [file] = a.positional.as_slice() else { return Err(USAGE.into()) };
     let p = params(&a)?;
@@ -27,6 +36,15 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         return Err("--runs must be at least 1".into());
     }
     let dir = a.str("o");
+    let per_frame = match a.str("bla").unwrap_or("none") {
+        "none" => false,
+        "per-frame" => true,
+        b => return Err(format!("--bla: expected none or per-frame (a table built inside each frame), got {b:?}")),
+    };
+    let every: usize = a.num("every", 1)?;
+    if every == 0 {
+        return Err("--every must be at least 1".into());
+    }
     let oracle = a.str("oracle");
     if oracle.is_some() && dir.is_none() {
         return Err("--oracle needs -o DIR (the oracle reads the written .fds files)".into());
@@ -40,12 +58,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut t = Totals::default();
     let mut error = None;
     for (f, (line, view)) in frames.iter().enumerate() {
-        if let Err(e) = frame(&a, &p, runs, dir, f, *line, view, &mut t) {
+        let check = oracle.filter(|_| f.is_multiple_of(every));
+        if let Err(e) = frame(&a, &p, runs, per_frame, dir, check, f, *line, view, &mut t) {
             error = Some(format!("frame {f} (line {line}): {e}"));
             break;
         }
     }
-    println!("{}", totals(file, runs, &t, error.as_deref()));
+    println!("{}", totals(file, runs, per_frame, &t, error.as_deref()));
     if let Some(e) = &error {
         eprintln!("fd: {e}");
     }
@@ -57,8 +76,24 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 
 /// Render, record and print frame `f`, adding it to `t`.
 #[allow(clippy::too_many_arguments)]
-fn frame(a: &Args, p: &Params, runs: usize, dir: Option<&str>, f: usize, line: usize, view: &View, t: &mut Totals) -> Result<(), String> {
-    let frame = measure(view, p, runs)?;
+fn frame(
+    a: &Args,
+    p: &Params,
+    runs: usize,
+    per_frame: bool,
+    dir: Option<&str>,
+    oracle: Option<&str>,
+    f: usize,
+    line: usize,
+    view: &View,
+    t: &mut Totals,
+) -> Result<(), String> {
+    let (frame, own) = if per_frame {
+        let (fr, own) = measure_per_frame_bla(view, p, runs)?;
+        (fr, Some(own))
+    } else {
+        (measure(view, p, runs)?, None)
+    };
     let out = dir.map(|d| format!("{}/frame-{f:05}.fds", d.trim_end_matches('/')));
     if let Some(out) = &out {
         std::fs::write(out, &frame.bytes).map_err(|e| format!("{out}: {e}"))?;
@@ -70,8 +105,11 @@ fn frame(a: &Args, p: &Params, runs: usize, dir: Option<&str>, f: usize, line: u
     let checked = runs > 1;
     let det = if checked { frame.deterministic.to_string() } else { "null".into() };
     let _ = write!(j, ",\"deterministic\":{det},\"fds\":{}", out.as_deref().map_or("null".into(), q));
+    if let Some(o) = &own {
+        o.record(&mut j, frame.stats.iterations);
+    }
     let mut ok = !checked || frame.deterministic;
-    match (a.str("oracle"), &out) {
+    match (oracle, &out) {
         (Some(script), Some(out)) => {
             let (report, passed, secs) = run_oracle(a, script, out)?;
             ok &= passed;
@@ -108,15 +146,169 @@ fn frame(a: &Args, p: &Params, runs: usize, dir: Option<&str>, f: usize, line: u
     if checked {
         t.deterministic &= frame.deterministic;
     }
+    if let Some(o) = own {
+        t.bla_use[o.table_use as usize] += 1;
+        t.operator += o.operator_seconds;
+        t.render += o.render_seconds;
+        t.table_bytes += o.table_bytes;
+        t.table_bytes_max = t.table_bytes_max.max(o.table_bytes);
+        let b = o.stats.unwrap_or_default();
+        t.blocks += b.blocks;
+        t.skipped += b.skipped;
+        t.fallback_samples += o.stats.map_or(frame.samples as u64, |b| b.fallback_samples + b.closed_form_samples);
+        if let Some(px) = b.shift_px {
+            t.shift_px_max = t.shift_px_max.max(px);
+        }
+    }
     Ok(())
 }
 
+/// How a `--bla per-frame` frame used the table it built (as `fd play`'s `bla_use`).
+#[derive(Clone, Copy)]
+enum TableUse {
+    /// Scaled tier: BLA is unavailable, no table built.
+    None,
+    /// The table holds no valid block: skipped, the frame renders with its orbit alone.
+    Empty,
+    Used,
+}
+
+impl TableUse {
+    fn name(self) -> &'static str {
+        match self {
+            TableUse::None => "none",
+            TableUse::Empty => "skipped_empty",
+            TableUse::Used => "used",
+        }
+    }
+}
+
+/// Run 1's per-frame BLA work: its own reference, its own table, the render.
+struct OwnBla {
+    table_use: TableUse,
+    dc_max: Option<f64>,
+    levels: usize,
+    valid_blocks: usize,
+    /// In-memory table size: 7 f64 per stored block (the `bla` chunk payload).
+    table_bytes: u64,
+    reference_seconds: f64,
+    operator_seconds: f64,
+    render_seconds: f64,
+    stats: Option<BlaStats>,
+}
+
+impl OwnBla {
+    fn record(&self, j: &mut String, iterations: u64) {
+        let b = self.stats.unwrap_or_default();
+        let _ = write!(
+            j,
+            ",\"bla\":{{\"mode\":\"per-frame\",\"use\":\"{}\",\"eps\":{EPS:e},\"dc_max\":{},\"levels\":{},\"valid_blocks\":{},\"table_bytes\":{},\
+             \"reference_seconds\":{},\"operator_seconds\":{},\"render_seconds\":{},\"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\
+             \"fallback_samples\":{},\"closed_form_samples\":{},\"shift_px_max\":{}}}",
+            self.table_use.name(),
+            self.dc_max.map_or("null".into(), |d| format!("{d:e}")),
+            self.levels,
+            self.valid_blocks,
+            self.table_bytes,
+            self.reference_seconds,
+            self.operator_seconds,
+            self.render_seconds,
+            b.blocks,
+            b.skipped,
+            iterations - b.blocks + b.skipped,
+            self.stats.map_or("null".into(), |b| b.fallback_samples.to_string()),
+            self.stats.map_or("null".into(), |b| b.closed_form_samples.to_string()),
+            b.shift_px.map_or("null".into(), |x| x.to_string())
+        );
+    }
+}
+
+/// [`measure`] for `--bla per-frame`: each run computes the frame's reference orbit,
+/// builds a BLA table over it for the frame's largest `|dc|`, and renders with it (or
+/// without it when it has no valid block, or on the scaled tier), all inside the run's
+/// clock. Runs share nothing.
+fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<(Frame<'a>, OwnBla), String> {
+    let mut first: Option<(Frame, OwnBla)> = None;
+    let mut times = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let reset = reset_peak_rss();
+        let t = Instant::now();
+        let (orbit, bits) = fd_kernel::reference(view, p)?;
+        let reference_seconds = t.elapsed().as_secs_f64();
+        let op = Instant::now();
+        // The scaled tier has no BLA (f64 deltas only): no table, as `fd compile`.
+        let table = match bla_dc_max(view, p) {
+            Ok(dc) => Some((dc, Bla::build(&orbit, EPS, dc)?)),
+            Err(_) => None,
+        };
+        let operator_seconds = op.elapsed().as_secs_f64();
+        let r = Instant::now();
+        let (table_use, (h, s, st, bla)) = match &table {
+            Some((_, bla)) if !bla.levels.is_empty() => {
+                let (h, s, st, b) = render_bla(view, p, (orbit, bits), bla)?;
+                (TableUse::Used, (h, s, st, Some(b)))
+            }
+            other => {
+                let (h, s, st) = render_with(view, p, Some((orbit, bits)))?;
+                (if other.is_some() { TableUse::Empty } else { TableUse::None }, (h, s, st, None))
+            }
+        };
+        let render_seconds = r.elapsed().as_secs_f64();
+        let seconds = t.elapsed().as_secs_f64();
+        times.push((seconds, reference_seconds));
+        let mut bytes = Vec::new();
+        write(&mut bytes, &h, &s).map_err(|e| e.to_string())?;
+        match &mut first {
+            None => {
+                let count = |k: Kind| s.class.iter().filter(|c| c.kind() == Some(k)).count();
+                let (all, valid) = table.as_ref().map_or((0, 0), |(_, b)| b.counts());
+                let own = OwnBla {
+                    table_use,
+                    dc_max: table.as_ref().map(|(d, _)| *d),
+                    levels: table.as_ref().map_or(0, |(_, b)| b.levels.len()),
+                    valid_blocks: valid,
+                    table_bytes: all as u64 * 56,
+                    reference_seconds,
+                    operator_seconds,
+                    render_seconds,
+                    stats: bla,
+                };
+                let fr = Frame {
+                    view,
+                    p,
+                    kernel: h.kernel,
+                    stats: st,
+                    bytes,
+                    times: Vec::new(),
+                    deterministic: true,
+                    samples: s.class.len(),
+                    sample_bytes: sample_bytes(&s),
+                    classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
+                    peak_rss: peak_rss(),
+                    peak_rss_scope: if reset { "run" } else { "process" },
+                    atlas: None,
+                    own_bla: bla,
+                };
+                first = Some((fr, own));
+            }
+            Some((f, _)) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
+        }
+    }
+    let (mut frame, own) = first.expect("runs >= 1");
+    frame.times = times;
+    Ok((frame, own))
+}
+
 /// The totals record; quantities over zero frames are `null`.
-fn totals(file: &str, runs: usize, t: &Totals, error: Option<&str>) -> String {
+fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&str>) -> String {
     let n = t.frames;
     let num = |x: f64| if n == 0 { "null".to_string() } else { x.to_string() };
     let mut j = format!("{{\"schema\":\"fd-control/1\",\"record\":\"totals\",\"path\":{},\"frames\":{n}", q(file));
-    j.push_str(",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false}");
+    j.push_str(if per_frame {
+        ",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false,\"bla\":\"per-frame\"}"
+    } else {
+        ",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false}"
+    });
     let _ = write!(
         j,
         ",\"timing\":{{\"cold_seconds\":{},\"cold_seconds_per_frame\":{},\"warm_seconds\":null}}",
@@ -133,13 +325,39 @@ fn totals(file: &str, runs: usize, t: &Totals, error: Option<&str>) -> String {
         t.reference_len_max
     );
     let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{},\"atlas_bytes_read\":0}}", t.fds_bytes);
-    j.push_str(",\"atlas_work\":{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":0}");
     let _ = write!(
         j,
-        ",\"fallback\":{{\"pixel_fraction\":1,\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
-        num(t.iterations as f64 / t.pixels),
+        ",\"atlas_work\":{{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":{}}}",
+        num(t.blocks as f64 / t.pixels)
+    );
+    let fallback = if per_frame { t.fallback_samples as f64 / t.samples as f64 } else { 1.0 };
+    let _ = write!(
+        j,
+        ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
+        num(fallback),
+        num((t.iterations - t.blocks) as f64 / t.pixels),
         num(t.classes[2] as f64 / t.samples as f64)
     );
+    if per_frame {
+        let _ = write!(
+            j,
+            ",\"bla\":{{\"mode\":\"per-frame\",\"eps\":{EPS:e},\"frames_used\":{},\"frames_empty_table_skipped\":{},\"frames_without_table\":{},\
+             \"operator_seconds\":{{\"total\":{},\"per_frame\":{}}},\"render_seconds\":{},\"table_bytes\":{{\"total\":{},\"max\":{}}},\
+             \"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\"shift_px_max\":{}}}",
+            t.bla_use[TableUse::Used as usize],
+            t.bla_use[TableUse::Empty as usize],
+            t.bla_use[TableUse::None as usize],
+            t.operator,
+            num(t.operator / n as f64),
+            t.render,
+            t.table_bytes,
+            t.table_bytes_max,
+            t.blocks,
+            t.skipped,
+            t.iterations - t.blocks + t.skipped,
+            t.shift_px_max
+        );
+    }
     let _ = write!(
         j,
         ",\"memory\":{{\"peak_rss_bytes\":{},\"sample_bytes\":{},\"device\":\"cpu\",\"peak_vram_bytes\":0}}",
@@ -185,6 +403,17 @@ struct Totals {
     deterministic: bool,
     oracle_frames: usize,
     oracle_failures: usize,
+    /// `--bla per-frame` only: frames per [`TableUse`], operator (table build) and
+    /// render seconds, table bytes, BLA work, fallback samples.
+    bla_use: [usize; 3],
+    operator: f64,
+    render: f64,
+    table_bytes: u64,
+    table_bytes_max: u64,
+    blocks: u64,
+    skipped: u64,
+    fallback_samples: u64,
+    shift_px_max: f64,
 }
 
 impl Default for Totals {
@@ -207,6 +436,15 @@ impl Default for Totals {
             deterministic: true,
             oracle_frames: 0,
             oracle_failures: 0,
+            bla_use: [0; 3],
+            operator: 0.0,
+            render: 0.0,
+            table_bytes: 0,
+            table_bytes_max: 0,
+            blocks: 0,
+            skipped: 0,
+            fallback_samples: 0,
+            shift_px_max: 0.0,
         }
     }
 }

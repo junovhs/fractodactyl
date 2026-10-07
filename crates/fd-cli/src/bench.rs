@@ -82,6 +82,10 @@ pub(crate) struct Frame<'a> {
     /// Set when the frame was rendered from an atlas (`fd play`, fd-play/1): what it
     /// read and reused. `None` for the baseline (`fd bench`, `fd control`).
     pub(crate) atlas: Option<AtlasWork>,
+    /// BLA work of a frame that built its own table (`fd control --bla per-frame`) and
+    /// applied it; `None` otherwise (no table, an empty one, or an atlas frame, whose BLA
+    /// work is in [`AtlasWork::bla`]).
+    pub(crate) own_bla: Option<BlaStats>,
 }
 
 /// What an atlas-played frame read and how much of its work BLA replaced (fd-play/1).
@@ -131,6 +135,7 @@ pub(crate) fn measure<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<
                     peak_rss: peak_rss(),
                     peak_rss_scope: if reset { "run" } else { "process" },
                     atlas: None,
+                    own_bla: None,
                 });
             }
             Some(f) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
@@ -244,11 +249,19 @@ impl Frame<'_> {
             // No atlas: nothing is looked up, so these are zero by construction, not unmeasured.
             None => {
                 let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{fds},\"atlas_bytes_read\":0}}");
-                j.push_str(",\"atlas_work\":{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":0}");
+                // A table built in-frame (`--bla per-frame`) is not an atlas: no tiles.
+                let blocks = self.own_bla.map_or(0, |b| b.blocks);
                 let _ = write!(
                     j,
-                    ",\"fallback\":{{\"pixel_fraction\":1,\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
-                    st.iterations as f64 / pixels,
+                    ",\"atlas_work\":{{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":{}}}",
+                    blocks as f64 / pixels
+                );
+                let fb = self.own_bla.map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
+                let _ = write!(
+                    j,
+                    ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
+                    fb / n,
+                    (st.iterations - blocks) as f64 / pixels,
                     unresolved as f64 / n
                 );
             }

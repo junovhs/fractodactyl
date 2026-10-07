@@ -3,6 +3,7 @@ mod addr;
 mod args;
 mod bench;
 mod chunk;
+mod compare;
 mod compile;
 mod control;
 mod lod;
@@ -57,8 +58,9 @@ usage:
               [--policy slack|edf|first-use] [--bla frame|group|none] [--slab N]
               [--on-miss fail|report]
   fd control PATH [--size WxH] [--ss N] [--iter N] [--columns C] [--threads N]
-             [--kernel K] [--runs N] [-o DIR]
-             [--oracle tools/oracle.py [--k K] [--python python3]]
+             [--kernel K] [--bla none|per-frame] [--runs N] [-o DIR]
+             [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
+  fd compare A_DIR B_DIR [--px P] [--frames A..B]
   fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]
   fd compile PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
              [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
@@ -91,6 +93,7 @@ fn main() {
         Some("schedule") => schedule::run(&argv[1..]),
         Some("control") => control::run(&argv[1..]),
         Some("compile") => compile::run(&argv[1..]),
+        Some("compare") => compare::run(&argv[1..]),
         Some("play") => play::run(&argv[1..]),
         Some("path") => path::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),

@@ -170,8 +170,37 @@ atlas (`--store`, `--orbit`, `--bla` are refused), nothing kept from one frame f
 next. It takes the `fd render` flags other than the view (`--re --im --width
 --rotation`, which come from the path), plus `--runs N` (default 1), `-o DIR` (writes
 `DIR/frame-NNNNN.fds`, `NNNNN` = frame index) and `--oracle tools/oracle.py [--k K]
-[--python P]` (needs `-o`; checks every frame). It is not optimised beyond the normal
-renderer: it is the honest baseline, not a competitor.
+[--python P]` (needs `-o`; checks every frame, or every `--every N`-th from frame 0).
+It is not optimised beyond the normal renderer: it is the honest baseline, not a
+competitor.
+
+**`--bla per-frame`** (BENC-01 arm B) is the stronger independent control: what a
+competent independent renderer does. Inside each frame's clock it computes the frame's
+reference orbit (`fd_kernel::reference`, as plain control), builds a BLA table over it
+for the frame's own largest `|dc|` (`Bla::build` with `eps = 2^-50`, every level up to
+the first with no valid block: the `fd compile --bla frame` contract), and renders with
+it (`render_bla`). A table with no valid block is skipped and the frame renders with its
+orbit alone, as `fd play` skips one (so those frames are byte-identical to plain
+control); the scaled tier has no BLA and builds none. Nothing is kept for the next frame.
+Each frame record gains `"bla":{"mode":"per-frame","use":"used|skipped_empty|none",
+"eps","dc_max","levels","valid_blocks","table_bytes","reference_seconds",
+"operator_seconds","render_seconds","blocks","skipped_steps","iterations_equivalent",
+"fallback_samples","closed_form_samples","shift_px_max"}`; `fallback` and
+`atlas_work.macro_operators_per_pixel` then count the applied blocks as `fd play` does
+(`iterations.total` counts a block as one iterate). The totals gain `cache.bla
+"per-frame"` and a `bla` object (frames per use, `operator_seconds`, `render_seconds`,
+`table_bytes` total/max, `blocks`, `skipped_steps`, `iterations_equivalent`,
+`shift_px_max`). `--bla none` (default) is the plain control.
+
+**`fd compare A_DIR B_DIR [--px P] [--frames A..B]`** compares two frame directories
+(`frame-NNNNN.fds`, as `fd control -o` and `fd play -o` write them) sample by sample:
+grids and views must match (width compared as f64); class kinds must be equal for
+every sample (counts per transition reported); over samples both class as escaped, `nu`
+is compared as the oracle gates it, an equivalent displacement `|dnu| de ln2 / 2` output
+pixels (`de` from `A`), held to `--px` (default `1e-3`). Also reported: samples with
+bit-equal `nu`, the largest raw `|dnu|`, samples whose integer escape count changed,
+and whether the files are byte-identical. One fd-compare/1 line per frame, then totals;
+exit 1 if any class differs, any displacement exceeds `--px`, or a frame is missing.
 
 Output is JSON lines, schema `fd-control/1`: one `"record":"frame"` line per frame in
 path order, then one `"record":"totals"` line. Exit status: 2 for a usage error found
@@ -229,7 +258,8 @@ fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
           [--columns nu,de,normal] [--threads N] [--rotation R]
           [--kernel auto|f64|fx|scaled] -o out.fds
 fd bench <render flags> [--runs N] [-o out.fds] [--oracle tools/oracle.py [--k K]]
-fd control PATH <render flags but the view> [--runs N] [-o DIR] [--oracle tools/oracle.py [--k K]]
+fd control PATH <render flags but the view> [--bla none|per-frame] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K]]
+fd compare A_DIR B_DIR [--px P] [--frames A..B]
 fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
 fd shade <umber|palette|relief> in.fds out.png
 fd info in.fds

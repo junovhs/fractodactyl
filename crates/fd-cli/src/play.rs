@@ -366,6 +366,7 @@ fn frame(
         peak_rss: peak,
         peak_rss_scope: if reset { "run" } else { "process" },
         atlas: Some(AtlasWork { state, load_seconds, bytes_read: reads.bytes, bytes_referenced: referenced, tiles_touched: fm.tiles.len(), bla }),
+        own_bla: None,
     };
 
     // Outputs: the .fds (same layout as `fd control -o`) and one PNG per look.
