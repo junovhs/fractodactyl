@@ -100,11 +100,10 @@ fn plays_a_compiled_cut_from_the_atlas() {
         match string(rec, "bla_use") {
             "used" => {
                 used += 1;
-                // BLA keeps escape counts (ACC-01); interior vs unresolved may differ,
-                // since a block lands past the Brent save points it covers.
-                let esc = |c: &fd_samples::Class| c.kind() == Some(Kind::Escaped);
-                let mismatched = a.class.iter().zip(&b.class).filter(|(x, y)| esc(x) != esc(y)).count();
-                assert_eq!(mismatched, 0, "frame {f}: escaped samples differ from fd render");
+                // BLA judges periodicity at the plain kernel's iterates (blocks end at the
+                // Brent save points, FIX-02): every class matches fd render exactly.
+                let mismatched = a.class.iter().zip(&b.class).filter(|(x, y)| x != y).count();
+                assert_eq!(mismatched, 0, "frame {f}: {mismatched} classes differ from fd render");
                 let shift = num(rec, "shift_px_max");
                 assert!(num(rec, "bla_blocks") > 0.0 && shift < 0.25, "{rec}");
                 assert!(num(rec, "macro_operators_per_pixel") > 0.0, "{rec}");

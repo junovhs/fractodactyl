@@ -140,6 +140,19 @@ frames 0, 75, ..., 675, 749: identical on 9 of 11; frame 375 has 392 and frame 7
 are interior under BLA. `fd render --bla` with the same table gives the same bytes, so
 this is the BLA kernel's periodicity check (ACC-01), not the player.
 
+*Fixed by FIX-02* (the numbers above predate it). Two causes, both in the kernel's
+periodicity judgement. (1) BLA blocks landed past Brent save points and saved there, so
+BLA compared against other iterates than plain (frame 749 sample (324, 10): saved at
+4097, met a near-return at 6475; plain saves at 4096 and escapes at 7412, as mpmath
+does). Blocks now end at the save points. (2) The near-exact-return test (within 1e-13)
+itself was unsound next to the path's minibrot: every interior sample the plain render
+found on frames 375 (1159) and 749 (57) escapes in mpmath (frame 375 sample
+(287, 212): back within 9e-14 of iterate 256 at 378, escapes at 788). A near-return now
+counts only if the orbit contracts over it. After both, frames 0, 75, ..., 675, 749
+play with classes identical to `fd render` (0 mismatches); frames 375 and 749 have no
+interior samples left, and frame 0's (86730, 43 spot-checked) stay bounded in mpmath; BLA executes 3-8% more iterations on the BLA frames (frame 749: 4.29e8 to
+4.65e8, still 20x fewer than the 9.31e9 equivalent) at wall-time parity within noise.
+
 ## Limits and follow-ups
 
 - The frame order comes from the compile log; a path index chunk in the store would

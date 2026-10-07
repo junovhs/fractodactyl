@@ -247,7 +247,12 @@ and stops at the first failure. Odd `k` (and `m = 0`, where `Z_0 = 0`) take a pl
   so blocks run only where the plain kernel judges nothing either. Larger `eps` is
   refused when a table is built (`fd orbit bla --eps`) and when one is loaded
   (`Bla::new`, which every decoded table goes through). The default is `eps = 2^-50`.
-  Brent save points falling inside a block are taken at its landing iterate.
+  A block also ends at the next Brent save point at the latest (its length is capped at
+  `chk - n`), so BLA saves exactly the iterates the plain kernel saves and judges
+  periodicity at the same iterates against the same save points: classes match the plain
+  kernel's (FIX-02; letting blocks land past a save point and saving there instead
+  compared against other iterates and classed some samples differently). The cap costs
+  a few blocks per save point (17 save points up to 2^17 iterates).
 - *Error:* `|delta_{m+l} - (A delta_m + B dc)| <= alpha |delta_m| + beta |dc|`
   (exact arithmetic, proved by induction over merges; `crates/fd-kernel/src/bla.rs`
   tests it against plain perturbation). A deviation `e` in `z` at iterate `n` moves the

@@ -3,7 +3,7 @@
 //! rigorous running error radius on `z` and `dz/dc` (Bounded evidence, docs/spec/LOD.md).
 //! With a BLA table, valid blocks replace runs of steps (ACC-01, not with `B`).
 use crate::bla::Bla;
-use crate::interior::{attracting, in_main_components};
+use crate::interior::{attracting, contracting, in_main_components};
 use crate::reference::Reference;
 
 /// Result of one sample, before quantisation into columns.
@@ -87,15 +87,17 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
     let (mut m, mut n) = (0usize, 0u64);
     // Brent: compare against the point saved (at iterate `sn`) at the last power of two.
     let (mut sr, mut si, mut chk, mut sn) = (0.0f64, 0.0f64, 16u64, 8u64);
-    let (mut newton_at, mut tries) = (64u64, 0);
+    let (mut newton_at, mut tries, mut returns) = (64u64, 0, 0);
     // Error radii (B): e >= |z_exact - (A_m + delta)| with A the exact reference orbit,
     // ed on dz/dc. rc: the f64 offset's distance from the exact sample position.
     let (mut e, mut ed) = (0.0f64, 0.0f64);
     let rc = 16.0 * U * (ar.abs() + ai.abs()) + 1e-300;
     let adc = if L { (ar * ar + ai * ai).sqrt() } else { 0.0 };
     while n < max_iter {
+        // A block ends at the next Brent save point at the latest, so BLA saves (and so
+        // judges periodicity against) exactly the iterates the plain kernel does.
         let block = match bla {
-            Some(t) if L && !B => t.find(m, xr * xr + xi * xi, max_iter - n),
+            Some(t) if L && !B => t.find(m, xr * xr + xi * xi, max_iter.min(chk) - n),
             _ => None,
         };
         if let Some((b, len)) = block {
@@ -154,15 +156,21 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
         // Until the delta is resolvable next to Z, z == Z in f64 and a periodic
         // reference would look like a settled cycle: judge nothing yet.
         if !resolvable(xr, xi, f2) {
-            if saves::<L>(n, chk) {
-                (sr, si, sn, chk) = (fr, fi, n, next_check::<L>(chk, n));
+            if n == chk {
+                (sr, si, sn, chk) = (fr, fi, n, chk * 2);
             }
             continue;
         }
         let dist = (fr - sr).abs() + (fi - si).abs();
         let size = sr.abs() + si.abs();
-        if dist < 1e-13 * size + 1e-300 {
-            return Outcome::Interior { n }; // exact return: settled on a cycle
+        if returns < 4 && dist < 1e-13 * size + 1e-300 {
+            // A near-exact return is interior only if the orbit contracts over it (a
+            // settled attracting cycle): an exterior orbit shadowing a repelling cycle
+            // (near a minibrot) returns as closely, but expands (FIX-02).
+            if contracting(r, m, xr, xi, ar, ai, n - sn) {
+                return Outcome::Interior { n };
+            }
+            returns += 1;
         }
         if tries < 4 && n >= newton_at && dist < 1e-3 * size {
             if attracting(r, m, xr, xi, ar, ai, n - sn) {
@@ -171,34 +179,11 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
             tries += 1;
             newton_at = 4 * n;
         }
-        if saves::<L>(n, chk) {
-            (sr, si, sn, chk) = (fr, fi, n, next_check::<L>(chk, n));
+        if n == chk {
+            (sr, si, sn, chk) = (fr, fi, n, chk * 2);
         }
     }
     Outcome::Unresolved
-}
-
-/// Whether iterate `n` is a Brent save point: `n == chk`, or with BLA (`L`, a block can
-/// jump over `chk`) the first iterate at or past it.
-#[inline]
-fn saves<const L: bool>(n: u64, chk: u64) -> bool {
-    if L {
-        n >= chk
-    } else {
-        n == chk
-    }
-}
-
-/// The next Brent save point after iterate `n`: `chk` doubled past `n`.
-#[inline]
-fn next_check<const L: bool>(mut chk: u64, n: u64) -> u64 {
-    if !L {
-        return chk * 2;
-    }
-    while chk <= n {
-        chk *= 2;
-    }
-    chk
 }
 
 /// Periodicity is judged only once `|delta| > RESOLVABLE |z|` ([`resolvable`]); BLA's
@@ -279,6 +264,71 @@ mod tests {
             }
             assert!(skip.skipped > 10 * skip.blocks && skip.blocks > 0, "{skip:?}");
         }
+    }
+
+    /// Centre of the Atlas v0 path (bench/path-atlas-v0.txt): it sits close to a
+    /// minibrot, so its reference orbit nearly repeats (period 122 and longer).
+    const V0: (&str, &str) = (
+        "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502",
+        "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922",
+    );
+
+    /// Reference at the v0 centre in `bits` fixed point, and the offset of sample
+    /// `(i, j)` of a 960x540 grid `width` wide.
+    fn v0(bits: u64, iter: u64, width: f64, i: u32, j: u32) -> (Reference, f64, f64) {
+        let l = fd_fixed::limbs_for(bits);
+        let (re, im) = (fd_fixed::Fixed::parse(V0.0, l).unwrap(), fd_fixed::Fixed::parse(V0.1, l).unwrap());
+        let h = width / 960.0;
+        (Reference::from_fixed(&re, &im, iter), h * (f64::from(i) + 0.5 - 480.0), -h * (f64::from(j) + 0.5 - 270.0))
+    }
+
+    #[test]
+    fn a_near_return_that_expands_is_not_interior() {
+        // FIX-02: frame 375 of the v0 path, sample (287, 212). At n = 378 the orbit is
+        // back within 1e-13 of its iterate 256 (it shadows a repelling 122-cycle), which
+        // the exact-return test took for a settled cycle; mpmath (tools/oracle.py's
+        // direct iteration) has it escape at n = 788.
+        let (r, ar, ai) = v0(218, 2000, 8.29151e-25, 287, 212);
+        match sample::<true, false>(&r, &[], None, ar, ai, 2000, 1e20) {
+            Outcome::Escaped { n, .. } => assert_eq!(n, 788),
+            o => panic!("{o:?}"),
+        }
+    }
+
+    #[test]
+    fn bla_judges_periodicity_at_the_plain_save_points() {
+        // FIX-02: blocks used to land past the Brent save points (iterate 513 for 512),
+        // so BLA judged periodicity against other iterates than the plain kernel and
+        // could class a sample differently. Here (reference at the period-3 nucleus,
+        // deltas tiny for thousands of steps) BLA said Interior at n = 36 where plain
+        // iteration stays Unresolved. Blocks now end at the save points: the same
+        // judgements at the same iterates, so the same outcome.
+        let (cr, ci) = (-1.7548776662466927, 0.0);
+        let r = Reference::new(cr, ci, 100_000, 1e10);
+        for e in [1e-16, 1e-18] {
+            let bla = Bla::build(&r, 1.0 / (1u64 << 50) as f64, 2.0 * e).unwrap();
+            for k in 0..8 {
+                let a = std::f64::consts::FRAC_PI_4 * f64::from(k);
+                let (ar, ai) = (e * a.cos(), e * a.sin());
+                let c = Some((cr + ar, ci + ai));
+                let plain = sample::<true, false>(&r, &[], c, ar, ai, 100_000, 1e20);
+                let mut skip = Skip::default();
+                let fast = perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, c, ar, ai, 100_000, 1e20);
+                assert_eq!(plain, fast, "{e} {k}");
+                assert!(skip.skipped > 10_000, "{e} {k}: {skip:?}");
+            }
+        }
+        // The frame-749 sample (324, 10) of the v0 path (width 2e-49), which BLA classed
+        // Interior at n = 6475 (a near-return to its iterate 4097, a save point the plain
+        // kernel never takes): mpmath and the plain kernel have it escape at n = 7412.
+        let (r, ar, ai) = v0(300, 20_000, 2e-49, 324, 10);
+        let bla = Bla::build(&r, 1.0 / (1u64 << 50) as f64, 2e-49 * 1.15).unwrap();
+        let mut skip = Skip::default();
+        match perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, None, ar, ai, 20_000, 1e20) {
+            Outcome::Escaped { n, .. } => assert_eq!(n, 7412),
+            o => panic!("{o:?}"),
+        }
+        assert!(skip.skipped > 4096, "{skip:?}");
     }
 
     #[test]
