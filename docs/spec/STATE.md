@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-08)
+# Where We Are (updated 2026-10-07)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -17,7 +17,10 @@ search for something worth caching produced one strong lead.
 - On the approach to a minibrot, every pixel is "k loops around the minibrot" plus "one
   shared exit function".
 
-Both were verified with 0 wrong pixels and errors ≤1e-6 px. If the remaining pieces
+Frame transfer passed its sampled comparisons; the tight degree-4 decomposition
+passed 48 frozen points with max error 2.24e-4 px. PROB-04 rejected two uniform
+log-polar exit tables: the finer 2.07 MiB table still has 27.0 px interpolation
+error. The shared exit-table accelerator is therefore not established. If new representations
 work, a deep pixel costs a few cheap steps plus a table lookup instead of thousands of
 iterations, and the tables are shared by every frame: the atlas idea, with something
 worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`.
@@ -30,10 +33,14 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
    2.24e-4 px, 1e-35 to 2e-48. Projected cost: 240-1,080 ops plus one lookup per deep
    pixel, against about 10,000 with BLA. That is only a projection, on 8 points per
    depth.
-2. **PROB-04 (make-or-break #2, urgent).** Build the shared exit table E_C at parameter
-   C, over the measured exit range 1.2e-26 to 7.6e-5. Measure its size and lookup
-   error, validate on at least 1,000 points per depth, and measure real speed against
-   BLA.
+2. **Done: PROB-04 rejects uniform log-polar nu interpolation.** Tables with
+   11,328 / 180,480 nodes (135,936 / 2,165,760 payload bytes) fail the existing
+   48-point kill gate: max errors 154.7 / 27.0 px, zero class mismatches.
+   Replacing all used nodes with 110-dps truth leaves the failure intact.
+   Warm map+lookup and matched-point BLA timings are recorded in METHOD.md;
+   both correctness-gated scores are 0. No 1,000-point/depth promotion or
+   full-v0 sharing claim. This rejects these configurations, not adaptive tables,
+   resume-state representations or the return decomposition itself.
 3. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
    transforms, spot-check error contract.
 4. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0

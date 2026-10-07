@@ -188,3 +188,42 @@ contract. Histograms give radial coverage, not a table-size estimate: angular
 coverage, resampling and unresolved/interior regions still need measurement in
 PROB-04. A per-frame renderer can also build the biseries; the expensive shared
 E_C table is the candidate cross-frame atlas payload (DEC-15).
+
+## PROB-04: uniform log-polar exit tables fail interpolation (2026-10-07)
+
+`returns_exit_tail.py --table-probe` builds E_C tables over log10 |zeta-C|
+from -26 through -4, with a periodic angular seam. It stores smooth escape nu
+and escape step count, uses bilinear log-polar interpolation, and applies the
+degree-4 prefix at guard 1e-26. No c0 substitution or unvalidated self-similar
+wrap is used. The same table is queried by every one of the six depth cohorts.
+
+The 8 radial intervals/decade x 64-angle configuration has 11,328 nodes and
+135,936 payload bytes; the 32 x 256 configuration has 180,480 nodes and
+2,165,760 bytes (2.07 MiB). Both fail on the unchanged 48-point frozen pack:
+max displacement 154.713 / 27.004 px, versus the required 0.001 px. Each has
+zero class mismatches and zero query-domain fallbacks. Payload size fits the
+atlas budget, but accuracy does not. This is a rejection of these uniform nu
+tables, not a lower bound on the size of every possible representation.
+
+The failure persists when every used interpolation corner is evaluated directly
+at 110 dps (150 / 152 distinct corners). At the finer resolution, per-depth
+maximum errors remain 0.963, 1.323, 1.095, 3.788, 8.048 and 27.004 px.
+The same degree-4 exits with direct double perturbation tails instead of table
+lookups pass within 2.172e-4 px; PROB-07's 110-dps local-prefix diagnostic stays
+within 2.237e-4 px. Thus interpolation, rather than the fixed-C decomposition,
+is the decisive failure. METHOD.md includes the metric, all controls and timings.
+
+The final run takes 4.840 s (exit 0), including table builds, exact-node checks
+and matched-point BLA controls. Warm predecoded Python map+lookup takes
+18.776 / 28.123 us/pixel; Rust per-frame BLA on the identical points as 1x1
+views measures 283.213 us/pixel of render time. Different column work and
+one-pixel reference/overhead effects prevent a frame-speed claim. Both
+correctness-gated scores are 0. One table is shared by six diagnostic depth
+cohorts (6:1); accepted coverage across the actual 750-frame v0 path is not
+measured.
+
+**Outcome:** recorded kill under PROB-04's alternative proof of done. DEC-14
+stops these candidates before >=1,000 points/depth promotion; no widened
+correctness or atlas-win claim is made. Rejected table values require direct
+fallback. Adaptive or resume-state representations remain untested and would
+need a new cheap probe. Continue the plan with PROB-05.

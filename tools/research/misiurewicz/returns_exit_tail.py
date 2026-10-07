@@ -361,20 +361,246 @@ def tight_probe(jobs, report=None, bla_exe=None, quadratic_guard=None):
         Path(report).write_text(json.dumps(dict(elapsed_s=elapsed, rows=summaries, bla=bla), indent=2)+'\n')
 
 
+def exit_state(v, coeff, bias):
+    """Degree-4 prefix in doubles; retain C-relative coordinates throughout."""
+    u = v; k = 0
+    vp = [v**j for j in range(5)]
+    while abs(u)*float(SCALE) <= float(VALID_RADIUS) and k < 60:
+        up = [u**i for i in range(5)]
+        u = bias+sum(a*up[i]*vp[j] for i,j,a in coeff)
+        k += 1
+    return u*float(SCALE), 1+k*P, k == 60
+
+
+def tail_reference():
+    """High-precision orbit, then double coefficients for delta recurrence.
+
+    Start at C (not 0). Never form float(C+delta)-float(C), which would
+    destroy every small exit. This is a probe, not a certified error bound.
+    """
+    import numpy as np
+    z = C; ref = []
+    for _ in range(PROBE_MAXIT+1):
+        ref.append(complex(z)); z = z*z+C
+    return np.asarray(ref)
+
+
+def sampled_tails(offsets, ref):
+    """Vectorized fixed-C direct perturbation; no parameter delta is added."""
+    import numpy as np
+    delta = np.asarray(offsets, dtype=complex).copy()
+    active = np.arange(len(delta))
+    smooth = np.full(len(delta), np.nan)
+    steps = np.full(len(delta), PROBE_MAXIT, dtype=np.int32)
+    for n in range(PROBE_MAXIT):
+        if not len(active): break
+        delta = (2*ref[n]+delta)*delta
+        z = ref[n+1]+delta
+        az = np.abs(z)
+        escaped = az > 1e10
+        ix = active[escaped]
+        smooth[ix] = n+1-np.log2(np.log(az[escaped]))
+        steps[ix] = n+1
+        active = active[~escaped]; delta = delta[~escaped]
+    return smooth, steps
+
+
+def build_exit_table(radial, angular, ref):
+    """Explicit rings around C; no unvalidated M(24,2) wrap across C-c0.
+
+    Payload: float64 smooth escape + int32 escape horizon per node.
+    Interpolation stores nu only, not de/normal. Mixed/unresolved corners,
+    outside-domain inputs and horizon ambiguity require direct fallback.
+    Uniform grids carry no certified interpolation bound: validation gates
+    the entire candidate, not individual convenient pixels.
+    """
+    import numpy as np
+    start = time.perf_counter()
+    logs = np.linspace(-26, -4, 22*radial+1)
+    angles = np.arange(angular)*2*math.pi/angular
+    offsets = (10.0**logs[:,None]*np.exp(1j*angles[None,:])).ravel()
+    smooth, steps = sampled_tails(offsets, ref)
+    return dict(nu=smooth.reshape(len(logs),angular),
+                steps=steps.reshape(len(logs),angular), radial=radial,
+                angular=angular, samples=len(offsets),
+                bytes=smooth.nbytes+steps.nbytes,
+                build_s=time.perf_counter()-start,
+                unresolved=int(np.isnan(smooth).sum()))
+
+
+def lookup_exit(table, offset, n0):
+    if not offset or not math.isfinite(abs(offset)): return None
+    r = (math.log10(abs(offset))+26)*table['radial']
+    if not 0 <= r < table['nu'].shape[0]-1: return None
+    a = (math.atan2(offset.imag,offset.real) % (2*math.pi))*table['angular']/(2*math.pi)
+    i = int(r); j = int(a); t = r-i; s = a-j
+    jj = (j+1) % table['angular']
+    corners = [table['nu'][i,j],table['nu'][i,jj],
+               table['nu'][i+1,j],table['nu'][i+1,jj]]
+    horizons = [table['steps'][i,j],table['steps'][i,jj],
+                table['steps'][i+1,j],table['steps'][i+1,jj]]
+    if not all(math.isfinite(x) for x in corners): return None
+    if n0+max(horizons) > PROBE_MAXIT: return None
+    return n0+(1-t)*((1-s)*corners[0]+s*corners[1])+t*((1-s)*corners[2]+s*corners[3])
+
+
+def check_table_node(args):
+    """Independent 110-dps spot check of a node used by an actual lookup."""
+    radius, angle, sampled_nu, sampled_steps = args
+    global MAXIT
+    MAXIT = PROBE_MAXIT
+    offset = mp.mpf(10)**mp.mpf(radius)*mp.exp(mp.j*mp.mpf(angle))
+    exact = nu(C, C+offset)
+    mismatch = (exact[0] is None) != (not math.isfinite(sampled_nu))
+    return dict(mismatch=mismatch,
+                nu=exact[0], steps=exact[2],
+                delta_nu=None if exact[0] is None or mismatch else abs(exact[0]-sampled_nu),
+                step_difference=int(sampled_steps)-exact[2])
+
+
+def table_probe(jobs, report, bla_exe):
+    """DEC-14 kill gate on frozen points before the 6,000-point promotion.
+
+    Score = matched BLA render / warm candidate time, only when every point
+    passes <=1e-3 px with no fallback or class mismatch. Rejection here is
+    sufficient to kill these configurations, not all possible exit tables.
+    """
+    import hashlib, subprocess
+    start = time.perf_counter(); truth = load_truth(); rows = truth['rows']
+    terms,bias,map_build_s = build_map(4)
+    coeff = [(i,j,complex(decode(a))) for i,j,a in terms]
+    cbias = complex(decode(bias))
+    inputs = [complex(decode(row['d'])/SCALE) for row in rows]
+    states = [exit_state(v,coeff,cbias) for v in inputs]
+    ref = tail_reference()
+    # Separate double-tail control from interpolation and return truncation.
+    direct, steps = sampled_tails([s[0] for s in states],ref)
+    exact_args = [(row,terms,bias,4,str(VALID_RADIUS)) for row in rows]
+    with Pool(jobs) as pool:
+        controls = pool.map(tight_point, exact_args)
+    control_rows = []
+    for row,state,dnu,n,control in zip(rows,states,direct,steps,controls):
+        factor = None if row['de'] is None else math.log(2)*float(mp.mpf(row['de'])/(mp.mpf(row['w'])/480))
+        pred = None if not math.isfinite(dnu) or state[1]+n > PROBE_MAXIT else state[1]+dnu
+        mismatch = (pred is None) != (row['nu'] is None)
+        px = None if factor is None or pred is None else abs(pred-row['nu'])*factor
+        control_rows.append(dict(w=row['w'], radius=abs(state[0]),
+                                 prefix_steps=state[1], double_direct_px=px,
+                                 double_direct_mismatch=mismatch,
+                                 mp_direct_px=control['px'],
+                                 mp_local_px=control['local_px'],
+                                 mp_fixed_C_control_px=control['control_px']))
+    summaries = []
+    for radial,angular in [(8,64),(32,256)]:
+        table = build_exit_table(radial,angular,ref)
+        nodes = set()
+        for offset,_,_ in states:
+            i = int((math.log10(abs(offset))+26)*radial)
+            j = int((math.atan2(offset.imag,offset.real) % (2*math.pi))*angular/(2*math.pi))
+            if 0 <= i < table['nu'].shape[0]-1:
+                nodes.update((ii,jj) for ii in (i,i+1) for jj in (j,(j+1)%angular))
+        with Pool(jobs) as pool:
+            node_checks = pool.map(check_table_node,
+                [(-26+i/radial,j*2*math.pi/angular,float(table['nu'][i,j]),
+                  int(table['steps'][i,j])) for i,j in sorted(nodes)])
+        # Re-interpolate with 110-dps truth at every used corner. This
+        # isolates interpolation failure even if sampled node values drift.
+        exact_table = dict(table, nu=table['nu'].copy(), steps=table['steps'].copy())
+        for (i,j),check in zip(sorted(nodes),node_checks):
+            exact_table['nu'][i,j] = math.nan if check['nu'] is None else check['nu']
+            exact_table['steps'][i,j] = check['steps']
+        results = []
+        for row,state in zip(rows,states):
+            pred = lookup_exit(table,state[0],state[1])
+            fallback = pred is None or state[2]
+            # Do not hide rejected lookups by substituting exact truth.
+            mismatch = not fallback and ((pred is None) != (row['nu'] is None))
+            px = None if fallback or row['de'] is None else abs(pred-row['nu'])*math.log(2)*float(mp.mpf(row['de'])/(mp.mpf(row['w'])/480))
+            exact_pred = lookup_exit(exact_table,state[0],state[1])
+            exact_node_px = None if exact_pred is None or row['de'] is None else abs(exact_pred-row['nu'])*math.log(2)*float(mp.mpf(row['de'])/(mp.mpf(row['w'])/480))
+            results.append(dict(w=row['w'], fallback=fallback, mismatch=mismatch, px=px,
+                                exact_node_px=exact_node_px))
+        # Warm scalar map + lookup, no truth, no diagnostic prefix/tail.
+        repetitions = 20; t0 = time.perf_counter()
+        for _ in range(repetitions):
+            for v in inputs:
+                offset,n0,_ = exit_state(v,coeff,cbias)
+                lookup_exit(table,offset,n0)
+        warm_s = (time.perf_counter()-t0)/repetitions
+        depth_rows = []
+        for w in DEPTHS:
+            batch = [r for r in results if mp.mpf(r['w']) == mp.mpf(w)]
+            depth_rows.append(dict(w=w, points=len(batch),
+                                  max_px=max((r['px'] for r in batch if r['px'] is not None),default=None),
+                                  exact_node_max_px=max((r['exact_node_px'] for r in batch if r['exact_node_px'] is not None),default=None),
+                                  mismatches=sum(r['mismatch'] for r in batch),
+                                  fallback=sum(r['fallback'] for r in batch)))
+        keep = all(not r['fallback'] and not r['mismatches'] and r['max_px'] is not None and r['max_px'] <= 1e-3 for r in depth_rows)
+        summary = {k:v for k,v in table.items() if k not in ('nu','steps')}
+        summary.update(rows=depth_rows, warm_batch_s=warm_s,
+                       node_checks=len(node_checks),
+                       node_max_delta_nu=max((r['delta_nu'] for r in node_checks if r['delta_nu'] is not None),default=None),
+                       node_mismatches=sum(r['mismatch'] for r in node_checks),
+                       node_max_step_difference=max((abs(r['step_difference']) for r in node_checks),default=0),
+                       warm_us_per_pixel=1e6*warm_s/len(rows),
+                       score=0, verdict='CORRECTNESS_KEEP' if keep else 'KILL')
+        summaries.append(summary)
+        print(json.dumps(summary),flush=True)
+    bla = []; bla_render_s = None
+    if bla_exe:
+        base = Path(report).resolve().with_suffix('')
+        path = Path(str(base)+'-matched.path')
+        # A 1x1 view samples its centre exactly. Each line is one frozen C+d.
+        path.write_text(''.join(' '.join(encode(C+decode(row['d']))+[row['w']])+'\n' for row in rows))
+        command = [bla_exe,'control',str(path),'--size','1x1',
+                   '--iter',str(PROBE_MAXIT),'--columns','nu,de',
+                   '--threads','1','--bla','per-frame','--runs','1',
+                   '-o',str(base)+'-bla']
+        result = subprocess.run(command,capture_output=True,text=True,check=True)
+        Path(str(base)+'-bla.jsonl').write_text(result.stdout)
+        for line in result.stdout.splitlines():
+            frame = json.loads(line)
+            if frame['record'] == 'frame':
+                bla.append(dict(render_s=frame['bla']['render_seconds'],
+                                cold_s=frame['timing']['cold_seconds'],
+                                view=frame['view']))
+        if len(bla) != len(rows): raise ValueError('BLA did not return the matched cohort')
+        bla_render_s = sum(r['render_s'] for r in bla)
+        for summary in summaries:
+            summary['bla_us_per_pixel'] = 1e6*bla_render_s/len(rows)
+            if summary['verdict'] == 'CORRECTNESS_KEEP':
+                summary['score'] = bla_render_s/summary['warm_batch_s']
+    elapsed = time.perf_counter()-start
+    output = dict(elapsed_s=elapsed, truth_sha256=hashlib.sha256(TRUTH.read_bytes()).hexdigest(),
+                  points=len(rows), map_build_s=map_build_s, controls=control_rows,
+                  configurations=summaries, bla=bla,
+                  sharing=dict(measured_depth_frames=len(DEPTHS), tables_per_configuration=1,
+                               frames_per_table=len(DEPTHS), v0_all_frames='not measured'),
+                  contract='nu-only, fixed C, log10 radius [-26,-4), periodic angular seam; no certified bound; rejected configurations require direct fallback',
+                  timing_note='Python warm predecoded map+lookup vs Rust BLA 1x1 render; per-point reference builds and tiny-frame overhead are not an atlas speedup',
+                  wide_validation='Not promoted on a failed frozen-pack kill gate; no >=1000 points/depth claim')
+    Path(report).write_text(json.dumps(output,indent=2,allow_nan=False)+'\n')
+    print(f'elapsed_s={elapsed:.3f}; matched BLA us/pixel={None if bla_render_s is None else 1e6*bla_render_s/len(rows)}; no atlas-win claim',flush=True)
+
+
 if __name__ == '__main__':
-    if '--probe' in sys.argv or '--freeze' in sys.argv or '--tight-probe' in sys.argv:
+    if any(flag in sys.argv for flag in ('--probe','--freeze','--tight-probe','--table-probe')):
         parser = argparse.ArgumentParser(description='Frozen-truth period-764 biseries probe')
         mode = parser.add_mutually_exclusive_group(required=True)
         mode.add_argument('--freeze', action='store_true')
         mode.add_argument('--probe', action='store_true')
         mode.add_argument('--tight-probe', action='store_true')
+        mode.add_argument('--table-probe', action='store_true')
         parser.add_argument('--jobs', type=int, default=18)
         parser.add_argument('--report', help='Optional JSON report path (keep outside the worktree)')
         parser.add_argument('--bla-exe', help='Optional existing fd binary for a separate 8x4 BLA control')
         parser.add_argument('--quadratic-guard', help='Optional smaller guard for the degree-2 variant')
         args = parser.parse_args()
         if args.jobs < 1: parser.error('--jobs must be positive')
-        if args.tight_probe:
+        if args.table_probe:
+            if not args.report: parser.error('--table-probe requires an external --report path')
+            table_probe(args.jobs,args.report,args.bla_exe)
+        elif args.tight_probe:
             tight_probe(args.jobs, args.report, args.bla_exe, args.quadratic_guard)
         elif args.freeze:
             freeze(args.jobs)

@@ -106,6 +106,8 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 | 2026-10-07 | Tight biseries exit plus a shared fixed-C tail (PROB-07) | `returns_exit_tail.py --tight-probe --jobs 18`; unchanged 48-point truth, 2.49 s incl. BLA control | **Keep on sample:** degree 4/6/8 pass every depth at input guard 1e-26, zero class mismatches; degree 4 max error 2.24e-4 px. Degree 2 fails three depths at that guard but passes all at 1e-30. Exit histogram and projected costs below; table not built. |
 
+| 2026-10-07 | Can a shared fixed-C log-polar exit table replace the tail? (PROB-04) | `returns_exit_tail.py --table-probe --jobs 18 --report <external>/table.json --bla-exe <existing>/fd.exe`; 48 frozen points, 4.840 s, exit 0 | **Kill the two uniform bilinear nu tables.** 135,936 / 2,165,760 bytes; max 154.713 / 27.004 px versus 0.001 px required, 0/48 class mismatches. Exact 110-dps corner values leave the interpolation failure intact. Correctness-gated scores 0; no wider promotion or atlas-win claim. |
+
 ### PROB-03: fixed period-764 biseries (negative result)
 
 The question is **cheaper frames**. A per-frame renderer can build the same map;
@@ -295,3 +297,97 @@ for fewer map operations, and has exit radii 1.441e-30 to 7.648e-13:
 narrower quadratic variant is a separate viable option. E_C must use **C**, not c0,
 through the transition region. The exit samples suggest a wide transition domain
 and motivate testing table coverage/interpolation before claiming atlas speed.
+
+### PROB-04: shared exit table, uniform interpolation rejected
+
+Question: **atlas wins**, conditional on a correct shared E_C payload. The probe
+builds two actual tables at fixed parameter C, then reuses each across the six
+depth cohorts. It stores float64 smooth escape nu and int32 escape step count
+per node (12 bytes/node), rather than resume states, de or normal. This measures
+only the smooth/class requirement; it cannot establish complete shading accuracy.
+The 764-step degree-4 prefix retains the PROB-07 input guard 1e-26.
+
+Representation: explicit log-polar rings centred at C, log10 radius -26 through
+-4, periodic angular seam, bilinear interpolation in log radius and angle.
+This covers the measured 1.249e-26 to 7.648e-5 exits. No M(24,2) self-similar
+wrap is used: transferring E_C across C-c0 without a measured error contract
+would add another unsupported approximation. Table nodes use fixed-C
+perturbation around a 110-dps reference starting at C; C-relative deltas preserve
+the small offsets instead of rounding C+delta to a double.
+
+Validity/fallback (DEC-10): lookups outside log10 radius [-26,-4), non-finite
+inputs, unresolved corners, an ambiguous 20,000-step horizon, or a 60-return
+prefix limit require direct iteration. No interpolation bound is certified.
+The frozen-pack correctness gate rejects an entire configuration if any point
+exceeds 1e-3 px, changes escape class or needs fallback. Both tested
+configurations are rejected, so their interpolated values must not be used in
+production. Every query remains in the denominator; none of the 48 queries
+needed domain/horizon fallback and all escaped in both truth and tables.
+
+Reproduce from the PROB-04 worktree using its .venv (mpmath 1.4.1, numpy 2.5.3):
+
+```powershell
+.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --table-probe --jobs 18 --report C:/Users/SpencerNunamakerTrav/fractadactyl/target/prob04/table.json --bla-exe C:/Users/SpencerNunamakerTrav/fractadactyl/target/release/fd.exe
+```
+
+The unchanged committed `return_map_truth.json` has SHA-256
+`aa93abe304f55d3c28cde6d58c9e4814bd5dfcac0b639cf5b27c560693e5fa89`.
+The report records payload sizes, timings, controls, per-depth errors and sharing.
+Reports and BLA output stay outside the worktree. The final run took 4.840 s,
+exit 0; the biseries build took about 0.03 s. Timing is host-dependent.
+Regression: `--tight-probe --jobs 18 --report <external>/tight-regression.json`
+took 2.254 s, exit 0, preserving the degree-4/6/8 passes and degree-2 failures.
+`git diff --check` also passed (exit 0).
+
+| Radial intervals/decade | Angles | Nodes | Payload bytes | Build s | Warm map+lookup us/px | Max px | Class mismatches | Score |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8 | 64 | 11,328 | 135,936 | 0.0381 | 18.776 | 154.713 | 0/48 | 0 |
+| 32 | 256 | 180,480 | 2,165,760 | 1.8657 | 28.123 | 27.004 | 0/48 | 0 |
+
+These are array payload bytes, excluding metadata, the temporary reference and
+construction scratch. Both payloads are small against DEC-03's 2.5 GiB target /
+3 GiB cap, but neither meets accuracy. No estimate of sufficient table size is
+established by these failures; errors do not decrease uniformly with resolution.
+
+| Width | Max px, 8x64 | Max px, 32x256 | 32x256 with exact corner values | Direct double-tail control px |
+|---|---:|---:|---:|---:|
+| 1e-35 | 39.6736 | 0.962934 | 0.962934 | 1.450e-11 |
+| 1e-38 | 2.03553 | 1.32289 | 1.32289 | 2.172e-4 |
+| 1e-40 | 33.5045 | 1.09474 | 1.09474 | 2.787e-12 |
+| 1e-43 | 154.713 | 3.78794 | 3.78794 | 6.506e-7 |
+| 1e-46 | 53.0709 | 8.04783 | 8.04783 | 1.553e-6 |
+| 2e-48 | 16.0497 | 27.0038 | 27.0038 | 2.883e-12 |
+
+Displacement is |nu_predicted-nu_truth| ln(2) de_truth / (width/480).
+The deep truth derivative encoded in de accounts for sensitivity through the
+returns; interpolated tail derivatives are not substituted into the error metric.
+The exact-prefix fixed-C control stays within 1.450e-11 px; the map's local state
+error stays within 2.237e-4 px. Direct double-tail controls also pass, with no class
+mismatches. Independent 110-dps evaluations replace **all** used corner values:
+150 coarse / 152 fine nodes. Maximum node smooth discrepancies are 0.008478 /
+4.021e-5, with zero node class or escape-step differences. Re-interpolation from
+those exact corners still fails by the values above. This isolates interpolation
+as the decisive failure, rather than mistaking a node-evaluation defect for it.
+
+**Measured opponent and timing limits:** `fd control` receives 48 1x1 views,
+each centred exactly at the corresponding frozen C+d, same width, 20,000-step
+budget, nu/de columns, one thread and per-frame BLA. Pixel-centre sampling makes
+these matched coordinates, unlike PROB-07's separate 8x4 grid. Final measured
+BLA render cost averages 283.213 us/pixel. Candidate timing is 20 repetitions of
+the same predecoded scalar Python degree-4 map + lookup batch, excluding table
+build, truth checks and fallback. BLA includes its render/column work; the
+candidate computes nu only. Tiny one-pixel views, distinct per-point references
+and Python/Rust differences prevent a full-frame speed claim. Score is matched
+BLA render time / warm candidate time **only after correctness passes**; both
+scores are 0, regardless of the apparent lookup-time advantage. A fair rival can
+adopt the same biseries; the table, rather than that map, is the reuse hypothesis.
+
+**Sharing and handoff:** one table serves six depth cohorts, a measured 6:1
+frames-per-table ratio on these diagnostic views (48 lookups). Full-v0 frame
+coverage and effective accepted sharing are unmeasured; no frame is accepted by
+these failed configurations. DEC-14 therefore stops before the >=1,000 points
+per depth validation. This satisfies PROB-04's recorded-kill alternative, not its
+success alternative. It rejects uniform bilinear nu interpolation at these two
+resolutions, not adaptive/derivative-aware tables, resume-state tables, the
+return decomposition, or all tables fitting the budget. Next planned work is
+PROB-05; another exit-table representation needs its own winning cheap probe.
