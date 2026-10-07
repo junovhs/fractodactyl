@@ -2,6 +2,13 @@ name: ci
 on:
   push:
     branches: ["**"]
+    # Pushes touching only research probes, docs or the manual bench workflows skip CI:
+    # none of these paths is built or read by the checks below (tools/oracle.py is).
+    paths-ignore:
+      - "docs/**"
+      - "tools/research/**"
+      - ".github/workflows/*-bench.yml"
+      - "*.md"
   pull_request:
   workflow_dispatch:
 
