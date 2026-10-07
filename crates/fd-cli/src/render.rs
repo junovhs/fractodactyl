@@ -5,11 +5,26 @@ use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
 
-const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
+/// Flags shared by `fd render` and `fd bench`.
+pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let a = Args::parse(argv, &FLAGS)?;
     let out = a.need("o")?;
+    let (view, p) = job(&a)?;
+    let threads = p.threads;
+    let t = Instant::now();
+    let (header, samples) = render(&view, &p)?;
+    let secs = t.elapsed().as_secs_f64();
+    let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
+    write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;
+    let bytes = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
+    println!("{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny, header.kernel);
+    Ok(())
+}
+
+/// The view and render parameters named by the shared flags.
+pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
     let view = View {
         center_re: a.need("re")?.into(),
         center_im: a.need("im")?.into(),
@@ -29,14 +44,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         threads,
         tier: tier(a.str("kernel").unwrap_or("auto"))?,
     };
-    let t = Instant::now();
-    let (header, samples) = render(&view, &p)?;
-    let secs = t.elapsed().as_secs_f64();
-    let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
-    write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;
-    let bytes = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
-    println!("{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny, header.kernel);
-    Ok(())
+    Ok((view, p))
 }
 
 fn size(s: &str) -> Result<(u32, u32), String> {

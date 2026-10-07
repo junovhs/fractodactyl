@@ -19,6 +19,6 @@ mod scaled;
 mod store;
 mod view;
 
-pub use grid::{render, Params};
+pub use grid::{render, render_stats, Params, Stats};
 pub use reference::Reference;
 pub use view::{Plane, Tier};

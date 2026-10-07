@@ -32,8 +32,12 @@ jobs:
       - run: cargo build --release -j 4
       - name: render known locations, compare runs, check oracle
         run: THREADS=4 bash scripts/locations.sh target/release/fd out/locations
+      - name: benchmark report (shallow f64 + deep scaled), every metric populated
+        run: THREADS=4 bash scripts/bench.sh target/release/fd out/bench seahorse i-1e-300
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: oracle-results
-          path: out/locations/oracle.jsonl
+          path: |
+            out/locations/oracle.jsonl
+            out/bench/bench.jsonl

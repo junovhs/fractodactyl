@@ -7,7 +7,9 @@ use crate::scaled::scaled;
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
 use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Instant;
 
 /// What to render (the view is passed separately).
 #[derive(Clone, Copy, Debug)]
@@ -30,8 +32,24 @@ pub struct Params {
     pub tier: Option<Tier>,
 }
 
+/// Work counters for one render (BASE-03). Independent of the thread count.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Stats {
+    /// Stored reference-orbit points.
+    pub reference_len: usize,
+    /// Wall time spent computing the reference orbit.
+    pub reference_seconds: f64,
+    /// Perturbation iterates summed over all samples (`max_iter` per unresolved one).
+    pub iterations: u64,
+}
+
 /// Compute every sample of `view` into fresh columns, with the matching header.
 pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
+    render_stats(view, p).map(|(h, s, _)| (h, s))
+}
+
+/// [`render`], also returning its work counters.
+pub fn render_stats(view: &View, p: &Params) -> Result<(Header, Samples, Stats), String> {
     if p.columns.has(Column::Bound) {
         return Err("kernels produce heuristic results only: no Bound column".into());
     }
@@ -43,6 +61,7 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
     if !plane.allows(tier) {
         return Err(format!("{tier:?} tier is not valid at this depth (cheapest valid: {:?})", plane.tier));
     }
+    let t = Instant::now();
     let reference = match tier {
         Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
         _ => {
@@ -50,6 +69,8 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
             Reference::from_fixed(&cr, &ci, p.max_iter)
         }
     };
+    let reference_seconds = t.elapsed().as_secs_f64();
+    let iterations = AtomicU64::new(0);
     let cols = p.columns.with(Column::Class);
     let (nx, n) = (p.nx as usize, p.nx as usize * p.ny as usize);
     let mut s = Samples::alloc(n, cols);
@@ -66,13 +87,14 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
         let deriv = cols.needs_derivative();
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
-                sc.spawn(|| loop {
-                    let Some(row) = queue.lock().unwrap().next() else { break };
-                    if deriv {
-                        job.fill::<true>(row)
-                    } else {
-                        job.fill::<false>(row)
+                sc.spawn(|| {
+                    let mut its = 0;
+                    loop {
+                        // let-else drops the lock guard before the row is filled.
+                        let Some(row) = queue.lock().unwrap().next() else { break };
+                        its += if deriv { job.fill::<true>(row) } else { job.fill::<false>(row) };
                     }
+                    iterations.fetch_add(its, Ordering::Relaxed);
                 });
             }
         });
@@ -88,7 +110,8 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
         view: view.clone(),
         kernel: plane.kernel(tier),
     };
-    Ok((h, s))
+    let stats = Stats { reference_len: reference.len(), reference_seconds, iterations: iterations.into_inner() };
+    Ok((h, s, stats))
 }
 
 struct Job<'a> {
@@ -101,9 +124,11 @@ struct Job<'a> {
 }
 
 impl Job<'_> {
-    fn fill<const D: bool>(&self, mut row: Row) {
+    /// Fill one row; returns the iterates spent.
+    fn fill<const D: bool>(&self, mut row: Row) -> u64 {
         let pl = self.plane;
         let h = pl.h();
+        let mut its = 0;
         for i in 0..row.class.len() {
             let (ux, uy) = pl.unit_offset(i, row.j);
             let o = match self.tier {
@@ -114,7 +139,9 @@ impl Job<'_> {
                 Tier::Fixed => sample::<D>(self.r, None, ux * h, uy * h, self.max_iter, self.r2),
                 Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
             };
+            its += o.iterations(self.max_iter);
             self.store.put(&mut row, i, o);
         }
+        its
     }
 }

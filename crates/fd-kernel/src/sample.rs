@@ -9,8 +9,20 @@ pub(crate) enum Outcome {
     /// `z` and `dz/dc = (dr, di) * 2^dexp` at the first iterate outside the escape
     /// radius (`n` iterates).
     Escaped { n: u64, zr: f64, zi: f64, dr: f64, di: f64, dexp: i64 },
-    Interior,
+    /// Judged bounded after `n` iterates (0 for the closed-form main-component test).
+    Interior { n: u64 },
     Unresolved,
+}
+
+impl Outcome {
+    /// Perturbation iterates this sample spent (`max_iter` when unresolved).
+    #[inline]
+    pub(crate) fn iterations(self, max_iter: u64) -> u64 {
+        match self {
+            Outcome::Escaped { n, .. } | Outcome::Interior { n } => n,
+            Outcome::Unresolved => max_iter,
+        }
+    }
 }
 
 /// Iterate sample `C + (ar, ai)`. `D` selects whether `dz/dc` is tracked. `c` is the
@@ -18,7 +30,7 @@ pub(crate) enum Outcome {
 #[inline]
 pub(crate) fn sample<const D: bool>(r: &Reference, c: Option<(f64, f64)>, ar: f64, ai: f64, max_iter: u64, r2: f64) -> Outcome {
     if c.is_some_and(|c| in_main_components(c.0, c.1)) {
-        return Outcome::Interior;
+        return Outcome::Interior { n: 0 };
     }
     let (zr, zi, last) = (&r.re, &r.im, r.len() - 1);
     let (mut xr, mut xi) = (0.0f64, 0.0f64); // delta z
@@ -59,11 +71,11 @@ pub(crate) fn sample<const D: bool>(r: &Reference, c: Option<(f64, f64)>, ar: f6
         let dist = (fr - sr).abs() + (fi - si).abs();
         let size = sr.abs() + si.abs();
         if dist < 1e-13 * size + 1e-300 {
-            return Outcome::Interior; // exact return: settled on a cycle
+            return Outcome::Interior { n }; // exact return: settled on a cycle
         }
         if tries < 4 && n >= newton_at && dist < 1e-3 * size {
             if attracting(r, m, xr, xi, ar, ai, n - chk / 2) {
-                return Outcome::Interior;
+                return Outcome::Interior { n };
             }
             tries += 1;
             newton_at = 4 * n;
@@ -116,7 +128,7 @@ mod tests {
     fn interior_outside_main_components_is_found() {
         // Period-3 bulb centre region (real axis) and a period-4 bulb.
         for (cr, ci) in [(-1.7548, 0.0), (-0.1565, 1.0322), (-1.3107, 0.0)] {
-            assert_eq!(run(cr, ci, 1_000_000), Outcome::Interior, "{cr},{ci}");
+            assert!(matches!(run(cr, ci, 1_000_000), Outcome::Interior { .. }), "{cr},{ci}");
         }
     }
 

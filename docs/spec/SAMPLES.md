@@ -104,12 +104,28 @@ Correctness is checked by `tools/oracle.py` (direct mpmath iteration at depth + 
 bits, no perturbation) over the locations in `bench/locations.txt`; see
 `scripts/locations.sh`.
 
+## Benchmark report
+
+`fd bench` takes the `fd render` flags plus `--runs N` (default 3), renders the view
+`N` times in one process and prints one JSON line (schema `fd-bench/1`): per-run
+seconds and reference-orbit seconds with an explicit `cold`/`warm` state, cold and
+median-warm seconds, peak RSS (Linux `VmHWM`, else null), sample and reference bytes,
+iterations (total, per output pixel, reference length), `.fds` bytes, fallback
+(`pixel_fraction` 1: with no atlas every sample takes the perturbation path), class
+counts, depth, and whether all runs were byte-identical. Cache state is stated, not
+implied: `"atlas":"none"`, no cross-frame reuse; warm runs recompute everything.
+With `-o out.fds --oracle tools/oracle.py [--k K]` it embeds the oracle's report as
+the error-vs-oracle metrics and exits 1 when the oracle (or determinism) fails.
+`scripts/bench.sh` runs it on named `bench/locations.txt` entries and fails on any
+null metric; CI runs it on `seahorse` and `i-1e-300`.
+
 ## Command surface
 
 ```text
 fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
           [--columns nu,de,normal] [--threads N] [--rotation R]
           [--kernel auto|f64|fx|scaled] -o out.fds
+fd bench <render flags> [--runs N] [-o out.fds] [--oracle tools/oracle.py [--k K]]
 fd shade <palette|relief> in.fds out.png
 fd info in.fds
 ```

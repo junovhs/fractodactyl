@@ -64,7 +64,7 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
         if resolvable(xr, xi, f2) {
             let dist = (fr - sr).abs() + (fi - si).abs();
             if dist < 1e-13 * (sr.abs() + si.abs()) + 1e-300 {
-                return Outcome::Interior;
+                return Outcome::Interior { n };
             }
         }
         if n == chk {

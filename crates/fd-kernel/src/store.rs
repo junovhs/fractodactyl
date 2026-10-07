@@ -48,7 +48,7 @@ impl Store {
     pub(crate) fn put(&self, row: &mut Row, i: usize, o: Outcome) {
         let kind = match o {
             Outcome::Escaped { .. } => Kind::Escaped,
-            Outcome::Interior => Kind::Interior,
+            Outcome::Interior { .. } => Kind::Interior,
             Outcome::Unresolved => Kind::Unresolved,
         };
         row.class[i] = Class::new(kind, Evidence::Heuristic);
