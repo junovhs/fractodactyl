@@ -1,6 +1,6 @@
 [package]
 name = "fd-shade"
-description = "Late appearance passes over palette-independent samples (BASE-01 proof passes)"
+description = "Late looks over palette-independent samples: no fractal math, no kernel"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

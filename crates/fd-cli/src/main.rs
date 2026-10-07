@@ -24,7 +24,8 @@ usage:
             [--refine BLOCK_PX [--max-px E]]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
-  fd shade <palette|relief> in.fds out.png
+  fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
+  fd shade <umber|palette|relief> in.fds out.png
   fd info in.fds
   fd addr locate --re X --im Y --level L
   fd addr show <key>

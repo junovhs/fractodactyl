@@ -192,9 +192,39 @@ fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
           [--kernel auto|f64|fx|scaled] -o out.fds
 fd bench <render flags> [--runs N] [-o out.fds] [--oracle tools/oracle.py [--k K]]
 fd control PATH <render flags but the view> [--runs N] [-o DIR] [--oracle tools/oracle.py [--k K]]
-fd shade <palette|relief> in.fds out.png
+fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
+fd shade <umber|palette|relief> in.fds out.png
 fd info in.fds
 ```
 
-`palette` reads `class` and `nu`; `relief` reads `class`, `de` and `normal`. They are
-proof passes for this format; the real appearance pipeline is SHADE-01.
+## Looks (SHAD-01)
+
+A look is a late pass over stored samples (DEC-07): it reads columns and writes pixels,
+and never computes fractal math. `fd-shade` depends on `fd-samples` alone, so it cannot
+link a kernel; a unit test fails if that dependency list grows. PNGs are outputs, never
+atlas data (DEC-04).
+
+| Look | Reads | Appearance |
+|---|---|---|
+| `umber` (default) | class, nu, de, normal | muted umber bands from `ln nu`, soft high-sun relief from the normal, gently darkened near the set by `de` |
+| `palette` | class, nu | cyclic cosine hue over `ln nu` (BASE-01 proof pass) |
+| `relief` | class, de, normal | grey-warm lit relief (BASE-01 proof pass) |
+
+Interior is near-black; unresolved samples stay visibly magenta in every look.
+
+`fd shade IN -o OUTDIR` takes one `.fds` or a directory of them (every `*.fds`, sorted,
+e.g. the frames `fd control -o DIR` writes), reads each input once (the union of the
+columns its looks need) and applies every `--look` to that one in-memory result,
+writing `OUTDIR/<stem>.<look>.png`. Report, one line each:
+
+```text
+input PATH sha256 HEX samples NXxNY ss N kernel K max_iter N columns C read_seconds S
+look NAME input_sha256 HEX out PNG px WxH shade_seconds S write_seconds S iterations 0
+totals frames F looks L images I read_seconds S shade_seconds S write_seconds S iterations 0 kernel_calls 0
+```
+
+`sha256` is the input file's bytes, repeated on every look line, so a report shows which
+stored result each image came from. `iterations` and `kernel_calls` are 0 by construction
+(see above), not measured. The input is opened read-only and never rewritten. Timing is
+single-threaded and separate from the hash. The three-positional form writes one image
+and is kept for compatibility.
