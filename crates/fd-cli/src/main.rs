@@ -10,6 +10,7 @@ mod manifest;
 mod orbit;
 mod path;
 mod plan;
+mod play;
 mod render;
 mod reuse;
 mod schedule;
@@ -63,6 +64,9 @@ usage:
              [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
              [--fps F] [--lead S] [--workers N] [--policy slack|edf|first-use]
              [--slab N] [--target BYTES] [--cap BYTES] [--on-miss fail|report]
+  fd play COMPILE_LOG --store DIR [--frames A..B] [--threads N] [-o DIR]
+          [--look L[,L...]] [--mp4 FILE]
+          [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error";
@@ -87,6 +91,7 @@ fn main() {
         Some("schedule") => schedule::run(&argv[1..]),
         Some("control") => control::run(&argv[1..]),
         Some("compile") => compile::run(&argv[1..]),
+        Some("play") => play::run(&argv[1..]),
         Some("path") => path::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         _ => Err(USAGE.to_string()),

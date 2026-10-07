@@ -115,12 +115,7 @@ pub(crate) fn footprint(v: &View, nx: u32, ny: u32, tile_samples: u32) -> Result
     if level + SUB > MAX_LEVEL {
         return Err(format!("tile level {level} exceeds {}", MAX_LEVEL - SUB));
     }
-    // Centre tile and the centre's position inside it, from an exact deeper locate.
-    let fine = Tile::locate(&v.center_re, &v.center_im, level + SUB)?;
-    let (mid, i0, j0) = fine.owner(16)?;
-    let (centre, i1, j1) = mid.owner(16)?;
-    let frac = |hi: u32, lo: u32| ((((hi as u64) << 16) | lo as u64) as f64 + 0.5) / 2f64.powi(SUB as i32);
-    let (cx, cy) = (frac(i1, i0), frac(j1, j0));
+    let (centre, (cx, cy)) = anchor(v, level)?;
     // Sample spacing in tile sides: h / 2^(2-L), exact power-of-two scaling.
     let r = p.h_m * 2f64.powi((p.h_e + level as i64 - 2) as i32);
     let at = |i: usize, j: usize| {
@@ -154,6 +149,17 @@ pub(crate) fn footprint(v: &View, nx: u32, ny: u32, tile_samples: u32) -> Result
     }
     let tiles = predicted.iter().filter_map(|&(dx, dy)| neighbour(&centre, dx, dy)).collect();
     Ok(Footprint { level, tiles, anchor: centre, at: (cx, cy), samples: nx as u64 * ny as u64, unpredicted })
+}
+
+/// The level-`level` tile holding `v`'s exact centre and the centre's position inside it,
+/// in tile sides from its top-left corner (x right, y down), to within 2^-33, from an
+/// exact deeper locate.
+pub(crate) fn anchor(v: &View, level: u32) -> Result<(Tile, (f64, f64)), String> {
+    let fine = Tile::locate(&v.center_re, &v.center_im, level + SUB)?;
+    let (mid, i0, j0) = fine.owner(16)?;
+    let (centre, i1, j1) = mid.owner(16)?;
+    let frac = |hi: u32, lo: u32| ((((hi as u64) << 16) | lo as u64) as f64 + 0.5) / 2f64.powi(SUB as i32);
+    Ok((centre, (frac(i1, i0), frac(j1, j0))))
 }
 
 /// Separating-axis test for two convex quadrilaterals, padded by `PAD`.

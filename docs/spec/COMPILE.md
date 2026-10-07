@@ -4,7 +4,7 @@
 compiler", "Atlas v0 success criteria" 1-4). It plans each frame's logical tiles, builds
 the reference orbits and BLA tables the path needs in deadline order, emits tile and
 frame manifests that link every frame to exactly the chunks a warm render of it reads,
-enforces the byte budget, and walks and verifies the result. Playback is VIDE-02.
+enforces the byte budget, and walks and verifies the result. Playback is VIDE-02 (`fd play`, PLAY.md).
 Governed by DEC-01 (genuine location, no substitution), DEC-02 (compile known paths
 offline, optimise warm), DEC-03 (2.5 GiB target, 3 GiB hard cap, enforced), DEC-04
 (mathematical payloads only, never raster) and DEC-10 (every approximation carries
@@ -231,7 +231,7 @@ the BLA tables are where the atlas has to pay off.
   only; the atlas is complete at `seconds.wall`.
 - An empty BLA table (no valid block, e.g. every f64-tier frame and the shallowest fx
   frames) is still referenced; rendering through it is slower than the plain kernel
-  (measured 1.45x at 640x360), so a player should skip empty tables (VIDE-02).
+  (measured 1.45x at 640x360), so `fd play` skips empty tables (PLAY.md).
 - `--bla level` with one level per table is conservative; a coarser default needs
   per-frame skip measurements over the whole path.
 - Fixed-centre paths only reuse orbits this well; panning paths need REF-05.

@@ -11,7 +11,7 @@
 //! fallback pixel fraction is 1 (DEC-10: the contract is stated, not implied).
 use crate::args::Args;
 use crate::render::{job, FLAGS};
-use fd_kernel::{reference_bits, render_stats, Params, Plane, Stats};
+use fd_kernel::{reference_bits, render_stats, BlaStats, Params, Plane, Stats};
 use fd_samples::{write, Kind, Samples, View};
 use std::fmt::Write as _;
 use std::process::Command;
@@ -79,6 +79,26 @@ pub(crate) struct Frame<'a> {
     /// Run 1's peak RSS and whether it covers run 1 alone (`run`) or the process so far.
     pub(crate) peak_rss: Option<u64>,
     pub(crate) peak_rss_scope: &'static str,
+    /// Set when the frame was rendered from an atlas (`fd play`, fd-play/1): what it
+    /// read and reused. `None` for the baseline (`fd bench`, `fd control`).
+    pub(crate) atlas: Option<AtlasWork>,
+}
+
+/// What an atlas-played frame read and how much of its work BLA replaced (fd-play/1).
+pub(crate) struct AtlasWork {
+    /// `cold` when the frame read its orbit or BLA table from the store (first touch),
+    /// `warm` when every math chunk was already loaded by an earlier frame.
+    pub(crate) state: &'static str,
+    /// Seconds reading, verifying and decoding chunks for this frame (cache misses).
+    pub(crate) load_seconds: f64,
+    /// Chunk bytes read from the store for this frame (misses only).
+    pub(crate) bytes_read: u64,
+    /// Chunk bytes this frame's manifests reach, whether read now or cached.
+    pub(crate) bytes_referenced: u64,
+    /// Tile manifests the frame names.
+    pub(crate) tiles_touched: usize,
+    /// BLA work when a table was applied; `None` when the frame rendered without one.
+    pub(crate) bla: Option<BlaStats>,
 }
 
 /// Render `view` `runs` (>= 1) times. Before each run the peak-RSS high-water mark is
@@ -110,6 +130,7 @@ pub(crate) fn measure<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<
                     classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
                     peak_rss: peak_rss(),
                     peak_rss_scope: if reset { "run" } else { "process" },
+                    atlas: None,
                 });
             }
             Some(f) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
@@ -121,7 +142,7 @@ pub(crate) fn measure<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<
 }
 
 /// Bytes of the computed sample columns.
-fn sample_bytes(s: &Samples) -> usize {
+pub(crate) fn sample_bytes(s: &Samples) -> usize {
     s.class.len()
         + s.nu.as_ref().map_or(0, |v| v.len() * 8)
         + s.de.as_ref().map_or(0, |v| v.len() * 4)
@@ -174,18 +195,33 @@ impl Frame<'_> {
             ",\"depth\":{{\"log2_sample_spacing\":{log2_h},\"log10_width\":{},\"precision_bits\":{bits}}}",
             (log2_h + f64::from(p.nx).log2()) * std::f64::consts::LOG10_2
         );
-        j.push_str(",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false},\"runs\":[");
+        let a = self.atlas.as_ref();
+        j.push_str(match a {
+            None => ",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false},\"runs\":[",
+            Some(_) => ",\"cache\":{\"atlas\":\"store\",\"cross_frame_reuse\":true},\"runs\":[",
+        });
         for (i, (secs, rsecs)) in times.iter().enumerate() {
-            let state = if i == 0 { "cold" } else { later };
+            let state = match (i, a) {
+                (0, Some(a)) => a.state,
+                (0, None) => "cold",
+                _ => later,
+            };
             let sep = if i == 0 { "" } else { "," };
-            let _ = write!(j, "{sep}{{\"run\":{},\"state\":\"{state}\",\"seconds\":{secs},\"reference_seconds\":{rsecs}}}", i + 1);
+            let load = a.map_or(String::new(), |a| format!(",\"load_seconds\":{}", a.load_seconds));
+            let _ = write!(j, "{sep}{{\"run\":{},\"state\":\"{state}\",\"seconds\":{secs},\"reference_seconds\":{rsecs}{load}}}", i + 1);
         }
+        // An atlas frame is one run, either cold or warm: the other is null.
+        let (cold, warm, stat) = match a {
+            None => (Some(times[0].0), warm, warm.map(|_| "median")),
+            Some(a) if a.state == "warm" => (None, Some(times[0].0), Some("frame")),
+            Some(_) => (Some(times[0].0), None, None),
+        };
         let _ = write!(
             j,
             "],\"timing\":{{\"cold_seconds\":{},\"warm_seconds\":{},\"warm_statistic\":{}}}",
-            times[0].0,
+            cold.map_or("null".into(), |m| m.to_string()),
             warm.map_or("null".into(), |m| m.to_string()),
-            if warm.is_some() { "\"median\"" } else { "null" }
+            stat.map_or("null".into(), |s| format!("\"{s}\""))
         );
         let _ = write!(
             j,
@@ -203,15 +239,44 @@ impl Frame<'_> {
             st.iterations as f64 / n,
             st.reference_len
         );
-        let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{},\"atlas_bytes_read\":0}}", self.bytes.len());
-        // No atlas: nothing is looked up, so these are zero by construction, not unmeasured.
-        j.push_str(",\"atlas_work\":{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":0}");
-        let _ = write!(
-            j,
-            ",\"fallback\":{{\"pixel_fraction\":1,\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
-            st.iterations as f64 / pixels,
-            unresolved as f64 / n
-        );
+        let fds = self.bytes.len();
+        match a {
+            // No atlas: nothing is looked up, so these are zero by construction, not unmeasured.
+            None => {
+                let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{fds},\"atlas_bytes_read\":0}}");
+                j.push_str(",\"atlas_work\":{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":0}");
+                let _ = write!(
+                    j,
+                    ",\"fallback\":{{\"pixel_fraction\":1,\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
+                    st.iterations as f64 / pixels,
+                    unresolved as f64 / n
+                );
+            }
+            Some(a) => {
+                let _ = write!(
+                    j,
+                    ",\"bytes\":{{\"fds_bytes\":{fds},\"atlas_bytes_read\":{},\"atlas_bytes_referenced\":{}}}",
+                    a.bytes_read, a.bytes_referenced
+                );
+                // Microblocks do not exist in the v0 atlas: zero by construction.
+                let blocks = a.bla.map_or(0, |b| b.blocks);
+                let _ = write!(
+                    j,
+                    ",\"atlas_work\":{{\"tiles_touched\":{},\"microblocks_touched\":0,\"macro_operators_per_pixel\":{}}}",
+                    a.tiles_touched,
+                    blocks as f64 / pixels
+                );
+                // Fallback pixels: samples that applied no block (without a table, all).
+                let fb = a.bla.map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
+                let _ = write!(
+                    j,
+                    ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
+                    fb / n,
+                    (st.iterations - blocks) as f64 / pixels,
+                    unresolved as f64 / n
+                );
+            }
+        }
         let _ = write!(j, ",\"classes\":{{\"escaped\":{escaped},\"interior\":{interior},\"unresolved\":{unresolved}}}");
         Ok(())
     }
@@ -259,7 +324,7 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
 
 /// Reset this process's peak RSS (`VmHWM`) to its current RSS, so the next reading
 /// covers what follows. Linux `/proc/self/clear_refs` value 5; false where unavailable.
-fn reset_peak_rss() -> bool {
+pub(crate) fn reset_peak_rss() -> bool {
     std::fs::write("/proc/self/clear_refs", "5").is_ok()
 }
 
