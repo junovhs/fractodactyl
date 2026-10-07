@@ -3,6 +3,7 @@ mod addr;
 mod args;
 mod bench;
 mod chunk;
+mod manifest;
 mod render;
 mod shade;
 
@@ -24,7 +25,14 @@ usage:
   fd chunk get --store DIR <id> -o out
   fd chunk show --store DIR <id>
   fd chunk verify --store DIR
-  fd chunk stats --store DIR";
+  fd chunk stats --store DIR
+  fd manifest tile --store DIR --tile KEY [--evidence heuristic,bounded,certified]
+                   [--children Q:ID,...] [--refs ID,...]
+  fd manifest frame --store DIR --anchor KEY [--offset U,V] [--width W]
+                    [--rotation R] [--size WxH] [--ss N] [--iter N]
+                    [--columns nu,de,normal] --tiles ID,...
+  fd manifest show --store DIR <id>
+  fd manifest walk --store DIR [frame-id...]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -35,6 +43,7 @@ fn main() {
         Some("info") => shade::info(&argv[1..]),
         Some("addr") => addr::run(&argv[1..]),
         Some("chunk") => chunk::run(&argv[1..]),
+        Some("manifest") => manifest::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {

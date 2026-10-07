@@ -68,7 +68,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     }
 }
 
-fn store(a: &Args) -> Result<Store, String> {
+pub(crate) fn store(a: &Args) -> Result<Store, String> {
     let dir = a.need("store")?;
     Store::open(dir).map_err(|e| format!("{dir}: {e}"))
 }

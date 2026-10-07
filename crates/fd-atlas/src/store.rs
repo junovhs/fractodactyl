@@ -29,6 +29,7 @@ pub enum Put {
 }
 
 impl Put {
+    /// The outcome as printed by `fd chunk put`.
     pub fn name(self) -> &'static str {
         match self {
             Put::Stored => "stored",
@@ -41,10 +42,13 @@ impl Put {
 /// Unique chunks and the bytes they occupy (sum of chunk file sizes).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
+    /// Unique chunks stored.
     pub chunks: u64,
+    /// Sum of their file sizes.
     pub bytes: u64,
 }
 
+/// A content-addressed chunk store rooted at a directory.
 pub struct Store {
     root: PathBuf,
 }
@@ -72,6 +76,7 @@ impl Store {
         Ok(Store { root })
     }
 
+    /// The store directory.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -82,6 +87,7 @@ impl Store {
         self.root.join("chunks").join(&hex[..2]).join(&hex[2..])
     }
 
+    /// Whether a file exists for `id` (not verified).
     pub fn contains(&self, id: &ChunkId) -> bool {
         self.path(id).is_file()
     }
@@ -126,6 +132,7 @@ impl Store {
         Ok(self.files()?.into_iter().map(|(id, _)| id).collect())
     }
 
+    /// Unique chunk count and bytes on disk.
     pub fn stats(&self) -> Result<Stats, Error> {
         let files = self.files()?;
         Ok(Stats { chunks: files.len() as u64, bytes: files.iter().map(|(_, len)| len).sum() })

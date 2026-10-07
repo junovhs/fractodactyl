@@ -47,7 +47,7 @@ pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
     Ok((view, p))
 }
 
-fn size(s: &str) -> Result<(u32, u32), String> {
+pub(crate) fn size(s: &str) -> Result<(u32, u32), String> {
     let bad = || format!("--size: expected WxH, got {s:?}");
     let (w, h) = s.split_once('x').ok_or_else(bad)?;
     match (w.parse(), h.parse()) {
@@ -66,7 +66,7 @@ fn tier(s: &str) -> Result<Option<Tier>, String> {
     }
 }
 
-fn columns(s: &str) -> Result<ColumnSet, String> {
+pub(crate) fn columns(s: &str) -> Result<ColumnSet, String> {
     s.split(',').filter(|c| !c.is_empty()).try_fold(ColumnSet::of(&[Column::Class]), |set, c| {
         let col = match c {
             "nu" => Column::Nu,

@@ -1,8 +1,8 @@
-# Atlas Chunk Store (ATLA-01)
+# Atlas Chunk Store and Manifests (ATLA-01, ATLA-02)
 
 Content-addressed, immutable, semantic chunks (DEC-06), implemented in `crates/fd-atlas`
-(no dependencies) and exposed as `fd chunk`. Manifests (ATLA-02) and the byte budget
-(ATLA-03, 3 GiB hard cap per DEC-03) build on this layer.
+(depends only on workspace `fd-addr`) and exposed as `fd chunk` and `fd manifest`. The
+byte budget (ATLA-03, 3 GiB hard cap per DEC-03) builds on this layer.
 
 ## Chunks
 
@@ -53,8 +53,8 @@ length-prefixed (`u64`) byte strings and UTF-8 text. Already-canonical blobs suc
 | 4 | `certificate` | proved claims over an exact region |
 | 5 | `exact-sample` | exact-coordinate samples |
 | 6 | `samples` | one `.fds` file (SAMPLES.md) |
-| 7 | `tile-manifest` | reserved for ATLA-02 |
-| 8 | `frame-manifest` | reserved for ATLA-02 |
+| 7 | `tile-manifest` | one logical tile (Manifests below) |
+| 8 | `frame-manifest` | one video frame (Manifests below) |
 
 Other non-zero codes are accepted and shown numerically.
 
@@ -88,3 +88,80 @@ fd chunk stats --store DIR
 
 Defaults for `put`: encoding 1, formula `mandelbrot`, precision 53, rounding `nearest`.
 Output is `name value` lines (`id`, `result stored|deduplicated|repaired`, `bytes`, ...).
+
+## Manifests
+
+Manifests are ordinary chunks (kinds 7 and 8, encoding 1) that name other chunks by id,
+so the atlas is a Merkle DAG: frame manifest -> tile manifests -> child tile manifests
+and math chunks. A frame owns no mathematics; thousands of frames naming one orbit slab
+repeat only its 32-byte id, while the slab's bytes are stored once. Both payloads are
+written with the canonical builder; a decoder re-encodes and refuses any chunk whose
+bytes differ (unsorted or duplicate references, unknown bits, trailing bytes).
+
+Strings are `u64` length + UTF-8; ids are 32 raw bytes.
+
+### Tile manifest (kind 7)
+
+Contract: formula Mandelbrot, precision 0, rounding exact.
+
+| Field | Type | Meaning |
+|---|---|---|
+| tile | string | canonical key `level/xhex/yhex` (ADDRESS.md) |
+| evidence | `u8` | bits: 1 heuristic, 2 bounded, 4 certified; others 0 |
+| children | `u8` | bit `q` set when child quadrant `q` (ADDRESS.md) has a manifest; others 0 |
+| child ids | id each | one per set bit, ascending `q` |
+| refs | `u64` n, then n x (`u16` kind, id) | math chunks, sorted by (kind, id), no duplicates |
+
+A child id must name the tile manifest of exactly `tile.child(q)`. Refs name
+non-manifest chunks and carry the referenced chunk's kind.
+
+### Frame manifest (kind 8)
+
+Contract: formula Mandelbrot, precision 53, rounding nearest. The camera is local to an
+exact anchor tile (DEC-08): the deep chart transform is precomposed, so a frame never
+walks the tile hierarchy to place itself.
+
+| Field | Type | Meaning |
+|---|---|---|
+| anchor | string | tile key of the chart the camera is expressed in |
+| offset re, im | `f64`, `f64` | view centre minus anchor centre, in anchor sides (im up) |
+| width | `f64` | view width in anchor sides, > 0 |
+| rotation | `f64` | radians, as `fd render --rotation` |
+| size | `u32`, `u32` | output pixels, > 0 |
+| ss | `u32` | supersampling per axis, > 0 |
+| iter | `u64` | iteration limit |
+| columns | `u32` | sample column mask (SAMPLES.md `ColumnSet` bits) |
+| tiles | `u64` n, then n ids | tile manifests read, sorted, no duplicates |
+
+All `f64` fields are finite. A frame is ~150-200 bytes.
+
+### Walk
+
+`fd manifest walk` loads every frame given (default: every frame manifest in the
+store), re-verifies every chunk it reaches, checks reference kinds and child
+addresses, and reports:
+
+| Field | Meaning |
+|---|---|
+| `frames`, `tiles` | distinct frame and tile manifests walked |
+| `math_chunks`, `math_bytes` | distinct math chunks reached and their stored bytes |
+| `math_refs` | sum over frames of the distinct math chunks each frame reaches |
+| `math_bytes_per_frame` | bytes if every frame owned private copies of what it reaches |
+| `manifest_bytes` | bytes of all distinct manifests reached |
+| `sharing` | `math_bytes_per_frame / math_bytes` |
+| `store_chunks`, `store_bytes` | `fd chunk stats` for the whole store |
+
+### Manifest CLI
+
+```text
+fd manifest tile --store DIR --tile KEY [--evidence heuristic,bounded,certified]
+                 [--children Q:ID,...] [--refs ID,...]
+fd manifest frame --store DIR --anchor KEY [--offset U,V] [--width W] [--rotation R]
+                  [--size WxH] [--ss N] [--iter N] [--columns nu,de,normal] --tiles ID,...
+fd manifest show --store DIR <id>
+fd manifest walk --store DIR [frame-id...]
+```
+
+`tile` and `frame` refuse references that are missing, corrupt, of the wrong kind, or
+(for children) for the wrong address, then print `id`, `result`, `bytes` like
+`fd chunk put`. Filling manifests from a zoom path is the compiler's job (not here).

@@ -1,6 +1,9 @@
 [package]
 name = "fd-atlas"
-description = "Atlas storage: canonical semantic chunks in a content-addressed store (ATLA-01)"
+description = "Atlas storage: canonical semantic chunks in a content-addressed store and tile/frame manifests"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+fd-addr = { path = "../fd-addr" }

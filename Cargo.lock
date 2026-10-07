@@ -12,6 +12,9 @@ dependencies = [
 [[package]]
 name = "fd-atlas"
 version = "0.1.0"
+dependencies = [
+ "fd-addr",
+]
 
 [[package]]
 name = "fd-cli"

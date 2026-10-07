@@ -23,15 +23,21 @@ const CANONICAL_NAN_F32: u32 = 0x7fc0_0000;
 pub struct Kind(pub u16);
 
 impl Kind {
+    /// Reference orbit range.
     pub const ORBIT_SLAB: Kind = Kind(1);
+    /// Bilinear-approximation operators.
     pub const BLA: Kind = Kind(2);
+    /// Experimental return-map operators.
     pub const RETURN_MAP: Kind = Kind(3);
+    /// Proved claims over an exact region.
     pub const CERTIFICATE: Kind = Kind(4);
+    /// Exact-coordinate samples.
     pub const EXACT_SAMPLE: Kind = Kind(5);
     /// A whole `.fds` sample file (docs/spec/SAMPLES.md), stored byte for byte.
     pub const SAMPLES: Kind = Kind(6);
-    /// Reserved for ATLA-02 manifests.
+    /// A tile manifest (`fd_atlas::TileManifest`).
     pub const TILE_MANIFEST: Kind = Kind(7);
+    /// A frame manifest (`fd_atlas::FrameManifest`).
     pub const FRAME_MANIFEST: Kind = Kind(8);
 
     const NAMES: [(Kind, &'static str); 8] = [
@@ -45,6 +51,7 @@ impl Kind {
         (Kind::FRAME_MANIFEST, "frame-manifest"),
     ];
 
+    /// The registered name, if this code has one.
     pub fn name(self) -> Option<&'static str> {
         Kind::NAMES.iter().find(|(k, _)| *k == self).map(|(_, n)| *n)
     }
@@ -77,6 +84,7 @@ impl fmt::Display for Kind {
 pub struct Formula(pub u16);
 
 impl Formula {
+    /// Formula-independent data.
     pub const NONE: Formula = Formula(0);
     /// `z -> z^2 + c`.
     pub const MANDELBROT: Formula = Formula(1);
@@ -146,12 +154,15 @@ impl fmt::Display for Rounding {
 /// the same numbers under a different contract are a different chunk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Contract {
+    /// What the payload holds.
     pub kind: Kind,
     /// Payload layout version for this kind.
     pub encoding: u16,
+    /// Iterated formula the payload describes.
     pub formula: Formula,
     /// Significand bits of the payload's working precision (53 for f64; 0 if exact).
     pub precision_bits: u32,
+    /// How payload numbers relate to true values.
     pub rounding: Rounding,
 }
 
@@ -208,6 +219,7 @@ impl Chunk {
         Ok(Chunk { contract, bytes })
     }
 
+    /// The numeric contract from the header.
     pub fn contract(&self) -> &Contract {
         &self.contract
     }
@@ -217,6 +229,7 @@ impl Chunk {
         u16::from_le_bytes([self.bytes[10], self.bytes[11]])
     }
 
+    /// The payload, without header or padding.
     pub fn payload(&self) -> &[u8] {
         let len = u64::from_le_bytes(self.bytes[24..32].try_into().unwrap()) as usize;
         &self.bytes[HEADER_LEN..HEADER_LEN + len]
@@ -241,28 +254,36 @@ pub struct Builder {
 }
 
 impl Builder {
+    /// Start an empty payload under `contract`.
     pub fn new(contract: Contract) -> Builder {
         Builder { contract, payload: Vec::new() }
     }
 
+    /// Append a byte.
     pub fn u8(&mut self, v: u8) -> &mut Self {
         self.raw(&[v])
     }
+    /// Append a little-endian `u16`.
     pub fn u16(&mut self, v: u16) -> &mut Self {
         self.raw(&v.to_le_bytes())
     }
+    /// Append a little-endian `u32`.
     pub fn u32(&mut self, v: u32) -> &mut Self {
         self.raw(&v.to_le_bytes())
     }
+    /// Append a little-endian `u64`.
     pub fn u64(&mut self, v: u64) -> &mut Self {
         self.raw(&v.to_le_bytes())
     }
+    /// Append a little-endian `i64`.
     pub fn i64(&mut self, v: i64) -> &mut Self {
         self.raw(&v.to_le_bytes())
     }
+    /// Append an `f64` in canonical bits.
     pub fn f64(&mut self, v: f64) -> &mut Self {
         self.u64(canonical_f64(v))
     }
+    /// Append an `f32` in canonical bits.
     pub fn f32(&mut self, v: f32) -> &mut Self {
         let bits = if v == 0.0 { 0 } else if v.is_nan() { CANONICAL_NAN_F32 } else { v.to_bits() };
         self.u32(bits)
@@ -281,6 +302,7 @@ impl Builder {
         self
     }
 
+    /// Write the header and padding; the builder is left empty.
     pub fn finish(&mut self) -> Chunk {
         let c = self.contract;
         let payload = std::mem::take(&mut self.payload);

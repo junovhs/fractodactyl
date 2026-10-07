@@ -3,10 +3,12 @@
 //! boundaries are semantic (one orbit slab, one operator, one certificate...), never
 //! content-defined. Spec: docs/spec/ATLAS.md.
 mod chunk;
+mod manifest;
 mod sha256;
 mod store;
 
 pub use chunk::{canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN};
+pub use manifest::{is_manifest, walk, Evidence, FrameManifest, TileManifest, Walk, MANIFEST_ENCODING};
 pub use sha256::Sha256;
 pub use store::{Put, Stats, Store};
 
@@ -18,6 +20,7 @@ use std::fmt;
 pub struct ChunkId(pub [u8; 32]);
 
 impl ChunkId {
+    /// The id of `bytes`: their SHA-256.
     pub fn of(bytes: &[u8]) -> ChunkId {
         ChunkId(Sha256::digest(bytes))
     }
@@ -64,6 +67,7 @@ pub enum Error {
     Corrupt { id: ChunkId, actual: ChunkId },
     /// Bytes are not a canonical chunk (or the store directory is not a store).
     Malformed(String),
+    /// Filesystem failure.
     Io(std::io::Error),
 }
 
