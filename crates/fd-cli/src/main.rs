@@ -10,6 +10,7 @@ mod orbit;
 mod plan;
 mod render;
 mod reuse;
+mod schedule;
 mod shade;
 
 const USAGE: &str = "\
@@ -47,10 +48,19 @@ usage:
   fd plan PATH --size WxH [--ss N] [--tile-px N]
   fd reuse PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
            [--threads N] [--kernel K] [--slab N]
+  fd schedule PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
+              [--kernel K] [--fps F] [--lead S] [--workers N]
+              [--policy slack|edf|first-use] [--bla frame|group|none] [--slab N]
+              [--on-miss fail|report]
   fd control PATH [--size WxH] [--ss N] [--iter N] [--columns C] [--threads N]
              [--kernel K] [--runs N] [-o DIR]
              [--oracle tools/oracle.py [--k K] [--python python3]]
-  fd lod in.fds [--tile-px N] [--max-px E]";
+  fd lod in.fds [--tile-px N] [--max-px E]
+exit: 0 ok, 1 fd schedule missed a deadline, 2 any other error";
+
+/// Exit code of `fd schedule` when a chunk misses its first-use deadline (without
+/// `--on-miss report`). Every other failure (usage, build, I/O) exits 2.
+pub(crate) const EXIT_MISSED: i32 = 1;
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -65,6 +75,7 @@ fn main() {
         Some("orbit") => orbit::run(&argv[1..]),
         Some("plan") => plan::run(&argv[1..]),
         Some("reuse") => reuse::run(&argv[1..]),
+        Some("schedule") => schedule::run(&argv[1..]),
         Some("control") => control::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         _ => Err(USAGE.to_string()),

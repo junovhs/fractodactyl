@@ -52,6 +52,14 @@ jobs:
             echo "== valley path, kernel $k"
             target/release/fd reuse bench/path-valley.txt --store "out/reuse-$k" --size 128x72 --iter 50000 --columns nu,de --kernel "$k" --threads 4
           done
+      - name: deadline scheduler (SCHE-02) along the valley path, least slack vs EDF and first-use
+        run: |
+          set -euo pipefail
+          args=(bench/path-valley.txt --size 128x72 --iter 50000 --columns nu,de --fps 30 --workers 2)
+          echo "== playback starts with the compile (lead 0): report only, prints the minimum lead"
+          target/release/fd schedule "${args[@]}" --store out/schedule/live --on-miss report
+          echo "== compiled ahead (DEC-02), lead 2 s: every chunk must be ready before its first-use frame"
+          target/release/fd schedule "${args[@]}" --store out/schedule/ahead --lead 2
       - name: independent-frame control (VIDE-03) along the valley path, every frame vs the oracle
         run: |
           set -euo pipefail

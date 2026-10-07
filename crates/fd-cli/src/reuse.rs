@@ -6,7 +6,7 @@ use crate::args::Args;
 use crate::orbit::{load, put, same};
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
-use fd_kernel::{reference, reference_bits, render_stats, render_with};
+use fd_kernel::{reference, reference_bits, render_stats, render_with, Params};
 use fd_samples::{Samples, View};
 use std::time::Instant;
 
@@ -20,30 +20,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let p = params(&a)?;
     let size: u32 = a.num("slab", 4096)?;
     let s = crate::chunk::store(&a)?;
-    let mut frames: Vec<(View, u32)> = Vec::new();
-    for (n, v) in read_path(file)? {
-        let bits = reference_bits(&v, &p).map_err(|e| format!("{file}:{n}: {e}"))?;
-        frames.push((v, bits));
-    }
-    // Group frames by exact centre, f64-tier (53-bit) orbits apart from deep ones.
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for (f, (v, bits)) in frames.iter().enumerate() {
-        let joins = |&g: &usize| {
-            let (w, b) = &frames[g];
-            (*b == 53) == (*bits == 53)
-                && same(&v.center_re, &w.center_re).unwrap_or(false)
-                && same(&v.center_im, &w.center_im).unwrap_or(false)
-        };
-        match groups.iter_mut().find(|g| joins(&g[0])) {
-            Some(g) => g.push(f),
-            None => groups.push(vec![f]),
-        }
-    }
+    let frames = path_frames(file, &p)?;
+    let groups = groups(&frames);
     // One orbit per group, computed for its deepest frame and stored.
     let mut orbit = vec![(0, 0, String::new(), 0); frames.len()]; // group, lead, manifest id, bits
     let mut shared_s = 0.0;
     for (g, members) in groups.iter().enumerate() {
-        let lead = *members.iter().max_by_key(|&&f| (frames[f].1, std::cmp::Reverse(f))).unwrap();
+        let lead = lead(&frames, members);
         let t = Instant::now();
         let (r, bits) = reference(&frames[lead].0, &p)?;
         let secs = t.elapsed().as_secs_f64();
@@ -112,6 +95,41 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         return Err(format!("{broken} frames rendered differently from an orbit of the same precision"));
     }
     Ok(())
+}
+
+/// The frames of a camera path with the reference precision each needs.
+pub(crate) fn path_frames(file: &str, p: &Params) -> Result<Vec<(View, u32)>, String> {
+    let mut frames = Vec::new();
+    for (n, v) in read_path(file)? {
+        let bits = reference_bits(&v, p).map_err(|e| format!("{file}:{n}: {e}"))?;
+        frames.push((v, bits));
+    }
+    Ok(frames)
+}
+
+/// Frames grouped by exact centre, f64-tier (53-bit) frames apart from deep ones, in
+/// order of each group's first frame; members in frame order.
+pub(crate) fn groups(frames: &[(View, u32)]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (f, (v, bits)) in frames.iter().enumerate() {
+        let joins = |&g: &usize| {
+            let (w, b) = &frames[g];
+            (*b == 53) == (*bits == 53)
+                && same(&v.center_re, &w.center_re).unwrap_or(false)
+                && same(&v.center_im, &w.center_im).unwrap_or(false)
+        };
+        match groups.iter_mut().find(|g| joins(&g[0])) {
+            Some(g) => g.push(f),
+            None => groups.push(vec![f]),
+        }
+    }
+    groups
+}
+
+/// The frame a group's shared orbit is computed for: its deepest (most bits), the
+/// earliest of those on a tie.
+pub(crate) fn lead(frames: &[(View, u32)], members: &[usize]) -> usize {
+    *members.iter().max_by_key(|&&f| (frames[f].1, std::cmp::Reverse(f))).expect("a group has a frame")
 }
 
 /// Samples whose class or any column value differs (compared bit for bit).

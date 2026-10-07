@@ -13,7 +13,7 @@ use std::time::Instant;
 
 /// Default BLA tolerance: each dropped quadratic term is at most 2^-50 of the kept term,
 /// a few f64 roundings, so BLA adds error of the order the plain kernel's own rounding.
-const EPS: f64 = 1.0 / 1125899906842624.0;
+pub(crate) const EPS: f64 = 1.0 / 1125899906842624.0;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let rest = argv.get(1..).unwrap_or_default();
@@ -104,6 +104,12 @@ pub(crate) fn load_bla(s: &Store, id: &str, view: &View) -> Result<(Reference, u
 /// Store `r` (computed at `view`'s centre with `bits`) as slabs of `size` points plus
 /// its orbit manifest; returns the manifest id. `verbose` prints the slab report.
 pub(crate) fn put(s: &Store, view: &View, r: &Reference, bits: u32, size: u32, verbose: bool) -> Result<ChunkId, String> {
+    put_sized(s, view, r, bits, size, verbose).map(|(id, _)| id)
+}
+
+/// [`put`], also returning the encoded bytes of the slabs plus the manifest (stored now
+/// or already present).
+pub(crate) fn put_sized(s: &Store, view: &View, r: &Reference, bits: u32, size: u32, verbose: bool) -> Result<(ChunkId, usize), String> {
     let slabs = OrbitSlab::split(&r.re, &r.im, size).map_err(|e| e.to_string())?;
     let (mut ids, mut total) = (Vec::new(), 0);
     for sl in &slabs {
@@ -116,12 +122,13 @@ pub(crate) fn put(s: &Store, view: &View, r: &Reference, bits: u32, size: u32, v
         ids.push(id);
     }
     let m = OrbitManifest { center_re: view.center_re.clone(), center_im: view.center_im.clone(), precision_bits: bits, slabs: ids };
-    let (id, _) = s.put(&m.to_chunk().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let manifest = m.to_chunk().map_err(|e| e.to_string())?;
+    let (id, _) = s.put(&manifest).map_err(|e| e.to_string())?;
     if verbose {
         println!("slabs {}\nslab_bytes {total}\nbytes_per_iter {:.3}", slabs.len(), total as f64 / r.len() as f64);
         println!("orbit {id}");
     }
-    Ok(id)
+    Ok((id, total + manifest.bytes().len()))
 }
 
 /// Load the orbit named by its orbit manifest id, with its precision bits. Refuses an

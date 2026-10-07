@@ -96,6 +96,7 @@ Each chunk has:
 - expected work saved.
 
 Schedule by deadline/slack, not simply spatial distance.
+The implemented scheduler (jobs, deadlines, cost model, `fd schedule`) is docs/spec/SCHEDULE.md.
 
 ### Temporal reuse
 Keep distinct:
