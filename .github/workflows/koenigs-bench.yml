@@ -20,6 +20,9 @@ on:
       guard:
         description: loop exit guard |z - C|
         default: "1e-28"
+      terms:
+        description: Koenigs series terms
+        default: "12"
 
 env:
   CARGO_TERM_COLOR: never
@@ -40,7 +43,7 @@ jobs:
       - name: timing and scoring
         run: |
           THREADS=${{ inputs.threads }} RUNS=${{ inputs.runs }} SIZE=${{ inputs.size }} \
-            DEGREE=${{ inputs.degree }} GUARD=${{ inputs.guard }} \
+            DEGREE=${{ inputs.degree }} GUARD=${{ inputs.guard }} TERMS=${{ inputs.terms }} \
             bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/koenigs
           cat out/koenigs/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
