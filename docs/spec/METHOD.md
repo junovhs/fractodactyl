@@ -101,3 +101,68 @@ the command and the numbers, so nobody pays for the same answer twice.
 | 2026-10-08 | Can analytic (Böttcher-coordinate) patches replace iteration in M-free regions? | de histogram on 10 views, 480x270 | **Kill as a general accelerator.** On the hard views (valley 1e-28, v0 at 1e-40 and 2e-49), 0% of pixels are ≥32 px from the set; only dendrite views (c=i) have large empty areas. `docs/research/10-8-26/misiurewicz-frame-transfer.md` |
 | 2026-10-08 | Are deep frames near a Misiurewicz point exact transforms of shallower frames (Tan Lei similarity)? | paired renders, 480x270, c=i at 1e-300 and the v0 target near M(24,2) at 1e-6 to 1e-23 | **Keep: strongest lead so far.** Using the multiplier ρ (zoom by \|ρ\|, rotate by −arg ρ, shift the centre to c0+ρ(C−c0), ν += period): 0 class mismatches at every depth; max displacement 9.8e-4 px at 1e-10, 1.2e-5 at 1e-12, ≤3.5e-7 px (kernel noise) from 1e-16 to 1e-23. One 0.062-decade ring covers the whole zone at any depth, speed or rotation, and it is inherently cross-frame. The near-minibrot analogue (scale by λ) is **not** a similarity: the body matches but the surrounding decoration hairs do not. `docs/research/10-8-26/misiurewicz-frame-transfer.md` |
 | 2026-10-08 | Is the minibrot approach band (1e-25 to 1e-49 on v0) structured like the Misiurewicz zone? | pointwise mpmath, 120-160 random pixels per depth, 1e-30 to 2e-48 | **Keep: decomposition proven exact.** Naive z² map: fails. Per pixel: k returns around the minibrot (ν += 764 each; k = 2-7), then a tail depending only on the exit point ζ through **one fixed dynamical-plane function E_{c0}(ζ)**. 0 class mismatches, max 2.3e-9 px down to 2e-48. Open: a cheap return map (NanoMB/AT) and a sampled E table with an error contract. Potential: about 7 cheap evals plus 1 lookup per deep pixel, shared across frames. `docs/research/10-8-26/misiurewicz-frame-transfer.md` |
+
+| 2026-10-07 | Can one fixed cheap biseries replace every original period-764 return? (PROB-03) | `.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --probe --jobs 18`; 48 committed 110-dps truth points, six depths; 7.7 s | **Kill this all-return replacement, not NanoMB in general.** Degrees 1, 2, 4, 6, 8, 10, 12 all score 0 across depths. Degree 4 passes the complete 1e-38 cohort (max 2.17e-4 px, 0/8 class mismatches); later return inputs exceed the local domain elsewhere. Keep raw fallback. See the contract and table below. |
+
+### PROB-03: fixed period-764 biseries (negative result)
+
+The question is **cheaper frames**. A per-frame renderer can build the same map;
+this is not an atlas win. Read RESE-02's scope first: its primary-source distillation
+is still backlog, so this experiment does not claim to implement Imagina AT or the
+full KF NanoMB algorithm. Primary formulation: [Heiland-Allen's deep-zoom write-up](https://mathr.co.uk/blog/2021-05-14_deep_zoom_theory_and_practice.html)
+and [KF's NanoMB manual](https://mathr.co.uk/kf/manual.html). Both describe a biseries
+in orbit and parameter offsets, repeated for one period at a time, then regular
+iteration outside its escape radius. This implementation derives its own coefficients
+from the quadratic recurrence; no upstream code was copied.
+
+For reference orbit Z beginning at C, write z=Z+s*u, c=C+s*v, s=1e-25.
+Compose `u_next=2*Z*u+s*u*u+v` for 764 steps, truncating total degree after
+each step and retaining all mixed terms. Reference and nucleus residual use 110-dps
+mpmath; coefficients use NumPy complex128. Start the pixel at z1=C+d and apply the
+map once for every original return. The frozen truth fixes the original return
+count for this diagnostic: this is not a runnable production exit scheduler.
+After those returns, directly iterate the candidate at the actual pixel parameter
+(rather than c0) to isolate map error from the separate exit-table hypothesis.
+
+**Validity/error/fallback contract:** original exit radius is 1.7e-15 around C;
+the candidate's conservative empirical input guard is 1e-26 for degree >=4.
+This guard is sampled, not a certified disk. Error limit is 1e-3 px, both for
+smooth-iteration displacement (truth DE divided by w/480) and the local equivalent
+parameter displacement `|z_map-z_truth|/|dz_truth/dc|/(w/480)`. Outside-guard
+polynomial evaluations are diagnostic only, never accepted. Nonfinite/huge output,
+escape inside a raw period, an input outside the guard, class mismatch, or error
+above the limit prevents an all-return pass. The unchanged legacy raw-iteration
+path remains the fallback. No points are silently removed from the eight-per-depth
+denominator. Class checks are Escaped versus Unresolved at 20,000 iterations;
+Unresolved is not a proof of interior membership. The frozen fixture is generated
+by `--freeze --jobs 18`; normal probes never recompute truth. This is a small
+issue-local pack, not completion of TRUT-01 or an independent-oracle promotion.
+
+Highest tested degree (12), original radius; errors below are **unguarded
+diagnostics** on finite candidates, including candidates needing fallback:
+
+| Width | Max tail px error | Max local state px error | Class mismatches / evaluated | Fallback / 8 | Map return ops/px | Raw return ops/px |
+|---|---:|---:|---:|---:|---:|---:|
+| 1e-35 | no finite candidate | no finite candidate | 0 / 0 | 8 | 2800 | 9168 |
+| 1e-38 | 1.35e-12 | 1.12e-12 | 0 / 8 | 0 | 2800 | 9168 |
+| 1e-40 | 2.79e-12 | 1.12e-12 | 0 / 7 | 1 | 2975 | 9741 |
+| 1e-43 | 13.53 | 4.29e6 | 0 / 6 | 7 | 4200 | 13752 |
+| 1e-46 | 3.50e-12 | 1.48e-12 | 0 / 4 | 5 | 5600 | 18336 |
+| 2e-48 | 8.42e-11 | 7.63e-11 | 0 / 5 | 7 | 7525 | 24639 |
+
+Build times for degrees 1/2/4/6/8/10/12 were
+0.009/0.011/0.032/0.092/0.213/0.477/0.897 s. Map costs per return are
+36/90/240/446/708/1026/1400 real arithmetic operations against 4584 for
+764 raw squares/adds (complex multiply=6, square=4, add=2).
+Per-pixel columns multiply this by the truth's mean number of requested returns;
+they are theoretical attempted-map costs, not successful end-to-end costs.
+Tail, derivatives, fallback, memory traffic, and build amortization are excluded.
+Degree 1 is a local linear-return diagnostic, **not** our hierarchical BLA renderer.
+Because every candidate fails correctness/domain coverage, no speedup over BLA
+or promotion is claimed; a fair BLA timing is required before any later keep result.
+
+**Handoff:** this finite sweep kills one fixed, low-degree map over the original
+return schedule. It does not rule out higher degrees, a smaller exit radius with
+raw transition steps, adaptive charts, or multi-stage LA/AT. RESE-02 remains the
+prior-art prerequisite for that next experiment. PROB-04 must not assume that all
+returns are now cheap. The exit table, Rust kernel and nested chains were not changed.
