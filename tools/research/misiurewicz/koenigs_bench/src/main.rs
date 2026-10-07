@@ -330,6 +330,7 @@ fn main() {
     let r2 = 1e20;
     // BENC-04: F3_FRAME (and F3_YSIGN, default 1) sample fraktaler-3's jittered points
     // instead of pixel centres, so the two renderers can be compared point for point.
+    let twist: f64 = std::env::var("TWIST").map_or(0.0, |s| s.parse().unwrap());
     let f3: Option<(i64, f64)> = std::env::var("F3_FRAME").ok().map(|v| {
         let ys = std::env::var("F3_YSIGN").map_or(1.0, |s| s.parse().unwrap());
         (v.parse().unwrap(), ys)
@@ -339,6 +340,8 @@ fn main() {
         let width: f64 = width_s.parse().unwrap();
         let h = width / nx as f64;
         let n = nx * ny;
+        // Film mode: TWIST rotates each frame by TWIST * ln(width) radians (steady spin per zoom).
+        let (rs, rc) = (twist * width.ln()).sin_cos();
         let (mut class, mut nu) = (vec![0u8; n], vec![0f64; n]);
         let mut times = vec![];
         for _ in 0..runs {
@@ -366,6 +369,7 @@ fn main() {
                                             (x, ysign * (j as f64 + 0.5 + d - ny as f64 / 2.0) * h)
                                         }
                                     };
+                                    let (x, y) = (x * rc - y * rs, x * rs + y * rc);
                                     let (esc, v) = f(&k, Cx(x / k.scale, y / k.scale), max_iter, r2);
                                     cl[i] = u8::from(!esc);
                                     nv[i] = v;
