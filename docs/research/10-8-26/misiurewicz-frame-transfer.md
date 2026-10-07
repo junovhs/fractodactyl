@@ -138,3 +138,53 @@ tolerance. (ii) A sampled E table with an interpolation error contract and its s
 table lookup, instead of 1,600-4,200 iterations (about 536 with BLA). That is roughly
 depth-independent, and E is shared by every frame of the approach: a genuine atlas
 payload.
+
+## PROB-07: tight exits recover the decomposition (2026-10-07)
+
+The old 1.7e-15 exit radius required the biseries to operate far outside its local
+domain. The new `returns_exit_tail.py --tight-probe` stops before an input exceeds
+1e-26, using the candidate's own orbit and return count. At that exit it evaluates
+**1+k*764+E_C(zeta)** with parameter fixed at the minibrot nucleus C. C differs from
+c0 by about 1.7e-25, which matters in this transition band. The pixel parameter is
+used only by the biseries and the auxiliary exact-prefix diagnostic, never E_C.
+
+On the unchanged PROB-03 frozen 48-point pack, degree 4 passes all six depths:
+maximum smooth error 2.172e-4 px, maximum local state displacement 2.237e-4 px,
+zero class mismatches. Degrees 6 and 8 also pass. Degree 2 at 1e-26 fails at
+1e-38 (1.550 px), 1e-43 (0.02235 px local), and 1e-46 (0.06015 px smooth).
+With a narrower 1e-30 guard it passes all six (worst 7.652e-5 px).
+These are sampled results, not certified domains or full-frame oracle promotion.
+METHOD.md holds all per-depth/degree errors, operation models and BLA comparison.
+The common-guard probe including six separate 8x4 per-frame-BLA controls took 2.49 s,
+exit 0; no shared table was built. BLA uses a different point cohort, so no measured
+speedup is claimed.
+
+For degree 4, the candidate uses 1–5 returns per pixel (240–1080 mean arithmetic
+ops/pixel across depths), then one projected table lookup. Direct E_C evaluation
+still takes 161–849 mean raw steps/pixel. The fixed-C control from an exact prefix
+has max smooth displacement 1.45e-11 px, so the observed error is dominated by
+map truncation, not switching the tail parameter from C+d to C.
+
+### Exit-table handoff for PROB-04
+
+The **input guard does not bound the output radius**. Degree-4 exits span
+1.249e-26 to 7.648e-5; common-guard bin counts are identical for degrees 2/4/6/8.
+The smaller quadratic guard spans 1.441e-30 to 7.648e-13 and costs more direct-tail
+work. Bins below are floor(log10(|zeta-C|)), exponent: sample count, eight per row.
+
+| Width | Common guard 1e-26 | Quadratic guard 1e-30 |
+|---|---|---|
+| 1e-35 | -22: 3, -21: 5 | -22: 3, -21: 5 |
+| 1e-38 | -7: 1, -6: 3, -5: 4 | -28: 3, -27: 5 |
+| 1e-40 | -15: 1, -14: 3, -13: 4 | -15: 1, -14: 3, -13: 4 |
+| 1e-43 | -26: 3, -25: 4, -6: 1 | -27: 1, -26: 3, -25: 4 |
+| 1e-46 | -26: 1, -24: 4, -10: 1, -6: 1, -5: 1 | -30: 1, -28: 1, -27: 1, -26: 1, -24: 4 |
+| 2e-48 | -26: 4, -25: 1, -18: 1, -16: 1, -12: 1 | -30: 1, -26: 4, -25: 1, -18: 1, -16: 1 |
+
+Use E_C, not E_c0, in the transition region. The sampled exit points range well
+beyond 1e-22 and, for the narrower quadratic variant, begin below 1e-26. Any
+connection to the self-similar Misiurewicz ring requires a measured transfer/error
+contract. Histograms give radial coverage, not a table-size estimate: angular
+coverage, resampling and unresolved/interior regions still need measurement in
+PROB-04. A per-frame renderer can also build the biseries; the expensive shared
+E_C table is the candidate cross-frame atlas payload (DEC-15).

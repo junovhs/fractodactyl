@@ -197,13 +197,19 @@ def map_point(args):
                     state_px=None, radius=float(max_input), k=row['k'])
 
 
-def probe(jobs):
-    start = time.perf_counter()
+def load_truth():
+    """Validate and load the unchanged PROB-03 fixture."""
     truth = json.loads(TRUTH.read_text())
     if (truth['centre'] != encode(C) or truth['period'] != P or
             truth['dps'] != DPS or truth['maxit'] != PROBE_MAXIT or
             truth['radius'] != str(MAP_RADIUS)):
         raise ValueError('incompatible frozen truth')
+    return truth
+
+
+def probe(jobs):
+    start = time.perf_counter()
+    truth = load_truth()
     print(f'candidate radius={mp.nstr(VALID_RADIUS)} (empirical); original return radius={mp.nstr(MAP_RADIUS)}; outside-guard evaluations are diagnostics only')
     print('degree width build_s max_px max_state_px mismatch evaluated fallback max_input_radius ops_per_return map_return_ops_per_px raw_return_ops_per_px score', flush=True)
     for degree in [1,2,4,6,8,10,12]:
@@ -232,15 +238,147 @@ def probe(jobs):
     print(f'elapsed_s={time.perf_counter()-start:.3f}; class horizon={PROBE_MAXIT}; fallback=legacy raw iteration; costs cover returns only, excluding tail/derivatives/build; no hierarchical-BLA timing or atlas-win claim', flush=True)
 
 
+TIGHT_GUARDS = {2: VALID_RADIUS, 4: VALID_RADIUS,
+                6: VALID_RADIUS, 8: VALID_RADIUS}
+
+
+def tight_point(args):
+    """Stop before an out-of-domain return, then evaluate E_C directly."""
+    row, terms, bias, degree, guard_text = args
+    mp.mp.dps = DPS
+    global MAXIT
+    MAXIT = PROBE_MAXIT
+    d = decode(row['d']); v = d/SCALE; u = v
+    coeff = [(i,j,decode(a)) for i,j,a in terms]
+    bias = decode(bias)
+    vp = [v**j for j in range(degree+1)]
+    exact = C+d; dz = mp.mpc(1); k = 0
+    guard = mp.mpf(guard_text)
+    # Candidate exit scheduling uses only its own state, never truth's k.
+    while abs(u)*SCALE <= guard and k < 60:
+        up = [u**i for i in range(degree+1)]
+        u = bias+sum(a*up[i]*vp[j] for i,j,a in coeff)
+        k += 1
+        # Auxiliary local-state diagnostic only. Frozen smooth/class truth
+        # is never rebuilt; this prefix supplies the state at the new exit.
+        for _ in range(P):
+            dz = 2*exact*dz+1
+            exact = exact*exact+C+d
+        if not mp.isfinite(abs(u)):
+            return dict(w=row['w'], failed=True, mismatch=False, px=None,
+                        local_px=None, control_px=None, k=k, radius=None, tail=0)
+    z = C+SCALE*u; n0 = k*P+1
+    local_px = abs(z-exact)/abs(dz)/(mp.mpf(row['w'])/480)
+    # E_C is one fixed function, with a fixed 20,000-step tail budget.
+    # Apply the prefix offset once; no pixel parameter or c0 reaches E_C.
+    tail = nu(C, z0=z)
+    control = nu(C, z0=exact)
+    predicted = None if tail[0] is None or n0+tail[2] > PROBE_MAXIT else n0+tail[0]
+    control_nu = None if control[0] is None or n0+control[2] > PROBE_MAXIT else n0+control[0]
+    mismatch = (predicted is None) != (row['nu'] is None)
+    factor = None if row['de'] is None else math.log(2)*float(mp.mpf(row['de'])/(mp.mpf(row['w'])/480))
+    px = None if mismatch or row['nu'] is None else abs(predicted-row['nu'])*factor
+    control_px = None if control_nu is None or row['nu'] is None else abs(control_nu-row['nu'])*factor
+    return dict(w=row['w'], failed=k == 60, mismatch=mismatch, px=px,
+                local_px=float(local_px), control_px=control_px, k=k,
+                radius=float(abs(z-C)), tail=tail[2], raw=row['iterations'])
+
+
+def tight_probe(jobs, report=None, bla_exe=None, quadratic_guard=None):
+    """DEC-14: seconds-scale frozen-truth scoring; no table speedup claim."""
+    import collections
+    start = time.perf_counter(); truth = load_truth(); summaries = []
+    guards = dict(TIGHT_GUARDS)
+    if quadratic_guard is not None:
+        guards[2] = mp.mpf(quadratic_guard)
+        if not 0 < guards[2] <= VALID_RADIUS:
+            raise ValueError('quadratic guard must be positive and <= 1e-26')
+    print('degree width guard max_px local_px fixed_C_control_px mismatches failures returns tail_raw raw_total projected_ops verdict', flush=True)
+    with Pool(jobs) as pool:
+        for degree in [2,4,6,8]:
+            terms,bias,build_s = build_map(degree)
+            results = pool.map(tight_point, [(row,terms,bias,degree,str(guards[degree])) for row in truth['rows']])
+            cmuls = 2*(degree-1)+2*len(terms)+1
+            ops = 6*cmuls+2*len(terms)+2
+            scores = []
+            for w in DEPTHS:
+                rows = [r for r in results if mp.mpf(r['w']) == mp.mpf(w)]
+                max_px = max((r['px'] for r in rows if r['px'] is not None), default=math.inf)
+                local = max((r['local_px'] for r in rows if r['local_px'] is not None), default=math.inf)
+                control = max((r['control_px'] for r in rows if r['control_px'] is not None), default=math.inf)
+                mm = sum(r['mismatch'] for r in rows); failures = sum(r['failed'] for r in rows)
+                keep = not mm and not failures and max(max_px,local) <= 1e-3
+                mean_k = sum(r['k'] for r in rows)/len(rows)
+                projected = mean_k*ops  # Plus ONE lookup: arithmetic cost not measured.
+                raw = sum(r.get('raw',PROBE_MAXIT) for r in rows)/len(rows)
+                tail = sum(r['tail'] for r in rows)/len(rows)
+                bins = collections.Counter(math.floor(math.log10(r['radius'])) for r in rows if r['radius'])
+                score = 6*raw/projected if keep and projected else 0
+                scores.append(score)
+                summary = dict(degree=degree, w=w, guard=str(guards[degree]),
+                               build_s=build_s, max_px=max_px, local_px=local,
+                               control_px=control, mismatches=mm, failures=failures,
+                               returns=[min(r['k'] for r in rows), max(r['k'] for r in rows)],
+                               mean_returns=mean_k, mean_tail=tail, mean_raw=raw,
+                               map_ops=projected, raw_ops=6*raw,
+                               histogram=dict(sorted(bins.items())), verdict='KEEP' if keep else 'KILL',
+                               radius_min=min(r['radius'] for r in rows if r['radius']),
+                               radius_max=max(r['radius'] for r in rows if r['radius']))
+                summaries.append(summary)
+                print(f'{degree} {w} {mp.nstr(guards[degree],2)} {max_px:.6g} {local:.6g} {control:.6g} {mm} {failures} {summary["returns"]} {tail:.1f} {raw:.1f} {projected:.1f}+lookup {summary["verdict"]}', flush=True)
+                print(f'  exit_histogram floor(log10(|zeta-C|))={dict(sorted(bins.items()))}', flush=True)
+            print(f'candidate degree={degree} all_depth_score={min(scores):.3f} (projected raw/map-ops; lookup unpriced)', flush=True)
+    bla = []
+    if bla_exe:
+        if not report:
+            raise ValueError('--bla-exe requires an external --report path')
+        import subprocess
+        base = Path(report).resolve().with_suffix('')
+        path = base.with_suffix('.path')
+        path.write_text(''.join(' '.join(encode(C)+[w])+'\n' for w in DEPTHS))
+        command = [bla_exe, 'control', str(path), '--size', '8x4',
+                   '--iter', str(PROBE_MAXIT), '--columns', 'nu,de',
+                   '--threads', str(jobs), '--bla', 'per-frame', '--runs', '1',
+                   '-o', str(base)+'-bla']
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        Path(str(base)+'-bla.jsonl').write_text(result.stdout)
+        for line in result.stdout.splitlines():
+            frame = json.loads(line)
+            if frame['record'] != 'frame': continue
+            fallback = frame['fallback']['iterations_per_pixel']
+            blocks = frame['atlas_work']['macro_operators_per_pixel']
+            # Perturbation step: 2Z*dz + dz^2 + dc; BLA: A*dz+B*dc.
+            # Both model as 14 scalar ops, excluding derivatives/guards.
+            modeled_ops = 14*(fallback+blocks)
+            bla.append(dict(w=frame['view']['width'], fallback=fallback,
+                            blocks=blocks, modeled_ops=modeled_ops,
+                            render_s=frame['bla']['render_seconds'],
+                            cold_s=frame['timing']['cold_seconds']))
+            print(f'BLA 8x4 width={frame["view"]["width"]} fallback={fallback:.3f} blocks={blocks:.3f} modeled_ops={modeled_ops:.3f}', flush=True)
+    elapsed = time.perf_counter()-start
+    print(f'elapsed_s={elapsed:.3f}; table not built; E_C evaluated directly; class horizon={PROBE_MAXIT}; BLA cohort is separate 8x4 grid, not frozen points; no timed speedup claim', flush=True)
+    if report:
+        Path(report).write_text(json.dumps(dict(elapsed_s=elapsed, rows=summaries, bla=bla), indent=2)+'\n')
+
+
 if __name__ == '__main__':
-    if '--probe' in sys.argv or '--freeze' in sys.argv:
+    if '--probe' in sys.argv or '--freeze' in sys.argv or '--tight-probe' in sys.argv:
         parser = argparse.ArgumentParser(description='Frozen-truth period-764 biseries probe')
         mode = parser.add_mutually_exclusive_group(required=True)
         mode.add_argument('--freeze', action='store_true')
         mode.add_argument('--probe', action='store_true')
+        mode.add_argument('--tight-probe', action='store_true')
         parser.add_argument('--jobs', type=int, default=18)
+        parser.add_argument('--report', help='Optional JSON report path (keep outside the worktree)')
+        parser.add_argument('--bla-exe', help='Optional existing fd binary for a separate 8x4 BLA control')
+        parser.add_argument('--quadratic-guard', help='Optional smaller guard for the degree-2 variant')
         args = parser.parse_args()
         if args.jobs < 1: parser.error('--jobs must be positive')
-        freeze(args.jobs) if args.freeze else probe(args.jobs)
+        if args.tight_probe:
+            tight_probe(args.jobs, args.report, args.bla_exe, args.quadratic_guard)
+        elif args.freeze:
+            freeze(args.jobs)
+        else:
+            probe(args.jobs)
     else:
         legacy()
