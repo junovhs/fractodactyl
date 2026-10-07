@@ -7,3 +7,4 @@ license.workspace = true
 
 [dependencies]
 fd-samples = { path = "../fd-samples" }
+fd-fixed = { path = "../fd-fixed" }

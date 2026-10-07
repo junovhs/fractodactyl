@@ -6,3 +6,6 @@
 /.claude/settings.local.json text eol=lf
 /.claude/.gitignore text eol=lf
 /.codex/.gitignore text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf

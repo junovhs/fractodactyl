@@ -6,16 +6,18 @@ use crate::reference::Reference;
 /// Result of one sample, before quantisation into columns.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Outcome {
-    /// `z` and `dz/dc` at the first iterate outside the escape radius (`n` iterates).
-    Escaped { n: u64, zr: f64, zi: f64, dr: f64, di: f64 },
+    /// `z` and `dz/dc = (dr, di) * 2^dexp` at the first iterate outside the escape
+    /// radius (`n` iterates).
+    Escaped { n: u64, zr: f64, zi: f64, dr: f64, di: f64, dexp: i64 },
     Interior,
     Unresolved,
 }
 
-/// Iterate sample `c = C + (ar, ai)`. `D` selects whether `dz/dc` is tracked.
+/// Iterate sample `C + (ar, ai)`. `D` selects whether `dz/dc` is tracked. `c` is the
+/// absolute sample position when f64 resolves it, enabling the closed-form interior test.
 #[inline]
-pub(crate) fn sample<const D: bool>(r: &Reference, c: (f64, f64), ar: f64, ai: f64, max_iter: u64, r2: f64) -> Outcome {
-    if in_main_components(c.0, c.1) {
+pub(crate) fn sample<const D: bool>(r: &Reference, c: Option<(f64, f64)>, ar: f64, ai: f64, max_iter: u64, r2: f64) -> Outcome {
+    if c.is_some_and(|c| in_main_components(c.0, c.1)) {
         return Outcome::Interior;
     }
     let (zr, zi, last) = (&r.re, &r.im, r.len() - 1);
@@ -41,10 +43,18 @@ pub(crate) fn sample<const D: bool>(r: &Reference, c: (f64, f64), ar: f64, ai: f
         let (fr, fi) = (zr[m] + xr, zi[m] + xi);
         let f2 = fr * fr + fi * fi;
         if f2 > r2 {
-            return Outcome::Escaped { n, zr: fr, zi: fi, dr, di };
+            return Outcome::Escaped { n, zr: fr, zi: fi, dr, di, dexp: 0 };
         }
         if f2 < xr * xr + xi * xi || m == last {
             (xr, xi, m) = (fr, fi, 0); // rebase onto Z_0 = 0
+        }
+        // Until the delta is resolvable next to Z, z == Z in f64 and a periodic
+        // reference would look like a settled cycle: judge nothing yet.
+        if !resolvable(xr, xi, f2) {
+            if n == chk {
+                (sr, si, chk) = (fr, fi, chk * 2);
+            }
+            continue;
         }
         let dist = (fr - sr).abs() + (fi - si).abs();
         let size = sr.abs() + si.abs();
@@ -65,6 +75,12 @@ pub(crate) fn sample<const D: bool>(r: &Reference, c: (f64, f64), ar: f64, ai: f
     Outcome::Unresolved
 }
 
+/// Delta large enough relative to `|z|^2 = f2` that `z = Z + delta` carries it.
+#[inline]
+pub(crate) fn resolvable(xr: f64, xi: f64, f2: f64) -> bool {
+    xr * xr + xi * xi > 1e-24 * f2
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,7 +88,7 @@ mod tests {
     fn run(cr: f64, ci: f64, max_iter: u64) -> Outcome {
         // Reference at a nearby point exercises the perturbation path.
         let r = Reference::new(cr - 1e-3, ci + 1e-3, max_iter, 1e10);
-        sample::<true>(&r, (cr, ci), 1e-3, -1e-3, max_iter, 1e20)
+        sample::<true>(&r, Some((cr, ci)), 1e-3, -1e-3, max_iter, 1e20)
     }
 
     fn direct(cr: f64, ci: f64, max_iter: u64) -> Option<u64> {
@@ -107,8 +123,8 @@ mod tests {
     #[test]
     fn derivative_is_skipped_without_changing_escape() {
         let r = Reference::new(0.3, 0.6, 1000, 1e10);
-        let a = sample::<true>(&r, (0.31, 0.6), 0.01, 0.0, 1000, 1e20);
-        let b = sample::<false>(&r, (0.31, 0.6), 0.01, 0.0, 1000, 1e20);
+        let a = sample::<true>(&r, Some((0.31, 0.6)), 0.01, 0.0, 1000, 1e20);
+        let b = sample::<false>(&r, Some((0.31, 0.6)), 0.01, 0.0, 1000, 1e20);
         match (a, b) {
             (Outcome::Escaped { n: x, .. }, Outcome::Escaped { n: y, .. }) => assert_eq!(x, y),
             o => panic!("{o:?}"),

@@ -1,0 +1,6 @@
+[package]
+name = "fd-fixed"
+description = "Arbitrary-precision fixed point for reference orbits and exact coordinates"
+version.workspace = true
+edition.workspace = true
+license.workspace = true

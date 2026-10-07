@@ -6,7 +6,8 @@ mod shade;
 const USAGE: &str = "\
 usage:
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
-            [--columns nu,de,normal] [--threads N] -o out.fds
+            [--columns nu,de,normal] [--threads N] [--rotation R]
+            [--kernel auto|f64|fx|scaled] -o out.fds
   fd shade <palette|relief> in.fds out.png
   fd info in.fds";
 

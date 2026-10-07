@@ -90,13 +90,26 @@ invalid class bytes.
 
 | Kernel id | Contract |
 |---|---|
-| `pert-f64/1` | Perturbation with rebasing against one f64 reference orbit at the centre (at most 2^20 points; past the end a sample rebases to `Z_0`). Interior: main cardioid/period-2 bulb test, then a Brent near-return check confirmed by Newton on the cycle multiplier. Everything is `Heuristic`. Refuses views where rounding the centre to f64 would move it by more than 1/1024 of a sample. Deep views come with BASE-02 (arbitrary-precision reference, extended-exponent deltas). |
+| `pert-f64/1` | Perturbation with rebasing against one f64 reference orbit at the f64-rounded centre (at most 2^20 points; past the end a sample rebases to `Z_0`). Used only while rounding the centre moves it by under 1/1024 of a sample. Interior: closed-form main cardioid/period-2 bulb test, then a Brent near-return check confirmed by Newton on the cycle multiplier. |
+| `pert-fx/1 bits=B` | Same perturbation, but the reference orbit is iterated in `B`-bit fixed point from the exact decimal centre (`B` = 128 + depth in bits). f64 deltas; used down to sample spacings of 2^-900. No closed-form shortcut (f64 cannot place the sample). |
+| `pert-fx-scaled/1 bits=B` | Fixed-point reference; the delta and `dz/dc` are f64 values times exact powers of two, so no depth underflows. Interior only by exact cycle return (no Newton yet): deep interior samples may stay `Unresolved`. |
+
+All three write `Heuristic` evidence. Periodicity checks run only once a sample's
+delta is resolvable next to the reference point in f64; before that `z == Z` in f64
+and a periodic reference (e.g. the Misiurewicz point `i`) would fake a cycle.
+`fd render` picks the cheapest valid kernel; `--kernel f64|fx|scaled` forces one where
+its contract holds (deeper kernels are valid at any depth, for cross-checking).
+
+Correctness is checked by `tools/oracle.py` (direct mpmath iteration at depth + 128
+bits, no perturbation) over the locations in `bench/locations.txt`; see
+`scripts/locations.sh`.
 
 ## Command surface
 
 ```text
 fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
-          [--columns nu,de,normal] [--threads N] [--rotation R] -o out.fds
+          [--columns nu,de,normal] [--threads N] [--rotation R]
+          [--kernel auto|f64|fx|scaled] -o out.fds
 fd shade <palette|relief> in.fds out.png
 fd info in.fds
 ```

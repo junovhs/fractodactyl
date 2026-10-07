@@ -12,9 +12,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fd-fixed"
+version = "0.1.0"
+
+[[package]]
 name = "fd-kernel"
 version = "0.1.0"
 dependencies = [
+ "fd-fixed",
  "fd-samples",
 ]
 

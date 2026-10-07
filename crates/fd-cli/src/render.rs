@@ -1,11 +1,11 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render, Params};
+use fd_kernel::{render, Params, Tier};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
 
-const FLAGS: [&str; 10] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "o"];
+const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let a = Args::parse(argv, &FLAGS)?;
@@ -27,6 +27,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         escape_radius: 1e10,
         columns: columns(a.str("columns").unwrap_or("nu,de,normal"))?,
         threads,
+        tier: tier(a.str("kernel").unwrap_or("auto"))?,
     };
     let t = Instant::now();
     let (header, samples) = render(&view, &p)?;
@@ -34,7 +35,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
     write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;
     let bytes = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
-    println!("{out}: {}x{} samples, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny);
+    println!("{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny, header.kernel);
     Ok(())
 }
 
@@ -44,6 +45,16 @@ fn size(s: &str) -> Result<(u32, u32), String> {
     match (w.parse(), h.parse()) {
         (Ok(w), Ok(h)) if w > 0 && h > 0 => Ok((w, h)),
         _ => Err(bad()),
+    }
+}
+
+fn tier(s: &str) -> Result<Option<Tier>, String> {
+    match s {
+        "auto" => Ok(None),
+        "f64" => Ok(Some(Tier::F64)),
+        "fx" => Ok(Some(Tier::Fixed)),
+        "scaled" => Ok(Some(Tier::Scaled)),
+        _ => Err(format!("--kernel: expected auto, f64, fx or scaled, got {s:?}")),
     }
 }
 

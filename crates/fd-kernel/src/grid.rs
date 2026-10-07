@@ -1,10 +1,12 @@
-//! Parallel driver: rows are handed out on demand (fractal rows vary wildly in
-//! cost), each thread writes its rows' column slices in place: no merge copy.
+//! Parallel driver: picks the cheapest valid tier, builds one reference, then hands
+//! rows out on demand (fractal rows vary wildly in cost). Each thread writes its rows'
+//! column slices in place: no merge copy. Output is independent of the thread count.
 use crate::reference::Reference;
-use crate::sample::{sample, Outcome};
-use crate::view::Plane;
-use crate::KERNEL;
-use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View, MINOR};
+use crate::sample::sample;
+use crate::scaled::scaled;
+use crate::store::{Row, Store};
+use crate::view::{Plane, Tier};
+use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
 use std::sync::Mutex;
 
 /// What to render (the view is passed separately).
@@ -20,49 +22,47 @@ pub struct Params {
     pub max_iter: u64,
     /// Escape radius.
     pub escape_radius: f64,
-    /// Columns to produce. `Class` is implied; `Bound` is refused (no bounds in f64).
+    /// Columns to produce. `Class` is implied; `Bound` is refused (no bounds yet).
     pub columns: ColumnSet,
     /// Worker threads (bounded by the row count).
     pub threads: usize,
-}
-
-struct Row<'a> {
-    j: usize,
-    class: &'a mut [Class],
-    nu: Option<&'a mut [f64]>,
-    de: Option<&'a mut [f32]>,
-    normal: Option<&'a mut [u16]>,
+    /// Force a tier instead of the cheapest valid one (refused where it is invalid).
+    pub tier: Option<Tier>,
 }
 
 /// Compute every sample of `view` into fresh columns, with the matching header.
 pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
     if p.columns.has(Column::Bound) {
-        return Err(format!("{KERNEL} produces heuristic results only: no Bound column"));
+        return Err("kernels produce heuristic results only: no Bound column".into());
     }
     if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
         return Err("grid must be a whole number of pixels".into());
     }
     let plane = Plane::new(view, p.nx, p.ny)?;
+    let tier = p.tier.unwrap_or(plane.tier);
+    if !plane.allows(tier) {
+        return Err(format!("{tier:?} tier is not valid at this depth (cheapest valid: {:?})", plane.tier));
+    }
+    let reference = match tier {
+        Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
+        _ => {
+            let (cr, ci) = Plane::center_fixed(view, plane.bits)?;
+            Reference::from_fixed(&cr, &ci, p.max_iter)
+        }
+    };
     let cols = p.columns.with(Column::Class);
     let (nx, n) = (p.nx as usize, p.nx as usize * p.ny as usize);
-    let reference = Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius);
     let mut s = Samples::alloc(n, cols);
     {
-        let mut nu = s.nu.as_deref_mut().map(|v| v.chunks_mut(nx));
-        let mut de = s.de.as_deref_mut().map(|v| v.chunks_mut(nx));
-        let mut normal = s.normal.as_deref_mut().map(|v| v.chunks_mut(nx));
-        let rows: Vec<Row> = (s.class.chunks_mut(nx).enumerate())
-            .map(|(j, class)| Row {
-                j,
-                class,
-                nu: nu.as_mut().and_then(Iterator::next),
-                de: de.as_mut().and_then(Iterator::next),
-                normal: normal.as_mut().and_then(Iterator::next),
-            })
-            .collect();
-        let queue = Mutex::new(rows.into_iter());
-        let r2 = p.escape_radius * p.escape_radius;
-        let job = Job { r: &reference, plane: &plane, px: plane.h * p.ss as f64, max_iter: p.max_iter, r2 };
+        let queue = Mutex::new(Row::split(&mut s, nx).into_iter());
+        let job = Job {
+            r: &reference,
+            plane: &plane,
+            tier,
+            store: Store::new(&plane, p.ss),
+            max_iter: p.max_iter,
+            r2: p.escape_radius * p.escape_radius,
+        };
         let deriv = cols.needs_derivative();
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
@@ -86,7 +86,7 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
         max_iter: p.max_iter,
         escape_radius: p.escape_radius,
         view: view.clone(),
-        kernel: KERNEL.into(),
+        kernel: plane.kernel(tier),
     };
     Ok((h, s))
 }
@@ -94,8 +94,8 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
 struct Job<'a> {
     r: &'a Reference,
     plane: &'a Plane,
-    /// Output pixel size in the complex plane.
-    px: f64,
+    tier: Tier,
+    store: Store,
     max_iter: u64,
     r2: f64,
 }
@@ -103,31 +103,18 @@ struct Job<'a> {
 impl Job<'_> {
     fn fill<const D: bool>(&self, mut row: Row) {
         let pl = self.plane;
+        let h = pl.h();
         for i in 0..row.class.len() {
-            let (ar, ai) = pl.dc(i, row.j);
-            let o = sample::<D>(self.r, (pl.c_re + ar, pl.c_im + ai), ar, ai, self.max_iter, self.r2);
-            let kind = match o {
-                Outcome::Escaped { .. } => Kind::Escaped,
-                Outcome::Interior => Kind::Interior,
-                Outcome::Unresolved => Kind::Unresolved,
+            let (ux, uy) = pl.unit_offset(i, row.j);
+            let o = match self.tier {
+                Tier::F64 => {
+                    let (ar, ai) = (ux * h, uy * h);
+                    sample::<D>(self.r, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
+                }
+                Tier::Fixed => sample::<D>(self.r, None, ux * h, uy * h, self.max_iter, self.r2),
+                Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
             };
-            row.class[i] = Class::new(kind, Evidence::Heuristic);
-            let Outcome::Escaped { n, zr, zi, dr, di } = o else { continue };
-            let z2 = zr * zr + zi * zi;
-            let log2z = 0.5 * z2.log2();
-            if let Some(nu) = row.nu.as_deref_mut() {
-                nu[i] = n as f64 + 1.0 - log2z.log2();
-            }
-            if let Some(de) = row.de.as_deref_mut() {
-                // 2 |z| ln|z| / |dz/dc|, in output pixels.
-                let lnz = log2z * std::f64::consts::LN_2;
-                de[i] = (2.0 * (z2 / (dr * dr + di * di)).sqrt() * lnz / self.px) as f32;
-            }
-            if let Some(nm) = row.normal.as_deref_mut() {
-                // Direction of z / (dz/dc), i.e. z * conj(dz/dc).
-                let (x, y) = pl.to_screen(zr * dr + zi * di, zi * dr - zr * di);
-                nm[i] = Samples::angle(x, y);
-            }
+            self.store.put(&mut row, i, o);
         }
     }
 }

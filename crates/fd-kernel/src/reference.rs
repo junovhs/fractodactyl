@@ -1,4 +1,6 @@
-//! Reference orbit Z_0 = 0, Z_{n+1} = Z_n^2 + C, stored structure-of-arrays.
+//! Reference orbit Z_0 = 0, Z_{n+1} = Z_n^2 + C, stored structure-of-arrays as f64.
+//! Computed either in f64 (shallow) or in fixed point at the exact centre (deep).
+use fd_fixed::Fixed;
 
 /// Reference orbit points `Z_0..Z_len-1`.
 pub struct Reference {
@@ -34,6 +36,21 @@ impl Reference {
                 break;
             }
         }
+        Reference { re, im }
+    }
+
+    /// Same orbit computed in fixed point from the exact centre. Stops at `|Z| > 2^16`
+    /// (samples rebase there; their own escape test uses the full radius).
+    pub fn from_fixed(cr: &Fixed, ci: &Fixed, max_iter: u64) -> Reference {
+        let steps = max_iter.min(Self::MAX_LEN as u64 - 1);
+        let cap = steps.min(1 << 16) as usize + 1;
+        let (mut re, mut im) = (Vec::with_capacity(cap), Vec::with_capacity(cap));
+        re.push(0.0);
+        im.push(0.0);
+        fd_fixed::orbit(cr, ci, steps, 4294967296.0, |a, b| {
+            re.push(a);
+            im.push(b);
+        });
         Reference { re, im }
     }
 
