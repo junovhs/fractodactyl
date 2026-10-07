@@ -73,7 +73,7 @@ All columns together cost 15 bytes per sample; omitted columns cost nothing.
 
 The `de` value is the standard derivative estimate. Asymptotically the true distance
 lies within `[de/4, de]`, but in floating point it is a **heuristic**: it may guide
-refinement, never certify that a pixel misses the set (docs/research/02).
+refinement, never certify that a pixel misses the set (docs/research/10-6-26/02).
 
 ### Class byte
 
@@ -83,7 +83,7 @@ refinement, never certify that a pixel misses the set (docs/research/02).
 | 2–3 | evidence | 0 `Heuristic` (plain floating point, no bound), 1 `Bounded` (see `bound`), 2 `Certified` (classification proven), 3 invalid |
 | 4–7 | reserved | 0 |
 
-Evidence follows the certification hierarchy in docs/research/02. A reader rejects
+Evidence follows the certification hierarchy in docs/research/10-6-26/02. A reader rejects
 invalid class bytes.
 
 ## Producers

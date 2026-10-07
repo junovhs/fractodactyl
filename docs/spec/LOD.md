@@ -49,7 +49,7 @@ accuracy of `de`.
 ## Threshold
 
 `max_px` defaults to **0.25 output pixels** (`FINAL_PX`), the initial final/video
-target from docs/research/02. It is experimental (DEC-05); LOD-03 measures it.
+target from docs/research/10-6-26/02. It is experimental (DEC-05); LOD-03 measures it.
 
 ## Validity, error, fallback (DEC-10)
 

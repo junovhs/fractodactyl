@@ -324,7 +324,7 @@ but ~1.5x less wall time, because the 29% of steps left to the fallback (the res
 regime, with periodicity checks) cost ~3x a step in the BLA regime. At shallow f64 views
 (|dc| ~ 1e-3) no block is valid at `eps = 2^-50` and the fallback is 100%. Only the CPU
 path exists; the GPU comparison (prior work found GPU BLA slower than plain series
-approximation, docs/research/01) waits for a GPU kernel.
+approximation, docs/research/10-6-26/01) waits for a GPU kernel.
 
 ## Manifests
 

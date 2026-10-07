@@ -11,6 +11,7 @@ The previous twin-minibrot swap prototype is intentionally absent from this bran
 1. Read `SPEC.md`.
 2. Read `docs/spec/ARCHITECTURE.md`.
 3. Read `docs/spec/ISHOO-LEDGER.md`.
-4. Read both research reports under `docs/research/`.
+4. Read the research reports under `docs/research/` (one folder per date).
+5. Read `docs/spec/METHOD.md` (how we work).
 
-This branch is a clean research/spec reset, not a functioning renderer.
+`fd` (crates/fd-cli) renders, compiles and plays genuine deep zooms; `viewer/explore.cmd` opens a local browser explorer.

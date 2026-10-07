@@ -154,5 +154,7 @@ Treat these as valid research outcomes:
 
 - `docs/spec/ARCHITECTURE.md` — tile/storage/GPU/LOD design and open technical questions.
 - `docs/spec/ISHOO-LEDGER.md` — exact ADR/issue/plan structure to file locally.
-- `docs/research/01-depth-independent-per-frame-cost.md`
-- `docs/research/02-google-maps-mathematical-atlas.md`
+- `docs/research/10-6-26/01-depth-independent-per-frame-cost.md`
+- `docs/research/10-6-26/02-google-maps-mathematical-atlas.md`
+- `docs/research/10-8-26/zoom-computation-reuse.md` (cross-frame reuse, exponential maps)
+- `docs/research/10-8-26/minibrot-renormalization-local-maps.md` (return maps near minibrots)
