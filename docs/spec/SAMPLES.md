@@ -105,6 +105,44 @@ Correctness is checked by `tools/oracle.py` (direct mpmath iteration at depth + 
 bits, no perturbation) over the locations in `bench/locations.txt`; see
 `scripts/locations.sh`.
 
+### Oracle tolerances
+
+A kernel computes each value at an effective point that may sit slightly off the
+sample's nominal point: the f64 tier rounds the centre (by contract under 1/1024 of a
+sample) and iterates an f64 reference orbit, so on `pert-f64/1` every sample is placed
+with an error of order `ε|c| / h` samples. Near the set a sub-pixel shift moves the
+values arbitrarily far, so the oracle measures errors as an **equivalent displacement in
+output pixels**, held to `--px` (default `1e-3`, about the f64 tier's 1/1024-sample
+contract). Rates come from exact c-gradients: for holomorphic `f`,
+`|∇ Re f| = |∇ Im f| = |f'|` (Cauchy–Riemann), and the oracle iterates
+`z'' ← 2(z'² + z z'')` alongside `z'`. `px` is the output-pixel width in `c`.
+
+- `nu` is gated on displacement only: `nu_px_err = |Δnu| / |∇nu|`,
+  `|∇nu| = 2 / (de ln 2)` per pixel.
+- `de` keeps its relative tolerance `--de` (default `1e-2`); a sample that misses it
+  fails only if `de_px_err = (|Δde| − 2⁻²⁴ de) / |∇de|` also exceeds `--px`, where
+  `2⁻²⁴ de` is the `f32` rounding and, from `ln de = ln 2 + ln|z| + ln ln|z| − ln|z'|`,
+  `|∇de| = de · px · |(z'/z)(1 + 1/ln|z|) − z''/z'|`.
+- `normal` keeps its angle tolerance `--normal` (default `1e-3` rad); a sample that
+  misses it fails only if `normal_px_err = (|Δθ| − π/65536) / |dθ/dpx|` also exceeds
+  `--px`. `θ = arg(S w)` with `w = z/z'` and `S` the plane-to-screen isometry, so
+  `|dθ/dpx| = px · |w'/w| = px · |z'/z − z''/z'|`; `π/65536` is the `u16` encoding's
+  round-to-nearest half-step.
+
+The raw `nu_err`, `de_rel_err` and `normal_err` are still reported (FIX-01). Two cases
+that fail raw tolerances but are placement, not kernel, errors:
+
+- The `1e-9` frame of `bench/path-valley.txt` at `32x18`, `--iter 20000`, `--k 2`:
+  sample `(24, 13)` lies `1.4e-4` px from the set, where the normal turns ~8000 rad per
+  pixel; the centre's f64 rounding alone shifts samples by `1.2e-6` px. Result:
+  `normal_err = 3.9e-3` rad but `normal_px_err = 4.8e-7` px. The `fx` tier, at the exact
+  centre, gives `normal_err = 3.6e-5` rad (under the encoding step).
+- Frame 150 of `bench/path-atlas-v0.txt` at `960x540`, `--iter 100000`, `--k 8` (f64
+  tier, centre rounding `2e-5` px): sample `(660, 236)` has oracle `de = 7.5e-8` px and
+  kernel `de = 1.4e-5` px (`de_rel_err = 181`), `de_px_err = 9.6e-6` px; `nu_px_err` and
+  `normal_px_err` are both ≈ `5e-5` px, one common shift. The `fx` tier passes the raw
+  tolerances there too.
+
 ## Benchmark report
 
 `fd bench` takes the `fd render` flags plus `--runs N` (default 3), renders the view

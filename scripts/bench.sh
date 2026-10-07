@@ -13,7 +13,7 @@ NAMES=("${@:-seahorse}")
 THREADS=${THREADS:-4}
 REQUIRED=(cold_seconds warm_seconds reference_seconds peak_rss_bytes sample_bytes reference_bytes
   per_pixel reference_length fds_bytes atlas_bytes_read pixel_fraction iterations_per_pixel
-  class_mismatch nu_px_err de_rel_err normal_err oracle_seconds)
+  class_mismatch nu_px_err de_rel_err normal_err normal_px_err oracle_seconds)
 mkdir -p "$OUT"
 : > "$OUT/bench.jsonl"
 fail=0
