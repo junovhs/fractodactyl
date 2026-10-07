@@ -71,7 +71,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 }
 
 /// One path line: `re im width [rotation]`.
-fn view(line: &str) -> Result<View, String> {
+pub(crate) fn view(line: &str) -> Result<View, String> {
     let f: Vec<&str> = line.split_whitespace().collect();
     let rotation = match f.len() {
         3 => 0.0,

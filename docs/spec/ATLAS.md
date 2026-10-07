@@ -55,6 +55,7 @@ length-prefixed (`u64`) byte strings and UTF-8 text. Already-canonical blobs suc
 | 6 | `samples` | one `.fds` file (SAMPLES.md) |
 | 7 | `tile-manifest` | one logical tile (Manifests below) |
 | 8 | `frame-manifest` | one video frame (Manifests below) |
+| 9 | `orbit-manifest` | one reference orbit bound to its exact centre (Orbit slabs below) |
 
 Other non-zero codes are accepted and shown numerically.
 
@@ -120,7 +121,7 @@ allocation class. The research allocation guide (tuning targets only, not enforc
 | `class.operators` | orbit-slab, bla, return-map | 55-70% |
 | `class.evidence` | certificate, exact-sample, samples | 10-20% |
 | (previews) | no kind yet | 10-20% |
-| `class.manifests` | tile-manifest, frame-manifest | rest |
+| `class.manifests` | tile-manifest, frame-manifest, orbit-manifest | rest |
 | `class.other` | unknown kinds | - |
 
 ## Orbit slabs (REF-01)
@@ -140,21 +141,64 @@ same orbit prefix always cuts into the same chunks. Kind 1 (`orbit-slab`), encod
 Contract: formula `mandelbrot`, rounding `nearest` (each point is the f64 nearest the
 orbit computed at the working precision), `precision_bits` = 53 for the f64 tier or the
 fixed-point fraction bits of the deep tiers. Decoding re-encodes and refuses
-non-canonical bytes. A slab says nothing about which centre `C` it belongs to: binding
-an orbit to its exact centre is the manifest's job (REF-02).
+non-canonical bytes. A slab says nothing about which centre `C` it belongs to; the
+orbit manifest (kind 9, encoding 1, REF-02) binds an orbit to its exact centre:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `center_re`, `center_im` | str | the exact decimal centre the orbit was computed at |
+| `n` | u64 | slab count, at least 1 |
+| `slabs[n]` | 32-byte id | the orbit's slabs in order from `Z_0` |
+
+Its contract carries the orbit's `precision_bits` (formula `mandelbrot`, rounding
+`nearest`); every slab it names must have the same precision.
 
 ```text
 fd orbit put --store DIR <render view flags> [--slab N]   # default N = 4096
-fd render <flags> --store DIR --orbit ID,...               # load instead of compute
+fd render <flags> --store DIR --orbit ID                   # load instead of compute
 ```
 
-`put` computes the reference `fd render` would use, stores its slabs and prints
-`points`, `precision`, `slab_size`, `slabs`, one `slab START LEN ID RESULT BYTES` line
-per slab, `slab_bytes`, `bytes_per_iter` (chunk bytes over points: 16 plus the 48-byte
-header and fields per slab), `orbit` (the ids in order) and the atlas byte lines.
-`render --orbit` joins the slabs (contiguous from `Z_0`, one size), refuses a precision
-that does not match the view's tier, and renders bit-identical samples to computing the
-orbit. Compact encodings (shared exponents, compression) are a follow-up; encoding 1 is
+`put` computes the reference `fd render` would use, stores its slabs and its orbit
+manifest and prints `points`, `precision`, `slab_size`, one `slab START LEN ID RESULT
+BYTES` line per slab, `slabs`, `slab_bytes`, `bytes_per_iter` (slab chunk bytes over
+points: 16 plus the 48-byte header and fields per slab), `orbit` (the orbit manifest id)
+and the atlas byte lines. `render --orbit` refuses an orbit whose centre is not the
+view's centre as an exact decimal (`1.0` and `1` agree), joins the slabs (contiguous from
+`Z_0`, one size), and checks precision: the f64 tier needs exactly 53 bits, the deep
+tiers take any precision at least the view's own (the header's `bits=` then records the
+orbit's). With the view's own precision the samples are bit-identical to computing the
+orbit; with more they are those of a render whose reference was computed at that
+precision, which is at least as accurate.
+
+### Orbit reuse (REF-02)
+
+The reference orbit depends only on the centre `C` and the working precision, not on
+the frame's width, size or iteration limit (a longer orbit is valid, a shorter one just
+rebases sooner). So every frame of a zoom path at one exact centre can render from one
+stored orbit: the one computed for its deepest frame.
+
+```text
+fd reuse PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
+         [--threads N] [--kernel K] [--slab N]
+```
+
+`PATH` is a camera path as in PLAN.md (`re im width [rotation]` per line). Frames are
+grouped by exact centre, f64-tier (53-bit) frames apart from deep ones. Each group's
+orbit is computed once for its deepest frame and stored (`orbit G centre RE IM precision
+B points P frames n lead F seconds S id ID`). Every frame is then rendered twice, from
+its own computed orbit and from the stored one (loaded through the manifest, which
+checks the centre), and compared sample by sample: `frame F orbit G ROLE need_bits b
+orbit_bits B own_reference_seconds .. own_seconds .. load_seconds .. reuse_seconds ..
+iterations OWN REUSED differing D`. ROLE is `lead` (the orbit was computed for this
+frame), `reused` (it was computed for another frame) or `fallback` (no other frame shares
+the centre, so the frame uses its own orbit). Totals: `frames`, `orbits`, `reused`,
+`fallback`, `reuse_ratio` (frames per orbit), `reference_seconds.per_frame` (orbit time
+with one orbit per frame), `reference_seconds.shared`, `load_seconds`,
+`reference_seconds.saved` (per-frame minus shared minus loads), `seconds.per_frame` and
+`seconds.reuse` (whole-path wall time each way), `identical_frames`,
+`differing_samples`, then the atlas byte lines. The command fails if any frame whose
+precision equals its orbit's renders differently. Frames off the shared centre (pans)
+need an off-centre reference and are not reused yet. Compact encodings (shared exponents, compression) are a follow-up; encoding 1 is
 the 16 bytes/iteration baseline.
 
 ## Manifests

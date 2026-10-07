@@ -39,8 +39,10 @@ impl Kind {
     pub const TILE_MANIFEST: Kind = Kind(7);
     /// A frame manifest (`fd_atlas::FrameManifest`).
     pub const FRAME_MANIFEST: Kind = Kind(8);
+    /// A reference orbit bound to its exact centre (`fd_atlas::OrbitManifest`).
+    pub const ORBIT_MANIFEST: Kind = Kind(9);
 
-    const NAMES: [(Kind, &'static str); 8] = [
+    const NAMES: [(Kind, &'static str); 9] = [
         (Kind::ORBIT_SLAB, "orbit-slab"),
         (Kind::BLA, "bla"),
         (Kind::RETURN_MAP, "return-map"),
@@ -49,6 +51,7 @@ impl Kind {
         (Kind::SAMPLES, "samples"),
         (Kind::TILE_MANIFEST, "tile-manifest"),
         (Kind::FRAME_MANIFEST, "frame-manifest"),
+        (Kind::ORBIT_MANIFEST, "orbit-manifest"),
     ];
 
     /// The registered name, if this code has one.

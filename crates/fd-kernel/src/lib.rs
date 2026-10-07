@@ -23,7 +23,7 @@ mod scaled;
 mod store;
 mod view;
 
-pub use grid::{reference, render, render_stats, render_with, Params, Stats};
+pub use grid::{reference, reference_bits, render, render_stats, render_with, Params, Stats};
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};

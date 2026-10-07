@@ -22,6 +22,7 @@ version = "0.1.0"
 dependencies = [
  "fd-addr",
  "fd-atlas",
+ "fd-fixed",
  "fd-kernel",
  "fd-samples",
  "fd-shade",

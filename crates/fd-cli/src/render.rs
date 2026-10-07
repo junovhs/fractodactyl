@@ -13,9 +13,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
-    // `--orbit ID,...`: reference orbit slabs from the atlas instead of computing it.
+    // `--orbit ID`: a stored reference orbit for this exact centre instead of computing it.
     let orbit = match a.str("orbit") {
-        Some(ids) => Some(crate::orbit::load(&crate::chunk::store(&a)?, ids)?),
+        Some(id) => Some(crate::orbit::load(&crate::chunk::store(&a)?, id, &view)?),
         None => None,
     };
     let threads = p.threads;
@@ -69,10 +69,15 @@ pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
         width: a.need("width")?.into(),
         rotation: a.num("rotation", 0.0)?,
     };
+    Ok((view, params(a)?))
+}
+
+/// The render parameters named by the shared flags other than the view's.
+pub(crate) fn params(a: &Args) -> Result<Params, String> {
     let (w, h) = size(a.str("size").unwrap_or("640x360"))?;
     let ss: u32 = a.num("ss", 1)?;
     let threads = a.num("threads", std::thread::available_parallelism().map_or(1, |n| n.get()))?;
-    let p = Params {
+    Ok(Params {
         nx: w * ss,
         ny: h * ss,
         ss,
@@ -81,8 +86,7 @@ pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
         columns: columns(a.str("columns").unwrap_or("nu,de,normal"))?,
         threads,
         tier: tier(a.str("kernel").unwrap_or("auto"))?,
-    };
-    Ok((view, p))
+    })
 }
 
 pub(crate) fn size(s: &str) -> Result<(u32, u32), String> {

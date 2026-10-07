@@ -114,7 +114,7 @@ fn class(kind: Kind) -> usize {
     match kind {
         Kind::ORBIT_SLAB | Kind::BLA | Kind::RETURN_MAP => 0,
         Kind::CERTIFICATE | Kind::EXACT_SAMPLE | Kind::SAMPLES => 1,
-        Kind::TILE_MANIFEST | Kind::FRAME_MANIFEST => 2,
+        Kind::TILE_MANIFEST | Kind::FRAME_MANIFEST | Kind::ORBIT_MANIFEST => 2,
         _ => 3,
     }
 }

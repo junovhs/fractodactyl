@@ -61,25 +61,39 @@ pub fn reference(view: &View, p: &Params) -> Result<(Reference, u32), String> {
     Ok((compute(view, &plane, tier, p)?, precision(&plane, tier)))
 }
 
+/// The working precision [`reference`] would use for `view` and `p`, without computing it.
+pub fn reference_bits(view: &View, p: &Params) -> Result<u32, String> {
+    let (plane, tier) = setup(view, p)?;
+    Ok(precision(&plane, tier))
+}
+
 /// [`render_stats`] with a supplied reference orbit and its precision bits (for example
-/// loaded from atlas slabs) instead of computing it. The precision must match this
-/// view's tier; the caller vouches that the orbit is [`reference`] for the same view
-/// and params, and output is then identical.
+/// loaded from atlas slabs) instead of computing it. The caller vouches that the orbit
+/// is the one at this view's exact centre (any length, any `max_iter`). The f64 tier
+/// needs exactly 53 bits; the deep tiers take any precision at least
+/// [`reference_bits`] (REF-02: one deep orbit serves every shallower frame at its
+/// centre), and the header records the precision used. With the precision
+/// [`reference`] would use, output is identical to computing the orbit.
 pub fn render_with(
     view: &View,
     p: &Params,
     supplied: Option<(Reference, u32)>,
 ) -> Result<(Header, Samples, Stats), String> {
-    let (plane, tier) = setup(view, p)?;
+    let (mut plane, tier) = setup(view, p)?;
     let t = Instant::now();
+    let need = precision(&plane, tier);
     let reference = match supplied {
-        Some((_, bits)) if bits != precision(&plane, tier) => {
-            return Err(format!("supplied reference has {bits} bits; this view needs {}", precision(&plane, tier)))
+        Some((_, bits)) if bits != need && (tier == Tier::F64 || bits < need) => {
+            let at_least = if tier == Tier::F64 { "" } else { "at least " };
+            return Err(format!("supplied reference has {bits} bits; this view needs {at_least}{need}"));
         }
         Some((r, _)) if r.is_empty() || r.re.len() != r.im.len() || r.re[0] != 0.0 || r.im[0] != 0.0 => {
             return Err("supplied reference orbit must start at Z_0 = 0 with equal re/im lengths".into())
         }
-        Some((r, _)) => r,
+        Some((r, bits)) => {
+            plane.bits = bits.into();
+            r
+        }
         None => compute(view, &plane, tier, p)?,
     };
     let reference_seconds = t.elapsed().as_secs_f64();

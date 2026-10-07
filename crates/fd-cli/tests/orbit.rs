@@ -1,6 +1,7 @@
 //! Drives the real `fd orbit put` and `fd render --orbit`: reference orbits of several
 //! slab sizes round-trip through the atlas store, report bytes per iteration, dedupe on
-//! a second put, and render bit-identical samples when loaded back.
+//! a second put, render bit-identical samples when loaded back, and refuse a view at
+//! another centre.
 use std::process::{Command, Output};
 
 fn fd(args: &[&str]) -> Output {
@@ -65,4 +66,12 @@ fn slabs_round_trip_and_render_identically() {
     let wrong = fd(&[&deep[..], &["--store", st, "--orbit", f64_orbit.as_str(), "-o", out.to_str().unwrap()]].concat());
     assert!(!wrong.status.success());
     assert!(String::from_utf8_lossy(&wrong.stderr).contains("bits"));
+    // An orbit is bound to its exact centre: the same centre written differently loads,
+    // any other centre is refused.
+    let shallow = ["render", "--re", "0.0", "--im", "1e0", "--width", "1e-3", "--size", "32x24", "--iter", "20000"];
+    ok(&[&shallow[..], &["--store", st, "--orbit", f64_orbit.as_str(), "-o", out.to_str().unwrap()]].concat());
+    let moved = ["render", "--re", "0", "--im", "0.99", "--width", "1e-3", "--size", "32x24", "--iter", "20000"];
+    let moved = fd(&[&moved[..], &["--store", st, "--orbit", f64_orbit.as_str(), "-o", out.to_str().unwrap()]].concat());
+    assert!(!moved.status.success());
+    assert!(String::from_utf8_lossy(&moved.stderr).contains("centre"));
 }

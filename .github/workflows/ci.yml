@@ -46,6 +46,12 @@ jobs:
               target/release/fd bench "${args[@]}" --runs 1 | grep -o '"iterations":{[^}]*}'
             done
           done
+      - name: multi-frame reference reuse (REF-02) along a known path
+        run: |
+          for k in auto fx; do
+            echo "== valley path, kernel $k"
+            target/release/fd reuse bench/path-valley.txt --store "out/reuse-$k" --size 128x72 --iter 50000 --columns nu,de --kernel "$k" --threads 4
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

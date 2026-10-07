@@ -9,7 +9,7 @@ mod slab;
 mod store;
 
 pub use chunk::{canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN};
-pub use manifest::{is_manifest, walk, Evidence, FrameManifest, TileManifest, Walk, MANIFEST_ENCODING};
+pub use manifest::{is_manifest, walk, Evidence, FrameManifest, OrbitManifest, TileManifest, Walk, MANIFEST_ENCODING};
 pub use sha256::Sha256;
 pub use slab::{OrbitSlab, SLAB_ENCODING};
 pub use store::{Budget, Put, Stats, Store};

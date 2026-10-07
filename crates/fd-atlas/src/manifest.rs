@@ -187,6 +187,61 @@ impl FrameManifest {
     }
 }
 
+/// A stored reference orbit bound to the exact centre `C` it was computed at (REF-02):
+/// the decimal centre and the orbit's slabs in order from `Z_0`. The working precision
+/// is the contract's `precision_bits` (53 for the f64 tier, fraction bits otherwise).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrbitManifest {
+    /// Exact decimal centre, real part, as the renderer was given it.
+    pub center_re: String,
+    /// Exact decimal centre, imaginary part.
+    pub center_im: String,
+    /// Working precision of the orbit.
+    pub precision_bits: u32,
+    /// Orbit slab chunks in order.
+    pub slabs: Vec<ChunkId>,
+}
+
+impl OrbitManifest {
+    /// Contract of a v1 orbit manifest with `precision_bits`.
+    pub fn contract(precision_bits: u32) -> Contract {
+        Contract {
+            kind: Kind::ORBIT_MANIFEST,
+            encoding: MANIFEST_ENCODING,
+            formula: Formula::MANDELBROT,
+            precision_bits,
+            rounding: Rounding::Nearest,
+        }
+    }
+
+    /// Canonical chunk. Refuses an empty slab list.
+    pub fn to_chunk(&self) -> Result<Chunk, Error> {
+        if self.slabs.is_empty() {
+            return Err(malformed("orbit manifest needs at least one slab"));
+        }
+        let mut b = Builder::new(Self::contract(self.precision_bits));
+        b.str(&self.center_re).str(&self.center_im).u64(self.slabs.len() as u64);
+        for id in &self.slabs {
+            b.raw(&id.0);
+        }
+        Ok(b.finish())
+    }
+
+    /// Decode an orbit manifest chunk, refusing anything not in canonical form.
+    pub fn from_chunk(chunk: &Chunk) -> Result<OrbitManifest, Error> {
+        let precision_bits = chunk.contract().precision_bits;
+        expect(chunk, Self::contract(precision_bits))?;
+        let mut r = Reader(chunk.payload());
+        let center_re = r.str()?.to_string();
+        let center_im = r.str()?.to_string();
+        let n = r.u64()?;
+        let slabs = (0..n).map(|_| r.id()).collect::<Result<Vec<_>, Error>>()?;
+        let m = OrbitManifest { center_re, center_im, precision_bits, slabs };
+        canonical(chunk, &m.to_chunk()?, r)?;
+        Ok(m)
+    }
+}
+
 /// What walking a set of frame manifests found: how much the frames share.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Walk {
@@ -390,5 +445,17 @@ mod tests {
         b.str("40/3/5").f64(0.25).f64(0.0).f64(0.5).f64(0.0).u32(64).u32(36).u32(1).u64(1000).u32(3);
         b.u64(2).raw(&id(5).0).raw(&id(4).0);
         assert!(FrameManifest::from_chunk(&b.finish()).is_err());
+    }
+
+    #[test]
+    fn orbit_round_trip_binds_centre_and_precision() {
+        let m = OrbitManifest { center_re: "-0.75".into(), center_im: "0.1".into(), precision_bits: 233, slabs: vec![id(1), id(2)] };
+        let c = m.to_chunk().unwrap();
+        assert_eq!(c.contract().kind, Kind::ORBIT_MANIFEST);
+        assert_eq!(OrbitManifest::from_chunk(&c).unwrap(), m);
+        let moved = OrbitManifest { center_im: "0.10".into(), ..m.clone() };
+        assert_ne!(moved.to_chunk().unwrap().id(), c.id());
+        assert!(OrbitManifest { slabs: vec![], ..m }.to_chunk().is_err());
+        assert!(FrameManifest::from_chunk(&c).is_err());
     }
 }
