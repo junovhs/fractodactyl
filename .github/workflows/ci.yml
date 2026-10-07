@@ -34,6 +34,18 @@ jobs:
         run: THREADS=4 bash scripts/locations.sh target/release/fd out/locations
       - name: benchmark report (shallow f64 + deep scaled), every metric populated
         run: THREADS=4 bash scripts/bench.sh target/release/fd out/bench seahorse i-1e-300
+      - name: progressive refinement savings (LOD-02), vs full render iterations
+        run: |
+          mkdir -p out/refine
+          for v in "-0.7453 0.1127 0.0065 seahorse" "-0.75 0 3 whole"; do
+            read -r re im w name <<< "$v"
+            for k in auto fx; do
+              args=(--re "$re" --im "$im" --width "$w" --iter 20000 --size 192x108 --ss 3 --kernel "$k" --columns nu,de,bound --threads 4)
+              echo "== $name $k"
+              target/release/fd render "${args[@]}" --refine 8 -o "out/refine/$name-$k.fds" | grep -v '^block '
+              target/release/fd bench "${args[@]}" --runs 1 | grep -o '"iterations":{[^}]*}'
+            done
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

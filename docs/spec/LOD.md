@@ -3,7 +3,8 @@
 The rule that decides whether a tile of output pixels is visually resolved (accept) or
 needs more work (refine). Governed by DEC-05 (refinement is driven by screen-space
 error) and DEC-10 (every approximation layer states validity, error and fallback).
-Code: `crates/fd-samples/src/lod.rs`; CLI `fd lod`. Progressive phases are LOD-02.
+Code: `crates/fd-samples/src/lod.rs`; CLI `fd lod`. Progressive phases (LOD-02) are
+`fd render --refine`, below.
 
 ## Inputs
 
@@ -85,6 +86,43 @@ derivative radius is under half `|dz/dc|`; otherwise it stays `Heuristic`. Its c
 Interior samples, unresolved samples and `pert-fx-scaled/1` stay `Heuristic`. Renders
 without `bound` run the unchanged kernel and stay `Heuristic`. LOD-04 checks accepted
 tiles against the oracle.
+
+## Progressive refinement (LOD-02)
+
+`fd render ... --refine B [--max-px E]` (`crates/fd-kernel/src/refine.rs`) renders in
+`B x B` output-pixel blocks (row-major, edge blocks smaller) through phases, recording a
+per-block bitmask: `1` preview, `2` sparse, `4` dense, `8` final, `16` fallback.
+`de` and `bound` are always produced.
+
+1. **Preview:** one sample per block (the sparse sample of its centre pixel). Display
+   only; it never certifies a block.
+2. **Sparse:** one sample per output pixel, sub-sample `(ss/2, ss/2)`. The rule above
+   judges the block with each sample covering its whole pixel: the Koebe disk must clear
+   its farthest pixel corner, `reach = sqrt2 (floor(ss/2) + 1/2) / ss` px. Accepted
+   blocks are **final**; each pixel's other `ss^2 - 1` sample slots are copies of its
+   sparse sample, written `Heuristic` (a copy has no evidence for its own position).
+3. **Dense:** the blocks not accepted are compacted into one work list and every sample
+   they still lack is computed.
+4. **Final/fallback:** each dense block is judged again at full `ss`: accepted is
+   **final**, otherwise **fallback** (its exact per-sample results stand, as without LOD).
+
+Every computed sample is bit-identical to a plain render's. Every block ends final or
+fallback. Savings come from skipped supersamples, so `--ss 1` skips nothing; kernels
+without Bounded evidence (`pert-fx-scaled/1`, LOD-06) fall back everywhere.
+
+Report, after the usual render line:
+
+```
+refine block_px B max_px E blocks N
+phase preview|sparse|dense blocks n samples S iterations I
+blocks.final F
+blocks.fallback K
+samples S
+full_samples S
+skipped_samples S
+iterations I
+block BX BY mask M final|fallback
+```
 
 ## CLI
 

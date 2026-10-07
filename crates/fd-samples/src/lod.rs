@@ -48,9 +48,14 @@ pub struct Verdict {
 /// Judge the samples `idx` (indices into `s`) of one tile; `ss` is samples per pixel per
 /// axis and `max_px` the accepted projected error in output pixels.
 pub fn judge(s: &Samples, idx: impl IntoIterator<Item = usize>, ss: u32, max_px: f64) -> Verdict {
-    let refine = |reason| Verdict { state: State::UnresolvedBoundary, e_px: f64::INFINITY, accept: false, reason };
     // A sample cell is 1/ss px square; the set must stay farther than its half-diagonal.
-    let cell = std::f64::consts::SQRT_2 / (2.0 * ss.max(1) as f64);
+    judge_reach(s, idx, std::f64::consts::SQRT_2 / (2.0 * ss.max(1) as f64), max_px)
+}
+
+/// [`judge`] where each sample stands for every point within `reach` output pixels of
+/// it (the farthest point of the area it covers): the Koebe disk `de/4` must clear it.
+pub fn judge_reach(s: &Samples, idx: impl IntoIterator<Item = usize>, reach: f64, max_px: f64) -> Verdict {
+    let refine = |reason| Verdict { state: State::UnresolvedBoundary, e_px: f64::INFINITY, accept: false, reason };
     let (mut interior, mut escaped, mut e_px) = (false, false, 0.0f64);
     for k in idx {
         let c = s.class[k];
@@ -59,7 +64,7 @@ pub fn judge(s: &Samples, idx: impl IntoIterator<Item = usize>, ss: u32, max_px:
             Some(Kind::Escaped) if ev >= Evidence::Bounded => {
                 let (Some(de), Some(bound)) = (&s.de, &s.bound) else { return refine("no-bound") };
                 let (de, bound) = (de[k] as f64, bound[k] as f64);
-                if de.is_nan() || de / 4.0 <= cell {
+                if de.is_nan() || de / 4.0 <= reach {
                     return refine("near-set"); // Koebe: distance to the set >= de/4
                 }
                 if !bound.is_finite() || bound < 0.0 {

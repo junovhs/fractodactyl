@@ -15,6 +15,7 @@ usage:
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
             [--columns nu,de,normal,bound] [--threads N] [--rotation R]
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID,...] -o out.fds
+            [--refine BLOCK_PX [--max-px E]]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
   fd shade <palette|relief> in.fds out.png

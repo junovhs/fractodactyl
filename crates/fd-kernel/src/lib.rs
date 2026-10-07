@@ -12,10 +12,12 @@
 //!
 //! Results carry `Evidence::Heuristic`, except escaped samples of the f64/fx tiers when
 //! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). No series/BLA skipping
-//! (ACC-01).
+//! (ACC-01). `render_refined` skips supersamples in blocks the screen-space error rule
+//! accepts from one sample per pixel (LOD-02).
 mod grid;
 mod interior;
 mod reference;
+mod refine;
 mod sample;
 mod scaled;
 mod store;
@@ -23,4 +25,5 @@ mod view;
 
 pub use grid::{reference, render, render_stats, render_with, Params, Stats};
 pub use reference::Reference;
+pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};

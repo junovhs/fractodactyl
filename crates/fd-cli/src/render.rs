@@ -1,6 +1,6 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render_with, Params, Tier};
+use fd_kernel::{render_refined, render_with, Params, Refinement, Tier, FINAL};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
@@ -9,7 +9,7 @@ use std::time::Instant;
 pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit"]).collect();
+    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "refine", "max-px"]).collect();
     let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
@@ -20,13 +20,45 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     };
     let threads = p.threads;
     let t = Instant::now();
-    let (header, samples, _) = render_with(&view, &p, orbit)?;
+    // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
+    let (header, samples, refined) = match a.str("refine") {
+        None => render_with(&view, &p, orbit).map(|(h, s, _)| (h, s, None))?,
+        Some(_) if orbit.is_some() => return Err("--refine does not take --orbit".into()),
+        Some(_) => {
+            let max_px = a.num("max-px", fd_samples::lod::FINAL_PX)?;
+            let (h, s, st, r) = render_refined(&view, &p, a.num("refine", 0)?, max_px)?;
+            (h, s, Some((st.iterations, max_px, r)))
+        }
+    };
     let secs = t.elapsed().as_secs_f64();
     let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
     write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;
     let bytes = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
     println!("{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny, header.kernel);
+    if let Some((iterations, max_px, r)) = refined {
+        report(&r, max_px, iterations, samples.class.len() as u64);
+    }
     Ok(())
+}
+
+/// Work per phase and each block's phase mask (final or fallback).
+fn report(r: &Refinement, max_px: f64, iterations: u64, full: u64) {
+    let finals = r.mask.iter().filter(|&&m| m & FINAL != 0).count();
+    println!("refine block_px {} max_px {max_px} blocks {}", r.block_px, r.mask.len());
+    for (name, ph) in [("preview", r.preview), ("sparse", r.sparse), ("dense", r.dense)] {
+        println!("phase {name} blocks {} samples {} iterations {}", ph.blocks, ph.samples, ph.iterations);
+    }
+    let samples = r.preview.samples + r.sparse.samples + r.dense.samples;
+    println!("blocks.final {finals}
+blocks.fallback {}", r.mask.len() - finals);
+    println!("samples {samples}
+full_samples {full}
+skipped_samples {}
+iterations {iterations}", full - samples);
+    for (k, m) in r.mask.iter().enumerate() {
+        let end = if m & FINAL != 0 { "final" } else { "fallback" };
+        println!("block {} {} mask {m} {end}", k % r.blocks_x, k / r.blocks_x);
+    }
 }
 
 /// The view and render parameters named by the shared flags.

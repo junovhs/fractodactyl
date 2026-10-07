@@ -2,7 +2,7 @@
 //! rows out on demand (fractal rows vary wildly in cost). Each thread writes its rows'
 //! column slices in place: no merge copy. Output is independent of the thread count.
 use crate::reference::Reference;
-use crate::sample::sample;
+use crate::sample::{sample, Outcome};
 use crate::scaled::scaled;
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
@@ -89,21 +89,8 @@ pub fn render_with(
     let mut s = Samples::alloc(n, cols);
     {
         let queue = Mutex::new(Row::split(&mut s, nx).into_iter());
-        let job = Job {
-            r: &reference,
-            plane: &plane,
-            tier,
-            store: Store::new(&plane, p.ss),
-            max_iter: p.max_iter,
-            r2: p.escape_radius * p.escape_radius,
-            q: match (cols.has(Column::Bound), tier) {
-                (false, _) | (_, Tier::Scaled) => Vec::new(),
-                (true, Tier::F64) => reference.error_radius(None, plane.c_re, plane.c_im),
-                (true, Tier::Fixed) => reference.error_radius(Some(plane.bits), plane.c_re, plane.c_im),
-            },
-        };
-        let bounded = !job.q.is_empty();
-        let deriv = cols.needs_derivative() || bounded;
+        let job = Job::new(&reference, &plane, tier, p, cols);
+        let (deriv, bounded) = (job.deriv, !job.q.is_empty());
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
                 sc.spawn(|| {
@@ -122,7 +109,13 @@ pub fn render_with(
             }
         });
     }
-    let h = Header {
+    let stats = Stats { reference_len: reference.len(), reference_seconds, iterations: iterations.into_inner() };
+    Ok((header(view, p, cols, &plane, tier), s, stats))
+}
+
+/// The header of a render of `view` with `cols`.
+pub(crate) fn header(view: &View, p: &Params, cols: ColumnSet, plane: &Plane, tier: Tier) -> Header {
+    Header {
         minor: MINOR,
         columns: cols,
         nx: p.nx,
@@ -132,38 +125,64 @@ pub fn render_with(
         escape_radius: p.escape_radius,
         view: view.clone(),
         kernel: plane.kernel(tier),
-    };
-    let stats = Stats { reference_len: reference.len(), reference_seconds, iterations: iterations.into_inner() };
-    Ok((h, s, stats))
+    }
 }
 
-struct Job<'a> {
+pub(crate) struct Job<'a> {
     r: &'a Reference,
     plane: &'a Plane,
     tier: Tier,
-    store: Store,
-    max_iter: u64,
+    pub(crate) store: Store,
+    pub(crate) max_iter: u64,
     r2: f64,
     /// Reference error radii; empty unless bounds are tracked.
     q: Vec<f64>,
+    /// Whether `dz/dc` is tracked.
+    deriv: bool,
 }
 
-impl Job<'_> {
-    /// Fill one row; returns the iterates spent.
-    fn fill<const D: bool, const B: bool>(&self, mut row: Row) -> u64 {
+impl<'a> Job<'a> {
+    /// Per-render sample constants for columns `cols` (bounds tracked iff `Bound` is in it).
+    pub(crate) fn new(r: &'a Reference, plane: &'a Plane, tier: Tier, p: &Params, cols: ColumnSet) -> Job<'a> {
+        let q = match (cols.has(Column::Bound), tier) {
+            (false, _) | (_, Tier::Scaled) => Vec::new(),
+            (true, Tier::F64) => r.error_radius(None, plane.c_re, plane.c_im),
+            (true, Tier::Fixed) => r.error_radius(Some(plane.bits), plane.c_re, plane.c_im),
+        };
+        let deriv = cols.needs_derivative() || !q.is_empty();
+        let (store, r2) = (Store::new(plane, p.ss), p.escape_radius * p.escape_radius);
+        Job { r, plane, tier, store, max_iter: p.max_iter, r2, q, deriv }
+    }
+
+    /// Outcome of sample `(i, j)`, with the same kernel choice as [`render`].
+    pub(crate) fn outcome(&self, i: usize, j: usize) -> Outcome {
+        match (self.deriv, !self.q.is_empty()) {
+            (_, true) => self.one::<true, true>(i, j),
+            (true, false) => self.one::<true, false>(i, j),
+            (false, false) => self.one::<false, false>(i, j),
+        }
+    }
+
+    #[inline]
+    fn one<const D: bool, const B: bool>(&self, i: usize, j: usize) -> Outcome {
         let pl = self.plane;
         let h = pl.h();
+        let (ux, uy) = pl.unit_offset(i, j);
+        match self.tier {
+            Tier::F64 => {
+                let (ar, ai) = (ux * h, uy * h);
+                sample::<D, B>(self.r, &self.q, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
+            }
+            Tier::Fixed => sample::<D, B>(self.r, &self.q, None, ux * h, uy * h, self.max_iter, self.r2),
+            Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
+        }
+    }
+
+    /// Fill one row; returns the iterates spent.
+    fn fill<const D: bool, const B: bool>(&self, mut row: Row) -> u64 {
         let mut its = 0;
         for i in 0..row.class.len() {
-            let (ux, uy) = pl.unit_offset(i, row.j);
-            let o = match self.tier {
-                Tier::F64 => {
-                    let (ar, ai) = (ux * h, uy * h);
-                    sample::<D, B>(self.r, &self.q, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
-                }
-                Tier::Fixed => sample::<D, B>(self.r, &self.q, None, ux * h, uy * h, self.max_iter, self.r2),
-                Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
-            };
+            let o = self.one::<D, B>(i, row.j);
             its += o.iterations(self.max_iter);
             self.store.put(&mut row, i, o);
         }
@@ -172,7 +191,7 @@ impl Job<'_> {
 }
 
 /// Validate `p` and choose the tier.
-fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
+pub(crate) fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
     if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
         return Err("grid must be a whole number of pixels".into());
     }
@@ -185,7 +204,7 @@ fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
 }
 
 /// Compute the reference orbit for `tier`.
-fn compute(view: &View, plane: &Plane, tier: Tier, p: &Params) -> Result<Reference, String> {
+pub(crate) fn compute(view: &View, plane: &Plane, tier: Tier, p: &Params) -> Result<Reference, String> {
     Ok(match tier {
         Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
         _ => {
