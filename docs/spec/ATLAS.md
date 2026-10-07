@@ -198,4 +198,5 @@ fd manifest walk --store DIR [frame-id...]
 
 `tile` and `frame` refuse references that are missing, corrupt, of the wrong kind, or
 (for children) for the wrong address, then print `id`, `result`, `bytes` like
-`fd chunk put`. Filling manifests from a zoom path is the compiler's job (not here).
+`fd chunk put`. Filling manifests from a zoom path is the compiler's job (not here);
+`fd plan` (PLAN.md) predicts which tiles each frame of a known path needs and when.

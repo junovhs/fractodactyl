@@ -4,6 +4,7 @@ mod args;
 mod bench;
 mod chunk;
 mod manifest;
+mod plan;
 mod render;
 mod shade;
 
@@ -33,7 +34,8 @@ usage:
                     [--rotation R] [--size WxH] [--ss N] [--iter N]
                     [--columns nu,de,normal] --tiles ID,...
   fd manifest show --store DIR <id>
-  fd manifest walk --store DIR [frame-id...]";
+  fd manifest walk --store DIR [frame-id...]
+  fd plan PATH --size WxH [--ss N] [--tile-px N]";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -45,6 +47,7 @@ fn main() {
         Some("addr") => addr::run(&argv[1..]),
         Some("chunk") => chunk::run(&argv[1..]),
         Some("manifest") => manifest::run(&argv[1..]),
+        Some("plan") => plan::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {
