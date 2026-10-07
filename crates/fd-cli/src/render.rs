@@ -1,6 +1,6 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render, Params, Tier};
+use fd_kernel::{render_with, Params, Tier};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
@@ -9,12 +9,18 @@ use std::time::Instant;
 pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &FLAGS)?;
+    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit"]).collect();
+    let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
+    // `--orbit ID,...`: reference orbit slabs from the atlas instead of computing it.
+    let orbit = match a.str("orbit") {
+        Some(ids) => Some(crate::orbit::load(&crate::chunk::store(&a)?, ids)?),
+        None => None,
+    };
     let threads = p.threads;
     let t = Instant::now();
-    let (header, samples) = render(&view, &p)?;
+    let (header, samples, _) = render_with(&view, &p, orbit)?;
     let secs = t.elapsed().as_secs_f64();
     let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
     write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;

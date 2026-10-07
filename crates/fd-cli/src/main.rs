@@ -5,6 +5,7 @@ mod bench;
 mod chunk;
 mod lod;
 mod manifest;
+mod orbit;
 mod plan;
 mod render;
 mod shade;
@@ -13,7 +14,7 @@ const USAGE: &str = "\
 usage:
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
             [--columns nu,de,normal] [--threads N] [--rotation R]
-            [--kernel auto|f64|fx|scaled] -o out.fds
+            [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID,...] -o out.fds
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
   fd shade <palette|relief> in.fds out.png
@@ -36,6 +37,8 @@ usage:
                     [--columns nu,de,normal] --tiles ID,...
   fd manifest show --store DIR <id>
   fd manifest walk --store DIR [frame-id...]
+  fd orbit put --store DIR --re X --im Y --width W [--size WxH] [--ss N]
+               [--iter N] [--kernel K] [--slab N]
   fd plan PATH --size WxH [--ss N] [--tile-px N]
   fd lod in.fds [--tile-px N] [--max-px E]";
 
@@ -49,6 +52,7 @@ fn main() {
         Some("addr") => addr::run(&argv[1..]),
         Some("chunk") => chunk::run(&argv[1..]),
         Some("manifest") => manifest::run(&argv[1..]),
+        Some("orbit") => orbit::run(&argv[1..]),
         Some("plan") => plan::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         _ => Err(USAGE.to_string()),

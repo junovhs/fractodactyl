@@ -50,24 +50,36 @@ pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
 
 /// [`render`], also returning its work counters.
 pub fn render_stats(view: &View, p: &Params) -> Result<(Header, Samples, Stats), String> {
-    if p.columns.has(Column::Bound) {
-        return Err("kernels produce heuristic results only: no Bound column".into());
-    }
-    if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
-        return Err("grid must be a whole number of pixels".into());
-    }
-    let plane = Plane::new(view, p.nx, p.ny)?;
-    let tier = p.tier.unwrap_or(plane.tier);
-    if !plane.allows(tier) {
-        return Err(format!("{tier:?} tier is not valid at this depth (cheapest valid: {:?})", plane.tier));
-    }
+    render_with(view, p, None)
+}
+
+/// The reference orbit [`render`] computes for `view` and `p`, with its working
+/// precision in bits (53 for the f64 tier, the fixed-point fraction bits otherwise).
+pub fn reference(view: &View, p: &Params) -> Result<(Reference, u32), String> {
+    let (plane, tier) = setup(view, p)?;
+    Ok((compute(view, &plane, tier, p)?, precision(&plane, tier)))
+}
+
+/// [`render_stats`] with a supplied reference orbit and its precision bits (for example
+/// loaded from atlas slabs) instead of computing it. The precision must match this
+/// view's tier; the caller vouches that the orbit is [`reference`] for the same view
+/// and params, and output is then identical.
+pub fn render_with(
+    view: &View,
+    p: &Params,
+    supplied: Option<(Reference, u32)>,
+) -> Result<(Header, Samples, Stats), String> {
+    let (plane, tier) = setup(view, p)?;
     let t = Instant::now();
-    let reference = match tier {
-        Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
-        _ => {
-            let (cr, ci) = Plane::center_fixed(view, plane.bits)?;
-            Reference::from_fixed(&cr, &ci, p.max_iter)
+    let reference = match supplied {
+        Some((_, bits)) if bits != precision(&plane, tier) => {
+            return Err(format!("supplied reference has {bits} bits; this view needs {}", precision(&plane, tier)))
         }
+        Some((r, _)) if r.is_empty() || r.re.len() != r.im.len() || r.re[0] != 0.0 || r.im[0] != 0.0 => {
+            return Err("supplied reference orbit must start at Z_0 = 0 with equal re/im lengths".into())
+        }
+        Some((r, _)) => r,
+        None => compute(view, &plane, tier, p)?,
     };
     let reference_seconds = t.elapsed().as_secs_f64();
     let iterations = AtomicU64::new(0);
@@ -143,5 +155,40 @@ impl Job<'_> {
             self.store.put(&mut row, i, o);
         }
         its
+    }
+}
+
+/// Validate `p` and choose the tier.
+fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
+    if p.columns.has(Column::Bound) {
+        return Err("kernels produce heuristic results only: no Bound column".into());
+    }
+    if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
+        return Err("grid must be a whole number of pixels".into());
+    }
+    let plane = Plane::new(view, p.nx, p.ny)?;
+    let tier = p.tier.unwrap_or(plane.tier);
+    if !plane.allows(tier) {
+        return Err(format!("{tier:?} tier is not valid at this depth (cheapest valid: {:?})", plane.tier));
+    }
+    Ok((plane, tier))
+}
+
+/// Compute the reference orbit for `tier`.
+fn compute(view: &View, plane: &Plane, tier: Tier, p: &Params) -> Result<Reference, String> {
+    Ok(match tier {
+        Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
+        _ => {
+            let (cr, ci) = Plane::center_fixed(view, plane.bits)?;
+            Reference::from_fixed(&cr, &ci, p.max_iter)
+        }
+    })
+}
+
+/// Working precision of the reference orbit for `tier`.
+fn precision(plane: &Plane, tier: Tier) -> u32 {
+    match tier {
+        Tier::F64 => 53,
+        _ => plane.bits as u32,
     }
 }

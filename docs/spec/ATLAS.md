@@ -123,6 +123,40 @@ allocation class. The research allocation guide (tuning targets only, not enforc
 | `class.manifests` | tile-manifest, frame-manifest | rest |
 | `class.other` | unknown kinds | - |
 
+## Orbit slabs (REF-01)
+
+A reference orbit `Z_0 = 0, Z_{n+1} = Z_n^2 + C` is stored as fixed semantic slabs
+(DEC-13): slab `k` of size `S` holds `Z_{kS} .. Z_{kS+len-1}`, `1 <= len <= S`, and only
+the orbit's last slab is short. Boundaries depend only on the iteration index, so the
+same orbit prefix always cuts into the same chunks. Kind 1 (`orbit-slab`), encoding 1:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `size` | u32 | points per full slab `S` |
+| `len` | u32 | points in this slab |
+| `start` | u64 | iteration index of the first point, a multiple of `S` |
+| `re[len]`, `im[len]` | f64 | the points, structure-of-arrays, finite |
+
+Contract: formula `mandelbrot`, rounding `nearest` (each point is the f64 nearest the
+orbit computed at the working precision), `precision_bits` = 53 for the f64 tier or the
+fixed-point fraction bits of the deep tiers. Decoding re-encodes and refuses
+non-canonical bytes. A slab says nothing about which centre `C` it belongs to: binding
+an orbit to its exact centre is the manifest's job (REF-02).
+
+```text
+fd orbit put --store DIR <render view flags> [--slab N]   # default N = 4096
+fd render <flags> --store DIR --orbit ID,...               # load instead of compute
+```
+
+`put` computes the reference `fd render` would use, stores its slabs and prints
+`points`, `precision`, `slab_size`, `slabs`, one `slab START LEN ID RESULT BYTES` line
+per slab, `slab_bytes`, `bytes_per_iter` (chunk bytes over points: 16 plus the 48-byte
+header and fields per slab), `orbit` (the ids in order) and the atlas byte lines.
+`render --orbit` joins the slabs (contiguous from `Z_0`, one size), refuses a precision
+that does not match the view's tier, and renders bit-identical samples to computing the
+orbit. Compact encodings (shared exponents, compression) are a follow-up; encoding 1 is
+the 16 bytes/iteration baseline.
+
 ## Manifests
 
 Manifests are ordinary chunks (kinds 7 and 8, encoding 1) that name other chunks by id,
