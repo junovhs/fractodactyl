@@ -276,3 +276,52 @@ coordinates, and Braverman long iterates. PROB-09 tests them.
 - PROB-11: off-centre and shallower frames (a c ≠ C correction).
 - KERN-01: put it in fd so the films get faster.
 - PROB-06: other zones, with automatic detection.
+
+## PROB-09: the tail, measured and halved (2026-10-07)
+
+**What the tail actually is.** After the Koenigs jump a pixel's whole future depends only
+on its landing point w on one fixed ring (R0/|ρ| ≤ |w| < R0). Sampling that ring
+(`gate_diag.py`) shows the long tails are *not* a dwell at the weak α fixed point: the top
+10% (about 280 steps) spend only 4-16 steps within 0.1 of α. They circulate 0.2-0.4 from
+α, between α and the 2-cycle. So a Koenigs jump at α would buy at most about 5%; it was not
+built.
+
+**Where the time went.** Stage-cutoff bench modes showed the *jump* was 60% of the pixel:
+Newton for ψ = φ⁻¹ averaged 8.6 iterations, and 12% of pixels hit the 30-iteration cap
+(the stop test sat at double roundoff).
+
+**Fix 1: ψ as a series** (`psi_series.py`, series reversion of the 40-term φ; 18 terms
+reach 2e-16 relative at |w| = 0.03). One Horner instead of about 17. It is also about
+100x more accurate, and it fixes the rare 1080p misses (FIX-20).
+
+**Fix 2: a tail patch atlas** (`tail_patches.py`). The map w ↦ f_C^n(A + ψ(w)) is
+*entire*, unlike ν (which is fractal, PROB-04), so it can be stored exactly. A quadtree
+over s = log w carries a degree-16 Taylor patch per leaf, for the largest n that fits.
+Each patch's error is bounded as an equivalent shift in s (≤ 1e-11·|dF/ds|; neighbouring
+pixels are ≥ 1e-6 apart in s at 1080p). Depth 6 gives 16k leaves, about 4 MB, built in
+14 s once per zone and shared by every frame. Mean tail steps drop from 69 to 24 (median
+37 → 2).
+
+**Result** (GitHub Actions, 1920x1080, 4 threads, every pixel scored against fd
+per-frame BLA): **0 wrong pixels out of 12.4M; 20-54x faster than fd** (0.40-0.56 s per
+frame, against 0.92-1.30 s this morning).
+
+| width | fd BLA s | morning pipeline s | + series ψ s | + patch atlas s | vs fd |
+|---|---|---|---|---|---|
+| 1e-35 | 8.07 | 0.94 | 0.51 | 0.41 | 19.8x |
+| 1e-38 | 13.32 | 1.30 | 0.87 | 0.56 | 23.7x |
+| 1e-40 | 21.73 | 0.92 | 0.49 | 0.40 | 54.2x |
+| 1e-43 | 10.73 | 1.12 | 0.68 | 0.48 | 22.2x |
+| 1e-46 | 11.50 | 1.13 | 0.70 | 0.51 | 22.7x |
+| 2e-48 | 12.38 | 1.11 | 0.67 | 0.52 | 23.9x |
+
+The patch atlas is the first piece that is a genuine per-zone cache shared across frames
+(DEC-15), though most of today's gain came from the series ψ, a per-frame trick.
+
+**Killed or not worth it:** Koenigs at α (tails don't dwell there); a larger jump radius
+(ψ terms cost what they save); patch trees deeper than 6 (130k leaves: 24 → 22 steps);
+an absolute patch tolerance (stalls at 37 steps); folding the 23 approach steps into φ
+(24 terms, saves about 11 operations).
+
+**What's left per pixel** (local profile): loops about 5%, approach + jump + patch lookup
+about 55%, remaining tail about 40%.

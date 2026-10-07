@@ -52,9 +52,9 @@ write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`. Conversation co
    px), repeated on 4 threads and 1 thread. Valid for frames centred at the zone nucleus
    with every pixel within 1e-28 of it.
 4. **Next, in this order (all filed):**
-   - **PROB-09:** skip the ~300-step "seahorse gate" leftovers (diagnose gate passes vs
-     dwell, then Koenigs at α, then a Kapiamba/Buff gate map). Report:
-     `docs/research/10-8-26/skipping-near-parabolic-transits-what-is-computable.md`.
+   - **Done: PROB-09.** The tail is not an α dwell. ψ as a series plus a per-zone tail
+     patch atlas: **20-54x vs fd at 1920x1080, 0 wrong of 12.4M pixels** (was 8-25x).
+     Details: `docs/research/10-8-26/misiurewicz-frame-transfer.md` (PROB-09 section).
    - **PROB-10:** every v0-path frame in the band, at full resolution, every pixel
      scored, total time, plus the fraction of the whole film.
    - **KERN-01:** the fast path inside fd render/control/play, so videos benefit.

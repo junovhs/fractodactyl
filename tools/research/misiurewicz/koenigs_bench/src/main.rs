@@ -13,6 +13,9 @@ use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
+/// Tail patch polynomial length (tail_patches.py D).
+const PATCH_D: usize = 16;
+
 #[derive(Clone, Copy, Default)]
 struct Cx(f64, f64);
 
@@ -68,6 +71,17 @@ struct Consts {
     bis: Vec<Vec<Cx>>,
     /// `phi[k - 1]`: coefficient of h^k.
     phi: Vec<Cx>,
+    /// `psi[k - 1]`: coefficient of w^k in psi = phi^-1 (series reversion, PROB-09).
+    /// Empty: invert phi by Newton instead.
+    psi: Vec<Cx>,
+    /// Tail patch atlas (PROB-09, tail_patches.py): a quadtree over s = log w on the
+    /// fundamental ring; each leaf holds n and a degree-D polynomial of f_C^n(A + psi(w))
+    /// in t = (s - centre) / r. Empty: no patches.
+    patch_nx: usize,
+    /// (centre, first child or -1, leaf index or -1)
+    nodes: Vec<(Cx, i64, i64)>,
+    /// (centre, r, n or -1 if invalid, coefficients)
+    leaves: Vec<(Cx, f64, i64, [Cx; PATCH_D])>,
 }
 
 fn load(path: &str) -> Consts {
@@ -92,6 +106,19 @@ fn load(path: &str) -> Consts {
             "ref" => k.reference.push(cx(2)),
             "biseries" => raw.push((n(1) as usize, n(2) as usize, cx(3))),
             "phi" => k.phi.push(cx(2)),
+            "psi" => k.psi.push(cx(2)),
+            "patch_root" => {
+                k.patch_nx = n(3) as usize;
+            }
+            "node" => k.nodes.push((cx(1), n(3) as i64, n(4) as i64)),
+            "leaf" => {
+                let mut cf = [Cx::default(); PATCH_D];
+                assert_eq!(f.len(), 5 + 2 * PATCH_D, "patch degree");
+                for (i, c) in cf.iter_mut().enumerate() {
+                    *c = cx(5 + 2 * i);
+                }
+                k.leaves.push((cx(1), n(3), n(4) as i64, cf));
+            }
             other => panic!("unknown constant {other}"),
         }
     }
@@ -108,6 +135,13 @@ fn load(path: &str) -> Consts {
 /// (`n + 1 - log2(log2|z|)`, as fd writes it).
 #[inline]
 fn pixel(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
+    pixel_upto::<3>(k, v, max_iter, r2)
+}
+
+/// `pixel` stopped after stage STAGE (1 loops, 2 approach + jump, 3 finish), for
+/// per-stage timing by subtraction (PROB-09). Stopped pixels report n as nu.
+#[inline]
+fn pixel_upto<const STAGE: u8>(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
     let mut b = [Cx::default(); 8];
     for (i, bi) in b.iter_mut().enumerate().take(k.deg + 1) {
         let mut s = Cx::default();
@@ -131,6 +165,9 @@ fn pixel(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
         u = s;
         n += k.period;
     }
+    if STAGE == 1 {
+        return (true, n as f64 + u.0);
+    }
     // Exit tail at the fixed parameter C.
     let mut d = u.scale(k.scale);
     for z in &k.orbit {
@@ -143,11 +180,21 @@ fn pixel(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
         let w0 = phi(k, h0);
         let lr = k.rho.abs().ln();
         let j = ((k.r0 / w0.abs()).ln() / lr).floor();
-        if j > 0.0 {
+        if let Some((zp, m)) = patch(k, w0, j) {
+            z = zp;
+            n += 2 * j as u64 + m;
+        } else if j > 0.0 {
             let (m, t) = ((j * lr).exp(), j * k.rho.1.atan2(k.rho.0));
             let w = w0.mul(Cx(m * t.cos(), m * t.sin()));
             let mut h = w;
-            for _ in 0..30 {
+            if !k.psi.is_empty() {
+                let mut s = Cx::default();
+                for c in k.psi.iter().rev() {
+                    s = s.add(*c).mul(w);
+                }
+                h = s;
+            }
+            for _ in 0..if k.psi.is_empty() { 30 } else { 0 } {
                 let (p, dp) = phi_d(k, h);
                 let st = p.sub(w).div(dp);
                 h = h.sub(st);
@@ -158,6 +205,9 @@ fn pixel(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
             z = k.alpha.add(h);
             n += 2 * j as u64;
         }
+    }
+    if STAGE == 2 {
+        return (true, n as f64 + z.0);
     }
     loop {
         if n >= max_iter {
@@ -198,6 +248,32 @@ fn perturb(k: &Consts, v: Cx, max_iter: u64, r2: f64) -> (bool, f64) {
     (false, 0.0)
 }
 
+/// The tail patch for the jumped point w0 * rho^j: f_C^m(A + psi(w)) and m.
+#[inline]
+fn patch(k: &Consts, w0: Cx, j: f64) -> Option<(Cx, u64)> {
+    if k.nodes.is_empty() || j < 0.0 {
+        return None;
+    }
+    let tau = std::f64::consts::TAU;
+    let re = w0.abs().ln() + j * k.rho.abs().ln();
+    let im = (w0.1.atan2(w0.0) + j * k.rho.1.atan2(k.rho.0)).rem_euclid(tau);
+    let mut node = ((im / (tau / k.patch_nx as f64)) as usize).min(k.patch_nx - 1);
+    while k.nodes[node].1 >= 0 {
+        let c = k.nodes[node].0;
+        node = k.nodes[node].1 as usize + 2 * usize::from(re >= c.0) + usize::from(im >= c.1);
+    }
+    let (c, r, m, cf) = &k.leaves[k.nodes[node].2 as usize];
+    if *m < 0 {
+        return None;
+    }
+    let t = Cx((re - c.0) / r, (im - c.1) / r);
+    let mut z = Cx::default();
+    for a in cf.iter().rev() {
+        z = z.mul(t).add(*a);
+    }
+    Some((z, *m as u64))
+}
+
 #[inline]
 fn phi(k: &Consts, h: Cx) -> Cx {
     let mut s = Cx::default();
@@ -222,6 +298,8 @@ fn main() {
     assert!(a.len() >= 9, "usage: koenigs-bench MODE CONSTS OUT_DIR NXxNY MAX_ITER THREADS RUNS WIDTH...");
     let f: fn(&Consts, Cx, u64, f64) -> (bool, f64) = match a[1].as_str() {
         "koenigs" => pixel,
+        "koenigs-loops" => pixel_upto::<1>,
+        "koenigs-jump" => pixel_upto::<2>,
         "perturb" => perturb,
         m => panic!("unknown mode {m}"),
     };

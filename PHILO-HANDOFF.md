@@ -179,7 +179,8 @@ and put it into fd so the videos benefit (KERN-01).
   Single thread: 8.1-25x. Against the lean perturbation baseline: 11-37x.
 - **fd at these depths:** about 690-775 iterations per pixel after about 37-81 BLA blocks.
   Most of fd's time is plain steps in the gate region that BLA cannot skip.
-- **Pipeline settings:** degree-4 biseries (14 terms), guard 1e-28, φ 12 terms, R0 0.03.
+- **Pipeline settings:** degree-4 biseries (14 terms), guard 1e-28 (1e-27 fails at 1080p), φ 12 terms,
+  R0 0.03, ψ 18-term series, tail patch atlas depth 6.
   Per-zone constants take about 0.1 s in Python.
 - Reference cost is about 4% of a frame even at 1e-1000, so caching references never
   wins.
@@ -225,10 +226,12 @@ and put it into fd so the videos benefit (KERN-01).
 1. **Check the GitHub Actions runs queued while the owner was at lunch** (`gh run list
    --workflow koenigs-bench.yml`). Fetch each report (`gh run download <id> -n
    koenigs-bench`) and log the numbers in METHOD.md.
-2. **PROB-09: skip the seahorse gate.** First the cheap diagnostic: are the long tails
-   one long dwell near α, or repeated gate passes? Then try a Koenigs jump at α. If the
-   tails are gate passes, try the Buff/Kapiamba gate map. This is the next speed
-   multiplier.
+2. **Done: PROB-09.** The tails are not an α dwell. The jump's Newton ψ was 60% of the
+   pixel; ψ as a series plus a per-zone tail patch atlas (16k Taylor patches, 4 MB) gives
+   **20-54x vs fd at 1080p, 0 wrong of 12.4M pixels**. FIX-20's cause was the 12-term
+   Newton inverse; series ψ fixes it. CI: `-f psi=18 -f patch=6`. The owner was given a
+   single deep-research question on automatic zone detection and chaining along a whole
+   path (for KERN-01 and long 8K films); its report goes in `docs/research/`.
 3. **PROB-10:** the whole v0 film's band frames at full resolution, every pixel, total
    time, on GitHub Actions.
 4. **KERN-01:** put the fast path into fd (render/control/play) so films get faster.
