@@ -54,6 +54,31 @@ impl Reference {
         Reference { re, im }
     }
 
+    /// Upper bounds `q[m] >= |A_m - Z_m|` on each stored point's distance from the
+    /// exact orbit `A` of the exact view centre. `bits`: the fixed-point fraction bits
+    /// the orbit was computed with, or `None` for an f64 orbit from `(c_re, c_im)`, the
+    /// correctly rounded centre.
+    pub(crate) fn error_radius(&self, bits: Option<u64>, c_re: f64, c_im: f64) -> Vec<f64> {
+        const U: f64 = f64::EPSILON / 2.0;
+        let c1 = c_re.abs() + c_im.abs();
+        // Fixed point: three truncated squares per component plus the centre's own
+        // truncation, each under one unit of 2^-bits.
+        let fixed = bits.map(|b| fd_fixed::exp2i(4 - b as i64).max(f64::MIN_POSITIVE));
+        let mut q = Vec::with_capacity(self.len());
+        let mut a = 0.0f64; // |A_m - F_m|, F the orbit as computed before rounding to f64
+        for m in 0..self.len() {
+            let s = (self.re[m] * self.re[m] + self.im[m] * self.im[m]).sqrt() * (1.0 + 4.0 * U);
+            let (round, defect) = match fixed {
+                Some(d) => (2.0 * U * s + f64::MIN_POSITIVE, d),
+                // f64: rounding of x^2 - y^2 + c and 2xy + c, plus the centre's rounding.
+                None => (0.0, 8.0 * U * (s * s + c1) + 2.0 * U * c1 + f64::MIN_POSITIVE),
+            };
+            q.push(a + round);
+            a = (a * (2.0 * (s + round) + a) + defect) * (1.0 + 8.0 * U);
+        }
+        q
+    }
+
     /// Number of stored points (at least 2 unless `max_iter == 0`).
     #[inline]
     pub fn len(&self) -> usize {

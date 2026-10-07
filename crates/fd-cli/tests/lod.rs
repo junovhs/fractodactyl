@@ -22,7 +22,7 @@ fn value<'a>(lines: &'a [String], name: &str) -> &'a str {
 
 #[test]
 fn heuristic_render_never_accepts() {
-    // Today's kernels write Heuristic evidence only: every tile must refine.
+    // Without the bound column kernels write Heuristic evidence only: every tile refines.
     let f = file("render.fds");
     let f = f.to_str().unwrap();
     fd(&["render", "--re", "-0.75", "--im", "0.1", "--width", "0.05", "--size", "16x16", "--threads", "2", "-o", f]);
@@ -31,6 +31,27 @@ fn heuristic_render_never_accepts() {
     assert_eq!(value(&l, "accepted"), "0");
     assert_eq!(value(&l, "state.unresolved_boundary"), "4");
     assert_eq!(l.iter().filter(|x| x.starts_with("tile ") && x.contains(" e_px inf refine ")).count(), 4, "{l:?}");
+}
+
+#[test]
+fn bounded_render_accepts_tiles_away_from_the_set() {
+    // `--columns ...,bound` tracks rigorous error radii: escaped samples far from the set
+    // become Bounded and their tiles are accepted; tiles holding the set still refine.
+    // Both tiers that carry bounds: f64 (auto here) and fixed-point.
+    for kernel in ["auto", "fx"] {
+        let f = file(&format!("bounded-{kernel}.fds"));
+        let f = f.to_str().unwrap();
+        fd(&["render", "--re", "0.5", "--im", "0", "--width", "1", "--size", "32x32", "--columns", "nu,de,bound", "--kernel", kernel, "--threads", "2", "-o", f]);
+        let l = fd(&["lod", f, "--tile-px", "8"]);
+        assert_eq!(value(&l, "tiles"), "16");
+        let approx: u32 = value(&l, "state.certified_approximate").parse().unwrap();
+        let accepted: u32 = value(&l, "accepted").parse().unwrap();
+        let unresolved: u32 = value(&l, "state.unresolved_boundary").parse().unwrap();
+        assert!(approx > 0 && accepted > 0 && unresolved > 0, "{kernel}: {l:?}");
+        // Without the bound column the same render stays heuristic.
+        fd(&["render", "--re", "0.5", "--im", "0", "--width", "1", "--size", "32x32", "--columns", "nu,de", "--kernel", kernel, "--threads", "2", "-o", f]);
+        assert_eq!(value(&fd(&["lod", f, "--tile-px", "8"]), "accepted"), "0", "{kernel}");
+    }
 }
 
 #[test]

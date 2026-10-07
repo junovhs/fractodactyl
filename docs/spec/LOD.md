@@ -57,9 +57,34 @@ target from docs/research/02. It is experimental (DEC-05); LOD-03 measures it.
 - **Fallback:** every other tile refines: subdivide, supersample, raise precision or
   fall back to exact sampling (LOD-02 schedules these).
 
-Current kernels (`pert-f64/1`, `pert-fx/1`, `pert-fx-scaled/1`) write `Heuristic`
-evidence only, so today every tile reports `UNRESOLVED_BOUNDARY` and refines. Nothing
-is skipped until a producer attaches real bounds.
+## Bounded producer (LOD-05)
+
+`fd render --columns ...,bound` makes `pert-f64/1` and `pert-fx/1` carry rigorous
+running error radii next to every escaped sample (`crates/fd-kernel/src/sample.rs`):
+
+- Reference: `q_m >= |A_m - Z_m|`, the stored f64 point's distance from the exact orbit
+  `A` of the exact view centre (fixed point: `16 * 2^-bits` defect per step plus f64
+  rounding; f64: the rounded centre plus `8u(|Z|^2 + |C|)` per step), propagated as
+  `a' = a(2|Z| + a) + defect`.
+- Sample: `e >= |z_exact - (A_m + delta)|` with `e' = e(2|w| + e) + rho`, where `rho`
+  covers f64 rounding of the delta step, `2 q_m |delta|`, and the f64 offset's distance
+  from the exact sample position; rebasing adds `q_m + u|z|`. The derivative carries the
+  matching radius on `dz/dc`. The radius computation itself is rounded upward by a
+  `1 + 8u` factor per step; underflow is covered by small absolute terms.
+
+An escaped sample is written `Bounded` iff `|z| - e_z > 2` (escape proven) and the
+derivative radius is under half `|dz/dc|`; otherwise it stays `Heuristic`. Its columns:
+
+- `bound` = nu error `log2(ln|z| / ln(|z| - e_z)) + 8u(n + 8)`, for nu at the kernel's
+  escape step `n`, widened by `de_high / de_low` (so `bound >= ` the nu error).
+- `de` = `de_low`: the estimate from `|z| - e_z` and `|dz/dc| + e_d`, times `e^-G`
+  (`G <= ln|z| 2^-n`) and `1 - 4/|z|^2`, so the distance to the set is at least `de/4`
+  (Koebe: `d >= e^-G de / 4`, finite-`n` terms assume `|c| <= 4`).
+- Hence `bound * de * ln2 / 2 >= nu error * de_high * ln2 / 2`, the true displacement.
+
+Interior samples, unresolved samples and `pert-fx-scaled/1` stay `Heuristic`. Renders
+without `bound` run the unchanged kernel and stay `Heuristic`. LOD-04 checks accepted
+tiles against the oracle.
 
 ## CLI
 

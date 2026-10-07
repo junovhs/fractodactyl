@@ -44,7 +44,7 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
         let (fr, fi) = (zr[m] + xr, zi[m] + xi);
         let f2 = fr * fr + fi * fi;
         if f2 > r2 {
-            return Outcome::Escaped { n, zr: fr, zi: fi, dr: vr, di: vi, dexp: g };
+            return Outcome::Escaped { n, zr: fr, zi: fi, dr: vr, di: vi, dexp: g, ez: f64::INFINITY, ed: f64::INFINITY };
         }
         if f2 < xr * xr + xi * xi || m == last {
             // Rebase onto Z_0 = 0: the delta becomes z itself, order one.
@@ -87,7 +87,7 @@ mod tests {
             // Represent the same offset as 2^-20 * (ar * 2^20, ai * 2^20).
             let k = 1048576.0;
             let a = scaled::<true>(&r, ar * k, ai * k, -20, 10_000, 1e20);
-            let b = sample::<true>(&r, None, ar, ai, 10_000, 1e20);
+            let b = sample::<true, false>(&r, &[], None, ar, ai, 10_000, 1e20);
             match (a, b) {
                 (
                     Outcome::Escaped { n: n1, zr: z1, dr: d1, di: e1, dexp, .. },

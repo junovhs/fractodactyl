@@ -10,7 +10,9 @@
 //! - `pert-fx-scaled/1`: fixed-point reference, deltas and derivative carried as f64
 //!   times an exact power of two: any depth.
 //!
-//! All results carry `Evidence::Heuristic`. No series/BLA skipping (ACC-01).
+//! Results carry `Evidence::Heuristic`, except escaped samples of the f64/fx tiers when
+//! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). No series/BLA skipping
+//! (ACC-01).
 mod grid;
 mod interior;
 mod reference;

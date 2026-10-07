@@ -78,7 +78,8 @@ pub(crate) fn columns(s: &str) -> Result<ColumnSet, String> {
             "nu" => Column::Nu,
             "de" => Column::De,
             "normal" => Column::Normal,
-            _ => return Err(format!("--columns: unknown column {c:?} (nu, de, normal)")),
+            "bound" => Column::Bound,
+            _ => return Err(format!("--columns: unknown column {c:?} (nu, de, normal, bound)")),
         };
         Ok(set.with(col))
     })

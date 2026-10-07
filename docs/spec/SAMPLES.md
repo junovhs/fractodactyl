@@ -62,7 +62,7 @@ separate, axis-aligned form: see ADDRESS.md.
 | 1 | `nu` | `f64` | 8 | smooth escape value `n + 1 − log2(log2 |z_n|)` |
 | 2 | `de` | `f32` | 4 | exterior distance estimate `2|z_n| ln|z_n| / |∂z_n/∂c|`, in output pixels |
 | 3 | `normal` | `u16` | 2 | screen-space angle of `z_n / (∂z_n/∂c)`, in turns × 65536 (x right, y down) |
-| 4 | `bound` | `f32` | 4 | absolute error bound on `nu`; only with evidence ≥ Bounded |
+| 4 | `bound` | `f32` | 4 | absolute error bound on `nu`; only with evidence ≥ Bounded (0 otherwise; LOD.md) |
 
 `n` is the number of iterations taken when `|z_n|` first exceeds the escape radius.
 `nu`, `de` and `normal` are meaningful only for `Escaped` samples; writers store 0

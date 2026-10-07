@@ -13,7 +13,7 @@ mod shade;
 const USAGE: &str = "\
 usage:
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
-            [--columns nu,de,normal] [--threads N] [--rotation R]
+            [--columns nu,de,normal,bound] [--threads N] [--rotation R]
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID,...] -o out.fds
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]

@@ -24,7 +24,8 @@ pub struct Params {
     pub max_iter: u64,
     /// Escape radius.
     pub escape_radius: f64,
-    /// Columns to produce. `Class` is implied; `Bound` is refused (no bounds yet).
+    /// Columns to produce. `Class` is implied. `Bound` turns on error tracking: escaped
+    /// samples whose error radii certify them are written `Bounded` (f64/fx tiers).
     pub columns: ColumnSet,
     /// Worker threads (bounded by the row count).
     pub threads: usize,
@@ -95,8 +96,14 @@ pub fn render_with(
             store: Store::new(&plane, p.ss),
             max_iter: p.max_iter,
             r2: p.escape_radius * p.escape_radius,
+            q: match (cols.has(Column::Bound), tier) {
+                (false, _) | (_, Tier::Scaled) => Vec::new(),
+                (true, Tier::F64) => reference.error_radius(None, plane.c_re, plane.c_im),
+                (true, Tier::Fixed) => reference.error_radius(Some(plane.bits), plane.c_re, plane.c_im),
+            },
         };
-        let deriv = cols.needs_derivative();
+        let bounded = !job.q.is_empty();
+        let deriv = cols.needs_derivative() || bounded;
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
                 sc.spawn(|| {
@@ -104,7 +111,11 @@ pub fn render_with(
                     loop {
                         // let-else drops the lock guard before the row is filled.
                         let Some(row) = queue.lock().unwrap().next() else { break };
-                        its += if deriv { job.fill::<true>(row) } else { job.fill::<false>(row) };
+                        its += match (deriv, bounded) {
+                            (_, true) => job.fill::<true, true>(row),
+                            (true, false) => job.fill::<true, false>(row),
+                            (false, false) => job.fill::<false, false>(row),
+                        };
                     }
                     iterations.fetch_add(its, Ordering::Relaxed);
                 });
@@ -133,11 +144,13 @@ struct Job<'a> {
     store: Store,
     max_iter: u64,
     r2: f64,
+    /// Reference error radii; empty unless bounds are tracked.
+    q: Vec<f64>,
 }
 
 impl Job<'_> {
     /// Fill one row; returns the iterates spent.
-    fn fill<const D: bool>(&self, mut row: Row) -> u64 {
+    fn fill<const D: bool, const B: bool>(&self, mut row: Row) -> u64 {
         let pl = self.plane;
         let h = pl.h();
         let mut its = 0;
@@ -146,9 +159,9 @@ impl Job<'_> {
             let o = match self.tier {
                 Tier::F64 => {
                     let (ar, ai) = (ux * h, uy * h);
-                    sample::<D>(self.r, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
+                    sample::<D, B>(self.r, &self.q, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
                 }
-                Tier::Fixed => sample::<D>(self.r, None, ux * h, uy * h, self.max_iter, self.r2),
+                Tier::Fixed => sample::<D, B>(self.r, &self.q, None, ux * h, uy * h, self.max_iter, self.r2),
                 Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
             };
             its += o.iterations(self.max_iter);
@@ -160,9 +173,6 @@ impl Job<'_> {
 
 /// Validate `p` and choose the tier.
 fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
-    if p.columns.has(Column::Bound) {
-        return Err("kernels produce heuristic results only: no Bound column".into());
-    }
     if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
         return Err("grid must be a whole number of pixels".into());
     }

@@ -1,5 +1,5 @@
 //! Turning one sample's outcome into column values, at any depth.
-use crate::sample::Outcome;
+use crate::sample::{Outcome, U};
 use crate::view::Plane;
 use fd_fixed::exp2i;
 use fd_samples::{Class, Evidence, Kind, Samples};
@@ -11,6 +11,7 @@ pub(crate) struct Row<'a> {
     nu: Option<&'a mut [f64]>,
     de: Option<&'a mut [f32]>,
     normal: Option<&'a mut [u16]>,
+    bound: Option<&'a mut [f32]>,
 }
 
 impl<'a> Row<'a> {
@@ -19,6 +20,7 @@ impl<'a> Row<'a> {
         let mut nu = s.nu.as_deref_mut().map(|v| v.chunks_mut(nx));
         let mut de = s.de.as_deref_mut().map(|v| v.chunks_mut(nx));
         let mut normal = s.normal.as_deref_mut().map(|v| v.chunks_mut(nx));
+        let mut bound = s.bound.as_deref_mut().map(|v| v.chunks_mut(nx));
         (s.class.chunks_mut(nx).enumerate())
             .map(|(j, class)| Row {
                 j,
@@ -26,6 +28,7 @@ impl<'a> Row<'a> {
                 nu: nu.as_mut().and_then(Iterator::next),
                 de: de.as_mut().and_then(Iterator::next),
                 normal: normal.as_mut().and_then(Iterator::next),
+                bound: bound.as_mut().and_then(Iterator::next),
             })
             .collect()
     }
@@ -46,20 +49,24 @@ impl Store {
 
     #[inline]
     pub(crate) fn put(&self, row: &mut Row, i: usize, o: Outcome) {
-        let kind = match o {
-            Outcome::Escaped { .. } => Kind::Escaped,
-            Outcome::Interior { .. } => Kind::Interior,
-            Outcome::Unresolved => Kind::Unresolved,
+        let Outcome::Escaped { n, zr, zi, dr, di, dexp, ez, ed } = o else {
+            let kind = if o == Outcome::Unresolved { Kind::Unresolved } else { Kind::Interior };
+            row.class[i] = Class::new(kind, Evidence::Heuristic);
+            return;
         };
-        row.class[i] = Class::new(kind, Evidence::Heuristic);
-        let Outcome::Escaped { n, zr, zi, dr, di, dexp } = o else { return };
         let z2 = zr * zr + zi * zi;
         let log2z = 0.5 * z2.log2();
+        let b = bounds(n, z2.sqrt(), ez, dr.hypot(di), ed);
+        row.class[i] = Class::new(Kind::Escaped, if b.is_some() { Evidence::Bounded } else { Evidence::Heuristic });
         if let Some(nu) = row.nu.as_deref_mut() {
             nu[i] = n as f64 + 1.0 - log2z.log2();
         }
         if let Some(de) = row.de.as_deref_mut() {
-            de[i] = de_px(z2.sqrt(), log2z, dr, di, dexp, self.px_m, self.px_e);
+            let d = de_px(z2.sqrt(), log2z, dr, di, dexp, self.px_m, self.px_e);
+            de[i] = b.map_or(d, |(lo, _)| (d as f64 * lo) as f32);
+        }
+        if let Some(bound) = row.bound.as_deref_mut() {
+            bound[i] = b.map_or(0.0, |(_, nu)| nu as f32);
         }
         if let Some(nm) = row.normal.as_deref_mut() {
             // Direction of z / (dz/dc), i.e. z * conj(dz/dc); the scale is positive.
@@ -67,6 +74,28 @@ impl Store {
             nm[i] = Samples::angle(x, y);
         }
     }
+}
+
+/// Bounded evidence for an escaped sample with `|z| = az`, `|dz/dc| = ad` (any scale) and
+/// error radii `ez`, `ed` on them: `(lo, bound)` where `de * lo` is a lower estimate safe
+/// for the Koebe test (true distance >= `de * lo / 4`) and `bound` covers the nu error
+/// widened by `de_high / de_low`, so `bound * de * lo * ln2 / 2` bounds the displacement.
+/// `None` unless the radii prove escape (`|z| - ez > 2`) and `ed < ad / 2`.
+fn bounds(n: u64, az: f64, ez: f64, ad: f64, ed: f64) -> Option<(f64, f64)> {
+    let lo = az - ez;
+    if !(lo > 2.0 && ed < 0.5 * ad) {
+        return None;
+    }
+    let (lnz, llo, lhi) = (az.ln(), lo.ln(), (az + ez).ln());
+    // nu = n + 1 - log2(ln|z| / ln 2): |z| within ez moves it by at most
+    // log2(ln|z| / ln(|z| - ez)); plus the rounding of nu itself.
+    let nu = (-(-ez / az).ln_1p() / llo).ln_1p() / std::f64::consts::LN_2 + 8.0 * U * (n as f64 + 8.0);
+    // Koebe: distance >= e^-G de / 4 with G <= ln|z| 2^-n; (1 - 4/|z|^2) covers the
+    // finite-n estimate of G and G' (|c| <= 4).
+    let g = lhi * (-(n as f64)).exp2();
+    let de_lo = (lo * llo) / (az * lnz) * ad / (ad + ed) * (-g).exp() * (1.0 - 4.0 / (lo * lo)) * (1.0 - 1e-6);
+    let de_hi = ((az + ez) * lhi) / (az * lnz) * ad / (ad - ed) * (1.0 + 1e-6);
+    Some((de_lo, nu * de_hi / de_lo * (1.0 + 1e-6)))
 }
 
 /// `2 |z| ln|z| / |dz/dc|` in output pixels, with `|dz/dc| = |(dr, di)| 2^dexp` and the
