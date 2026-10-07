@@ -16,6 +16,7 @@ usage:
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
             [--columns nu,de,normal,bound] [--threads N] [--rotation R]
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID] -o out.fds
+            [--store DIR --bla ID]
             [--refine BLOCK_PX [--max-px E]]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
@@ -41,6 +42,7 @@ usage:
   fd manifest walk --store DIR [frame-id...]
   fd orbit put --store DIR --re X --im Y --width W [--size WxH] [--ss N]
                [--iter N] [--kernel K] [--slab N]
+  fd orbit bla --store DIR <render view flags> [--orbit ID] [--eps E] [--slab N]
   fd plan PATH --size WxH [--ss N] [--tile-px N]
   fd reuse PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
            [--threads N] [--kernel K] [--slab N]

@@ -201,6 +201,126 @@ precision equals its orbit's renders differently. Frames off the shared centre (
 need an off-centre reference and are not reused yet. Compact encodings (shared exponents, compression) are a follow-up; encoding 1 is
 the 16 bytes/iteration baseline.
 
+## BLA tables (ACC-01)
+
+Bivariate linear approximation, the first reusable acceleration operator. Perturbation
+steps `delta_{k+1} = 2 Z_k delta_k + delta_k^2 + dc` against one reference orbit are
+replaced, while `delta` is small next to `Z`, by affine blocks
+`delta_{m+l} = A delta_m + B dc` (`dz/dc` likewise: `d_{m+l} = A d_m + B`). Code:
+`crates/fd-kernel/src/bla.rs` (build, lookup), `crates/fd-atlas/src/bla.rs` (chunk).
+
+**Blocks.** The build starts from one single step per index `k = 1 .. points-2`:
+`A = 2 Z_k`, `B = 1`, `r = alpha = 2 eps |Z_k|`, `beta = 0`, and no block where
+`|Z_k| > 2` (the reference is escaping; those steps always run one by one). Level `j`
+merges pairs of level `j-1` (`x` then `y`): `A = A_y A_x`, `B = A_y B_x + B_y`, and with
+`Ahat = |A_x| + alpha_x`, `Bhat = |B_x| + beta_x`:
+
+```
+r     = min(r_x, (r_y - Bhat dc_max) / Ahat)        (block invalid, all zero, unless r > 0)
+alpha = |A_y| alpha_x + alpha_y Ahat
+beta  = |A_y| beta_x + alpha_y Bhat + beta_y
+```
+
+Level `j` has `(points - 2) >> j` blocks of `2^j` steps, block `i` starting at index
+`1 + i 2^j`. Only levels `j >= 1` are stored: a one-step block saves no step and costs
+more than the plain step (measured: ~15 ns per applied block against ~8 ns per plain
+step in the same regime). The table ends before the first level with no valid block,
+so it holds under `points - 2` blocks.
+
+**Lookup.** At reference index `m` the renderer takes the longest valid block starting
+there (`k = m - 1` divisible by `2^j`). Because `r` of a level-`j` block is at most that
+of its first half, validity only shrinks going up, so the lookup walks up from level 1
+and stops at the first failure. Odd `k` (and `m = 0`, where `Z_0 = 0`) take a plain step.
+
+**Validity, error, fallback (DEC-10).**
+
+- *Validity:* a block applies to a sample at reference index `m` only while
+  `|delta_m| < r`, `|dc| <= dc_max`, it lands at most on the orbit's last point and
+  within the iteration budget. Then, in exact arithmetic, every skipped step `k` had
+  `|delta_k| <= 2 eps |Z_k| <= 4 eps` (so its dropped `delta_k^2` is at most `eps` times the
+  kept `2 Z_k delta_k`, and `|z_k| <= 2 (1 + 2 eps)` with `|z_k| > |delta_k|`): a block
+  never jumps over an escape (escape radius >= 4, checked) or a rebase. Every skipped
+  iterate also has `|delta_k| < 2 eps / (1 - 2 eps) |z_k|`, and `eps` is capped at
+  `EPS_MAX = 2^-41` so that this stays at most the `RESOLVABLE |z| = 1e-12 |z|` from which
+  the plain kernel judges periodicity (one shared constant in `sample.rs`, checked by a
+  compile-time assert in `bla.rs`): a block never covers a periodicity-judged iterate,
+  so blocks run only where the plain kernel judges nothing either. Larger `eps` is
+  refused when a table is built (`fd orbit bla --eps`) and when one is loaded
+  (`Bla::new`, which every decoded table goes through). The default is `eps = 2^-50`.
+  Brent save points falling inside a block are taken at its landing iterate.
+- *Error:* `|delta_{m+l} - (A delta_m + B dc)| <= alpha |delta_m| + beta |dc|`
+  (exact arithmetic, proved by induction over merges; `crates/fd-kernel/src/bla.rs`
+  tests it against plain perturbation). A deviation `e` in `z` at iterate `n` moves the
+  rest of the orbit, to first order, like moving `c` by `e / |dz_n/dc|`. With `dz/dc`
+  tracked (`de` or `normal` columns) the renderer sums, per sample, `(alpha |delta_m| +
+  beta |dc|) / |d_{m+l}|` over the blocks it applies and reports the largest sum over
+  the frame in output pixels (`bla.shift_px.max`): the BLA term of the screen-space
+  error, comparable with the oracle's displacement measure and with LOD.md's
+  `FINAL_PX`. A blanket form: each skipped step drops at most about `2 eps |dc|` in these
+  units, so the shift is at most about `2 skipped eps |dc|` (default `eps`, 5e4 skipped
+  steps and a 128x72 frame: ~7e-9 px). `dz/dc` drops `2 delta_k d_k`, at most `2 eps`
+  of the kept `2 Z_k d_k` per step. The estimate is first order and leaves out f64
+  rounding of the coefficients and of the block evaluation (the plain kernel's rounding,
+  of the order `U / eps = 1/8` of the eps term). Certified bounds are ACC-02: BLA
+  samples stay `Heuristic`, and `--columns bound` is refused with `--bla`.
+- *Fallback:* every step no block covers is the plain perturbation kernel, and the
+  render reports how much that was. The plain kernel without `--bla` carries no BLA
+  code (a compile-time switch).
+
+A table is valid for any frame at its orbit's centre whose largest `|dc|` (half the
+sample grid's diagonal) is at most `dc_max`: one table built for a frame serves every
+deeper frame at that centre (with shorter blocks than a table of their own). The scaled
+tier (spacings below 2^-900) is not supported: `orbit bla` and `render --bla` refuse it.
+
+Kind 2 (`bla`), encoding 1, contract formula `mandelbrot`, precision 53 (the
+coefficients are f64; the orbit's own precision is in its manifest), rounding
+`nearest`; decoding re-encodes and refuses non-canonical bytes:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `orbit` | 32-byte id | the orbit manifest (kind 9) the table was built over |
+| `eps` | f64 | relative tolerance of dropped terms; the chunk accepts `0 < eps < 1`, the kernel refuses `eps > 2^-41` on load |
+| `dc_max` | f64 | largest `|dc|` the radii hold for, `> 0` |
+| `points` | u64 | points of that orbit |
+| `n` | u64 | stored levels (`j = 1 .. n`) |
+| per level `j` | 7 x f64[`(points-2) >> j`] | `a.re`, `a.im`, `b.re`, `b.im`, `r`, `alpha`, `beta`, structure-of-arrays, finite |
+
+Canonical form: every value finite; a block is valid (`r > 0`) or all zero; every
+stored level holds at least one valid block. The table names its orbit manifest, so it
+is bound to that orbit's exact centre, precision and length: `render --bla` loads the
+orbit through the manifest (centre-checked as for `--orbit`) and refuses a table whose
+`points` differ from the orbit's. Up to 56 bytes per block, under 56 bytes per orbit
+point (about 3.5 times the orbit's 16 bytes per point).
+
+```text
+fd orbit bla --store DIR <render view flags> [--orbit ID] [--eps E] [--slab N]
+fd render <view flags> --store DIR --bla ID -o out.fds
+```
+
+`orbit bla` builds the table of the stored orbit `--orbit` (else computes and stores the
+view's own orbit) for the view's `dc_max` and prints `points`, `precision`, `eps`,
+`dc_max`, `levels`, `blocks`, `valid_blocks`, `build_seconds`, `bytes`,
+`bytes_per_iter`, `orbit_slab_bytes` (the orbit's slab chunks), `bytes_over_orbit`,
+`result`, `orbit`, `bla` (the table's id) and the atlas byte lines. `render --bla` loads
+and verifies the table and its orbit before the render clock starts, refuses a view
+outside the contract (`dc_max`, escape radius, scaled tier, `bound` column, `--refine`),
+writes kernel id `... bla/1` and prints `bla.load_seconds`, `bla.blocks`, `bla.skipped`
+(steps replaced), `iterations` (plain steps plus blocks), `iterations.equivalent`
+(steps a plain render takes for the same samples), `skip_fraction`,
+`speedup.iterations`, `fallback.iteration_fraction` (share of equivalent steps run by
+the plain kernel), `closed_form.samples` (samples settled by the closed-form
+main-cardioid/period-2 test before any iteration, f64 tier: neither BLA nor fallback
+work), `fallback.samples` and `fallback.sample_fraction` (samples that iterated but took
+no block, over the samples that iterated), and `bla.shift_px.max` (`untracked` without
+`dz/dc`). An escape radius below 4 is refused with its own error.
+
+Measured (CPU, 1 thread, valley 1e-28, 128x72, 5e4 iterations): 2.96x fewer iterations
+but ~1.5x less wall time, because the 29% of steps left to the fallback (the resolvable
+regime, with periodicity checks) cost ~3x a step in the BLA regime. At shallow f64 views
+(|dc| ~ 1e-3) no block is valid at `eps = 2^-50` and the fallback is 100%. Only the CPU
+path exists; the GPU comparison (prior work found GPU BLA slower than plain series
+approximation, docs/research/01) waits for a GPU kernel.
+
 ## Manifests
 
 Manifests are ordinary chunks (kinds 7 and 8, encoding 1) that name other chunks by id,

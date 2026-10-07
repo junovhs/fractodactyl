@@ -93,6 +93,7 @@ invalid class bytes.
 | `pert-f64/1` | Perturbation with rebasing against one f64 reference orbit at the f64-rounded centre (at most 2^20 points; past the end a sample rebases to `Z_0`). Used only while rounding the centre moves it by under 1/1024 of a sample. Interior: closed-form main cardioid/period-2 bulb test, then a Brent near-return check confirmed by Newton on the cycle multiplier. |
 | `pert-fx/1 bits=B` | Same perturbation, but the reference orbit is iterated in `B`-bit fixed point from the exact decimal centre (`B` = 128 + depth in bits). f64 deltas; used down to sample spacings of 2^-900. No closed-form shortcut (f64 cannot place the sample). |
 | `pert-fx-scaled/1 bits=B` | Fixed-point reference; the delta and `dz/dc` are f64 values times exact powers of two, so no depth underflows. Interior only by exact cycle return (no Newton yet): deep interior samples may stay `Unresolved`. |
+| `... bla/1` | `pert-f64/1` or `pert-fx/1` with a stored BLA table (`fd render --bla`, ATLAS.md "BLA tables"): affine blocks replace runs of steps where their validity radius holds; a block never jumps over an escape or rebase; values differ from plain perturbation by the stated remainder. `Heuristic` evidence. |
 
 All three write `Heuristic` evidence. Periodicity checks run only once a sample's
 delta is resolvable next to the reference point in f64; before that `z == Z` in f64

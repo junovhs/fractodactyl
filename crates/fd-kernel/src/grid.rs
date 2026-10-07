@@ -1,8 +1,9 @@
 //! Parallel driver: picks the cheapest valid tier, builds one reference, then hands
 //! rows out on demand (fractal rows vary wildly in cost). Each thread writes its rows'
 //! column slices in place: no merge copy. Output is independent of the thread count.
+use crate::bla::Bla;
 use crate::reference::Reference;
-use crate::sample::{sample, Outcome};
+use crate::sample::{perturb, Outcome, Skip};
 use crate::scaled::scaled;
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
@@ -44,6 +45,27 @@ pub struct Stats {
     pub iterations: u64,
 }
 
+/// BLA work of one render (ACC-01); with BLA, [`Stats::iterations`] counts each applied
+/// block as one iterate.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlaStats {
+    /// Blocks applied, summed over samples.
+    pub blocks: u64,
+    /// Perturbation steps those blocks replaced.
+    pub skipped: u64,
+    /// Samples that applied no block: computed entirely by the plain fallback. Excludes
+    /// [`BlaStats::closed_form_samples`].
+    pub fallback_samples: u64,
+    /// Samples settled by the closed-form main-cardioid/period-2 test before any
+    /// iteration (f64 tier): neither BLA nor fallback work.
+    pub closed_form_samples: u64,
+    /// Largest first-order shift estimate over the samples, in output pixels: the
+    /// distance in `c` that moves a sample as much as the terms its blocks dropped
+    /// (ATLAS.md "BLA tables"). `None` when `dz/dc` is not tracked (no `nu`-only
+    /// estimate exists without it).
+    pub shift_px: Option<f64>,
+}
+
 /// Compute every sample of `view` into fresh columns, with the matching header.
 pub fn render(view: &View, p: &Params) -> Result<(Header, Samples), String> {
     render_stats(view, p).map(|(h, s, _)| (h, s))
@@ -79,6 +101,64 @@ pub fn render_with(
     p: &Params,
     supplied: Option<(Reference, u32)>,
 ) -> Result<(Header, Samples, Stats), String> {
+    run(view, p, supplied, None).map(|(h, s, st, _)| (h, s, st))
+}
+
+/// [`render_with`] a supplied orbit and a BLA table built over it (ACC-01): valid blocks
+/// replace runs of perturbation steps; every other step is the plain kernel (the
+/// fallback). Refused on the scaled tier, with the `Bound` column (BLA remainders are
+/// not certified, ACC-02), for a table built over another orbit length, or when the
+/// view's largest `|dc|` exceeds the table's `dc_max`. The header's kernel id gains
+/// ` bla/1`.
+pub fn render_bla(
+    view: &View,
+    p: &Params,
+    orbit: (Reference, u32),
+    bla: &Bla,
+) -> Result<(Header, Samples, Stats, BlaStats), String> {
+    let (plane, tier) = setup(view, p)?;
+    if tier == Tier::Scaled {
+        return Err("BLA tables need f64 deltas: not available on the scaled tier".into());
+    }
+    if p.columns.has(Column::Bound) {
+        return Err("--columns bound certifies every step; BLA remainders are not certified (ACC-02)".into());
+    }
+    if bla.points != orbit.0.len() as u64 {
+        return Err(format!("BLA table covers a {}-point orbit, not this {}-point one", bla.points, orbit.0.len()));
+    }
+    if p.escape_radius.is_nan() || p.escape_radius < 4.0 {
+        return Err(format!(
+            "escape radius {} is below 4: BLA blocks may only skip iterates with |z| <= 2 (1 + 2 eps), which needs escape radius >= 4",
+            p.escape_radius
+        ));
+    }
+    let dc = dc_max(&plane, p);
+    if dc.is_nan() || dc > bla.dc_max {
+        return Err(format!("view reaches |dc| = {dc:e}, beyond the BLA table's dc_max {:e}", bla.dc_max));
+    }
+    run(view, p, Some(orbit), Some(bla))
+}
+
+/// Upper bound on `|dc|` over the samples of a view; refused on the scaled tier, which
+/// BLA does not support.
+pub fn bla_dc_max(view: &View, p: &Params) -> Result<f64, String> {
+    let (plane, tier) = setup(view, p)?;
+    if tier == Tier::Scaled {
+        return Err("BLA tables need f64 deltas: not available on the scaled tier".into());
+    }
+    Ok(dc_max(&plane, p))
+}
+
+fn dc_max(plane: &Plane, p: &Params) -> f64 {
+    plane.h() * (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0)
+}
+
+fn run(
+    view: &View,
+    p: &Params,
+    supplied: Option<(Reference, u32)>,
+    bla: Option<&Bla>,
+) -> Result<(Header, Samples, Stats, BlaStats), String> {
     let (mut plane, tier) = setup(view, p)?;
     let t = Instant::now();
     let need = precision(&plane, tier);
@@ -98,33 +178,51 @@ pub fn render_with(
     };
     let reference_seconds = t.elapsed().as_secs_f64();
     let iterations = AtomicU64::new(0);
+    let total = Mutex::new((BlaStats::default(), 0.0f64));
     let cols = p.columns.with(Column::Class);
     let (nx, n) = (p.nx as usize, p.nx as usize * p.ny as usize);
     let mut s = Samples::alloc(n, cols);
     {
         let queue = Mutex::new(Row::split(&mut s, nx).into_iter());
-        let job = Job::new(&reference, &plane, tier, p, cols);
-        let (deriv, bounded) = (job.deriv, !job.q.is_empty());
+        let mut job = Job::new(&reference, &plane, tier, p, cols);
+        job.bla = bla;
+        let (deriv, bounded, blas) = (job.deriv, !job.q.is_empty(), job.bla.is_some());
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
                 sc.spawn(|| {
-                    let mut its = 0;
+                    let (mut its, mut b, mut shift) = (0, BlaStats::default(), 0.0f64);
                     loop {
                         // let-else drops the lock guard before the row is filled.
                         let Some(row) = queue.lock().unwrap().next() else { break };
-                        its += match (deriv, bounded) {
-                            (_, true) => job.fill::<true, true>(row),
-                            (true, false) => job.fill::<true, false>(row),
-                            (false, false) => job.fill::<false, false>(row),
+                        let sh = &mut shift;
+                        its += match (deriv, bounded, blas) {
+                            (_, true, _) => job.fill::<true, true, false>(row, &mut b, sh),
+                            (true, false, false) => job.fill::<true, false, false>(row, &mut b, sh),
+                            (false, false, false) => job.fill::<false, false, false>(row, &mut b, sh),
+                            (true, false, true) => job.fill::<true, false, true>(row, &mut b, sh),
+                            (false, false, true) => job.fill::<false, false, true>(row, &mut b, sh),
                         };
                     }
                     iterations.fetch_add(its, Ordering::Relaxed);
+                    let mut sum = total.lock().unwrap();
+                    sum.0.blocks += b.blocks;
+                    sum.0.skipped += b.skipped;
+                    sum.0.fallback_samples += b.fallback_samples;
+                    sum.0.closed_form_samples += b.closed_form_samples;
+                    sum.1 = sum.1.max(shift);
                 });
             }
         });
     }
     let stats = Stats { reference_len: reference.len(), reference_seconds, iterations: iterations.into_inner() };
-    Ok((header(view, p, cols, &plane, tier), s, stats))
+    let mut h = header(view, p, cols, &plane, tier);
+    if bla.is_some() {
+        h.kernel.push_str(" bla/1");
+    }
+    let (mut b, shift) = total.into_inner().unwrap();
+    // Output pixel = ss samples of spacing h.
+    b.shift_px = (bla.is_some() && cols.needs_derivative()).then(|| shift / (plane.h() * f64::from(p.ss)));
+    Ok((h, s, stats, b))
 }
 
 /// The header of a render of `view` with `cols`.
@@ -153,6 +251,8 @@ pub(crate) struct Job<'a> {
     q: Vec<f64>,
     /// Whether `dz/dc` is tracked.
     deriv: bool,
+    /// BLA table over `r`, if blocks may replace steps (never with bounds).
+    bla: Option<&'a Bla>,
 }
 
 impl<'a> Job<'a> {
@@ -165,39 +265,53 @@ impl<'a> Job<'a> {
         };
         let deriv = cols.needs_derivative() || !q.is_empty();
         let (store, r2) = (Store::new(plane, p.ss), p.escape_radius * p.escape_radius);
-        Job { r, plane, tier, store, max_iter: p.max_iter, r2, q, deriv }
+        Job { r, plane, tier, store, max_iter: p.max_iter, r2, q, deriv, bla: None }
     }
 
-    /// Outcome of sample `(i, j)`, with the same kernel choice as [`render`].
+    /// Outcome of sample `(i, j)`, with the same kernel choice as [`render`] (no BLA).
     pub(crate) fn outcome(&self, i: usize, j: usize) -> Outcome {
+        let skip = &mut Skip::default();
         match (self.deriv, !self.q.is_empty()) {
-            (_, true) => self.one::<true, true>(i, j),
-            (true, false) => self.one::<true, false>(i, j),
-            (false, false) => self.one::<false, false>(i, j),
+            (_, true) => self.one::<true, true, false>(i, j, skip),
+            (true, false) => self.one::<true, false, false>(i, j, skip),
+            (false, false) => self.one::<false, false, false>(i, j, skip),
         }
     }
 
     #[inline]
-    fn one<const D: bool, const B: bool>(&self, i: usize, j: usize) -> Outcome {
+    fn one<const D: bool, const B: bool, const L: bool>(&self, i: usize, j: usize, skip: &mut Skip) -> Outcome {
         let pl = self.plane;
         let h = pl.h();
         let (ux, uy) = pl.unit_offset(i, j);
         match self.tier {
             Tier::F64 => {
                 let (ar, ai) = (ux * h, uy * h);
-                sample::<D, B>(self.r, &self.q, Some((pl.c_re + ar, pl.c_im + ai)), ar, ai, self.max_iter, self.r2)
+                let c = Some((pl.c_re + ar, pl.c_im + ai));
+                perturb::<D, B, L>(self.r, &self.q, self.bla, skip, c, ar, ai, self.max_iter, self.r2)
             }
-            Tier::Fixed => sample::<D, B>(self.r, &self.q, None, ux * h, uy * h, self.max_iter, self.r2),
+            Tier::Fixed => perturb::<D, B, L>(self.r, &self.q, self.bla, skip, None, ux * h, uy * h, self.max_iter, self.r2),
             Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
         }
     }
 
-    /// Fill one row; returns the iterates spent.
-    fn fill<const D: bool, const B: bool>(&self, mut row: Row) -> u64 {
+    /// Fill one row, adding its BLA work to `b` and raising `shift` (in `c` units) to
+    /// the row's largest shift estimate; returns the iterates spent (one per applied
+    /// block).
+    fn fill<const D: bool, const B: bool, const L: bool>(&self, mut row: Row, b: &mut BlaStats, shift: &mut f64) -> u64 {
         let mut its = 0;
         for i in 0..row.class.len() {
-            let o = self.one::<D, B>(i, row.j);
+            let mut skip = Skip::default();
+            let o = self.one::<D, B, L>(i, row.j, &mut skip);
             its += o.iterations(self.max_iter);
+            if L {
+                its = its - skip.skipped + skip.blocks;
+                b.blocks += skip.blocks;
+                b.skipped += skip.skipped;
+                let closed = matches!(o, Outcome::Interior { n: 0 });
+                b.closed_form_samples += u64::from(closed);
+                b.fallback_samples += u64::from(skip.blocks == 0 && !closed);
+                *shift = shift.max(skip.shift);
+            }
             self.store.put(&mut row, i, o);
         }
         its

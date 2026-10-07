@@ -2,12 +2,14 @@
 //! canonical bytes, kept once each in a content-addressed directory store. Chunk
 //! boundaries are semantic (one orbit slab, one operator, one certificate...), never
 //! content-defined. Spec: docs/spec/ATLAS.md.
+mod bla;
 mod chunk;
 mod manifest;
 mod sha256;
 mod slab;
 mod store;
 
+pub use bla::{BlaTable, BLA_ENCODING};
 pub use chunk::{canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN};
 pub use manifest::{is_manifest, walk, Evidence, FrameManifest, OrbitManifest, TileManifest, Walk, MANIFEST_ENCODING};
 pub use sha256::Sha256;

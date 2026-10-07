@@ -1,6 +1,6 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render_refined, render_with, Params, Refinement, Tier, FINAL};
+use fd_kernel::{render_bla, render_refined, render_with, BlaStats, Params, Refinement, Stats, Tier, FINAL};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
@@ -9,7 +9,7 @@ use std::time::Instant;
 pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "refine", "max-px"]).collect();
+    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "bla", "refine", "max-px"]).collect();
     let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
@@ -18,13 +18,34 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         Some(id) => Some(crate::orbit::load(&crate::chunk::store(&a)?, id, &view)?),
         None => None,
     };
+    // `--bla ID`: a stored BLA table and the orbit it names (ATLAS.md "BLA tables"),
+    // loaded (verified and decoded) before the render clock starts, like `--orbit`.
+    let load = Instant::now();
+    let table = match a.str("bla") {
+        Some(_) if a.str("refine").is_some() => return Err("--refine does not take --bla".into()),
+        Some(id) => {
+            let (r, bits, table, oid) = crate::orbit::load_bla(&crate::chunk::store(&a)?, id, &view)?;
+            if a.str("orbit").is_some_and(|o| o != oid.to_string()) {
+                return Err(format!("BLA table {id} was built over orbit {oid}, not --orbit"));
+            }
+            Some(((r, bits), table))
+        }
+        None => None,
+    };
+    let load_seconds = load.elapsed().as_secs_f64();
     let threads = p.threads;
     let t = Instant::now();
+    let mut bla = None;
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
-    let (header, samples, refined) = match a.str("refine") {
-        None => render_with(&view, &p, orbit).map(|(h, s, _)| (h, s, None))?,
-        Some(_) if orbit.is_some() => return Err("--refine does not take --orbit".into()),
-        Some(_) => {
+    let (header, samples, refined) = match (a.str("refine"), table) {
+        (None, Some((orbit, table))) => {
+            let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;
+            bla = Some((st, b));
+            (h, s, None)
+        }
+        (None, None) => render_with(&view, &p, orbit).map(|(h, s, _)| (h, s, None))?,
+        (Some(_), _) if orbit.is_some() => return Err("--refine does not take --orbit".into()),
+        (Some(_), _) => {
             let max_px = a.num("max-px", fd_samples::lod::FINAL_PX)?;
             let (h, s, st, r) = render_refined(&view, &p, a.num("refine", 0)?, max_px)?;
             (h, s, Some((st.iterations, max_px, r)))
@@ -38,7 +59,33 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let Some((iterations, max_px, r)) = refined {
         report(&r, max_px, iterations, samples.class.len() as u64);
     }
+    if let Some((st, b)) = bla {
+        report_bla(&st, &b, samples.class.len() as u64, load_seconds);
+    }
     Ok(())
+}
+
+/// BLA work: blocks taken, steps they replaced, how much stayed on the plain per-step
+/// fallback, and the first-order shift estimate (DEC-10; ATLAS.md "BLA tables").
+fn report_bla(st: &Stats, b: &BlaStats, samples: u64, load_seconds: f64) {
+    let equivalent = st.iterations - b.blocks + b.skipped;
+    let frac = |x: u64, of: u64| if of == 0 { 0.0 } else { x as f64 / of as f64 };
+    println!("bla.load_seconds {load_seconds:.6}");
+    println!("bla.blocks {}", b.blocks);
+    println!("bla.skipped {}", b.skipped);
+    println!("iterations {}", st.iterations);
+    println!("iterations.equivalent {equivalent}");
+    println!("skip_fraction {:.6}", frac(b.skipped, equivalent));
+    println!("speedup.iterations {:.3}", frac(equivalent, st.iterations));
+    println!("fallback.iteration_fraction {:.6}", frac(equivalent - b.skipped, equivalent));
+    // Closed-form interior samples ran no iteration: neither BLA nor fallback.
+    println!("closed_form.samples {}", b.closed_form_samples);
+    println!("fallback.samples {}", b.fallback_samples);
+    println!("fallback.sample_fraction {:.6}", frac(b.fallback_samples, samples - b.closed_form_samples));
+    match b.shift_px {
+        Some(px) => println!("bla.shift_px.max {px:e}"),
+        None => println!("bla.shift_px.max untracked"),
+    }
 }
 
 /// Work per phase and each block's phase mask (final or fallback).

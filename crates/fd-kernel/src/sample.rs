@@ -1,6 +1,8 @@
 //! One sample: perturbed iteration with rebasing (Zhuoran), Brent periodicity check
 //! confirmed by Newton, and the derivative only when a column needs it. With `B`, also a
 //! rigorous running error radius on `z` and `dz/dc` (Bounded evidence, docs/spec/LOD.md).
+//! With a BLA table, valid blocks replace runs of steps (ACC-01, not with `B`).
+use crate::bla::Bla;
 use crate::interior::{attracting, in_main_components};
 use crate::reference::Reference;
 
@@ -32,15 +34,44 @@ pub(crate) const U: f64 = f64::EPSILON / 2.0;
 /// Covers the rounding of the error-radius arithmetic itself.
 const SAFE: f64 = 1.0 + 8.0 * U;
 
-/// Iterate sample `C + (ar, ai)`. `D` selects whether `dz/dc` is tracked. `c` is the
-/// absolute sample position when f64 resolves it, enabling the closed-form interior test.
-/// `B` (needs `D`) tracks error radii against the exact orbit, using `q` from
-/// [`Reference::error_radius`]; `q` is unused otherwise.
-#[inline]
-#[allow(clippy::too_many_arguments)]
+/// BLA work of one sample: blocks applied, the steps they replaced, and (with `D`) the
+/// first-order shift estimate: the sum over applied blocks of the remainder bound
+/// `alpha |delta_m| + beta |dc|` divided by `|dz/dc|` at the landing point, the distance
+/// in `c` that moves the sample as much as the dropped terms do (ATLAS.md "BLA tables").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Skip {
+    pub(crate) blocks: u64,
+    pub(crate) skipped: u64,
+    pub(crate) shift: f64,
+}
+
+/// [`perturb`] without BLA.
+#[cfg(test)]
 pub(crate) fn sample<const D: bool, const B: bool>(
     r: &Reference,
     q: &[f64],
+    c: Option<(f64, f64)>,
+    ar: f64,
+    ai: f64,
+    max_iter: u64,
+    r2: f64,
+) -> Outcome {
+    perturb::<D, B, false>(r, q, None, &mut Skip::default(), c, ar, ai, max_iter, r2)
+}
+
+/// Iterate sample `C + (ar, ai)`. `D` selects whether `dz/dc` is tracked. `c` is the
+/// absolute sample position when f64 resolves it, enabling the closed-form interior test.
+/// `B` (needs `D`) tracks error radii against the exact orbit, using `q` from
+/// [`Reference::error_radius`]; `q` is unused otherwise. With `L` and `bla` (built over
+/// `r` for `|(ar, ai)| <= dc_max`; never with `B`), valid blocks replace runs of steps,
+/// counted in `skip`. `L` is a constant so the plain kernel carries no BLA test.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
+    r: &Reference,
+    q: &[f64],
+    bla: Option<&Bla>,
+    skip: &mut Skip,
     c: Option<(f64, f64)>,
     ar: f64,
     ai: f64,
@@ -54,37 +85,60 @@ pub(crate) fn sample<const D: bool, const B: bool>(
     let (mut xr, mut xi) = (0.0f64, 0.0f64); // delta z
     let (mut dr, mut di) = (0.0f64, 0.0f64); // dz/dc
     let (mut m, mut n) = (0usize, 0u64);
-    // Brent: compare against the point saved at the last power of two.
-    let (mut sr, mut si, mut chk) = (0.0f64, 0.0f64, 16u64);
+    // Brent: compare against the point saved (at iterate `sn`) at the last power of two.
+    let (mut sr, mut si, mut chk, mut sn) = (0.0f64, 0.0f64, 16u64, 8u64);
     let (mut newton_at, mut tries) = (64u64, 0);
     // Error radii (B): e >= |z_exact - (A_m + delta)| with A the exact reference orbit,
     // ed on dz/dc. rc: the f64 offset's distance from the exact sample position.
     let (mut e, mut ed) = (0.0f64, 0.0f64);
     let rc = 16.0 * U * (ar.abs() + ai.abs()) + 1e-300;
+    let adc = if L { (ar * ar + ai * ai).sqrt() } else { 0.0 };
     while n < max_iter {
-        let (fr, fi) = (zr[m] + xr, zi[m] + xi);
-        if B {
-            let af = (fr * fr + fi * fi).sqrt() * (1.0 + 4.0 * U) + 1e-150; // >= |f|, f = z as computed
-            let ef = e + q[m] + 2.0 * U * af; // >= |z_exact - f|
-            let ad = dr.abs() + di.abs();
-            ed = (2.0 * (af + ef) * ed + 2.0 * ef * ad + 8.0 * U * (2.0 * af * ad + 1.0)) * SAFE;
-            let (aw, ax) = (zr[m].abs() + zi[m].abs(), xr.abs() + xi.abs());
-            // Defect of the delta step against 2 A delta + delta^2 + dc_exact.
-            let rho = 8.0 * U * (2.0 * aw * ax + ax * ax + ar.abs() + ai.abs()) + 2.0 * q[m] * ax + rc;
-            let w = af + q[m] + 2.0 * U * af; // >= |A_m + delta|
-            e = (e * (2.0 * w + e) + rho) * SAFE;
+        let block = match bla {
+            Some(t) if L && !B => t.find(m, xr * xr + xi * xi, max_iter - n),
+            _ => None,
+        };
+        if let Some((b, len)) = block {
+            // delta' = A delta + B dc, (dz/dc)' = A dz/dc + B.
+            let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
+            if D {
+                let t = a_r * dr - a_i * di + b_r;
+                di = a_r * di + a_i * dr + b_i;
+                dr = t;
+                skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc) / (dr * dr + di * di).sqrt();
+            }
+            let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
+            xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
+            xr = t;
+            m += len;
+            n += len as u64;
+            skip.blocks += 1;
+            skip.skipped += len as u64;
+        } else {
+            let (fr, fi) = (zr[m] + xr, zi[m] + xi);
+            if B {
+                let af = (fr * fr + fi * fi).sqrt() * (1.0 + 4.0 * U) + 1e-150; // >= |f|, f = z as computed
+                let ef = e + q[m] + 2.0 * U * af; // >= |z_exact - f|
+                let ad = dr.abs() + di.abs();
+                ed = (2.0 * (af + ef) * ed + 2.0 * ef * ad + 8.0 * U * (2.0 * af * ad + 1.0)) * SAFE;
+                let (aw, ax) = (zr[m].abs() + zi[m].abs(), xr.abs() + xi.abs());
+                // Defect of the delta step against 2 A delta + delta^2 + dc_exact.
+                let rho = 8.0 * U * (2.0 * aw * ax + ax * ax + ar.abs() + ai.abs()) + 2.0 * q[m] * ax + rc;
+                let w = af + q[m] + 2.0 * U * af; // >= |A_m + delta|
+                e = (e * (2.0 * w + e) + rho) * SAFE;
+            }
+            if D {
+                let t = 2.0 * (fr * dr - fi * di) + 1.0;
+                di = 2.0 * (fr * di + fi * dr);
+                dr = t;
+            }
+            // delta' = 2 Z delta + delta^2 + dc
+            let t = 2.0 * (zr[m] * xr - zi[m] * xi) + xr * xr - xi * xi + ar;
+            xi = 2.0 * (zr[m] * xi + zi[m] * xr + xr * xi) + ai;
+            xr = t;
+            m += 1;
+            n += 1;
         }
-        if D {
-            let t = 2.0 * (fr * dr - fi * di) + 1.0;
-            di = 2.0 * (fr * di + fi * dr);
-            dr = t;
-        }
-        // delta' = 2 Z delta + delta^2 + dc
-        let t = 2.0 * (zr[m] * xr - zi[m] * xi) + xr * xr - xi * xi + ar;
-        xi = 2.0 * (zr[m] * xi + zi[m] * xr + xr * xi) + ai;
-        xr = t;
-        m += 1;
-        n += 1;
         let (fr, fi) = (zr[m] + xr, zi[m] + xi);
         let f2 = fr * fr + fi * fi;
         if f2 > r2 {
@@ -100,8 +154,8 @@ pub(crate) fn sample<const D: bool, const B: bool>(
         // Until the delta is resolvable next to Z, z == Z in f64 and a periodic
         // reference would look like a settled cycle: judge nothing yet.
         if !resolvable(xr, xi, f2) {
-            if n == chk {
-                (sr, si, chk) = (fr, fi, chk * 2);
+            if saves::<L>(n, chk) {
+                (sr, si, sn, chk) = (fr, fi, n, next_check::<L>(chk, n));
             }
             continue;
         }
@@ -111,23 +165,50 @@ pub(crate) fn sample<const D: bool, const B: bool>(
             return Outcome::Interior { n }; // exact return: settled on a cycle
         }
         if tries < 4 && n >= newton_at && dist < 1e-3 * size {
-            if attracting(r, m, xr, xi, ar, ai, n - chk / 2) {
+            if attracting(r, m, xr, xi, ar, ai, n - sn) {
                 return Outcome::Interior { n };
             }
             tries += 1;
             newton_at = 4 * n;
         }
-        if n == chk {
-            (sr, si, chk) = (fr, fi, chk * 2);
+        if saves::<L>(n, chk) {
+            (sr, si, sn, chk) = (fr, fi, n, next_check::<L>(chk, n));
         }
     }
     Outcome::Unresolved
 }
 
+/// Whether iterate `n` is a Brent save point: `n == chk`, or with BLA (`L`, a block can
+/// jump over `chk`) the first iterate at or past it.
+#[inline]
+fn saves<const L: bool>(n: u64, chk: u64) -> bool {
+    if L {
+        n >= chk
+    } else {
+        n == chk
+    }
+}
+
+/// The next Brent save point after iterate `n`: `chk` doubled past `n`.
+#[inline]
+fn next_check<const L: bool>(mut chk: u64, n: u64) -> u64 {
+    if !L {
+        return chk * 2;
+    }
+    while chk <= n {
+        chk *= 2;
+    }
+    chk
+}
+
+/// Periodicity is judged only once `|delta| > RESOLVABLE |z|` ([`resolvable`]); BLA's
+/// eps cap ([`crate::bla::EPS_MAX`]) is tied to it.
+pub(crate) const RESOLVABLE: f64 = 1e-12;
+
 /// Delta large enough relative to `|z|^2 = f2` that `z = Z + delta` carries it.
 #[inline]
 pub(crate) fn resolvable(xr: f64, xi: f64, f2: f64) -> bool {
-    xr * xr + xi * xi > 1e-24 * f2
+    xr * xr + xi * xi > RESOLVABLE * RESOLVABLE * f2
 }
 
 #[cfg(test)]
@@ -177,6 +258,26 @@ mod tests {
         match (a, b) {
             (Outcome::Escaped { n: x, .. }, Outcome::Escaped { n: y, .. }) => assert_eq!(x, y),
             o => panic!("{o:?}"),
+        }
+    }
+
+    #[test]
+    fn bla_blocks_keep_the_escape_count() {
+        // Parabolic slow escape near the cusp: deltas stay tiny for hundreds of steps.
+        let r = Reference::new(0.2501, 0.0, 100_000, 1e10);
+        let bla = Bla::build(&r, crate::bla::EPS_MAX, 2e-17).unwrap();
+        for (ar, ai) in [(1e-17, 0.0), (-1e-17, 1e-17), (0.0, -1.4e-17)] {
+            let plain = sample::<true, false>(&r, &[], None, ar, ai, 100_000, 1e20);
+            let mut skip = Skip::default();
+            let fast = perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, None, ar, ai, 100_000, 1e20);
+            match (plain, fast) {
+                (Outcome::Escaped { n, zr, dr, .. }, Outcome::Escaped { n: n2, zr: z2, dr: d2, .. }) => {
+                    assert_eq!(n, n2, "{ar},{ai}");
+                    assert!((zr - z2).abs() < 1e-6 * zr.abs() && (dr - d2).abs() < 1e-6 * dr.abs(), "{zr} {z2} {dr} {d2}");
+                }
+                o => panic!("{o:?}"),
+            }
+            assert!(skip.skipped > 10 * skip.blocks && skip.blocks > 0, "{skip:?}");
         }
     }
 

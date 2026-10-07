@@ -52,6 +52,32 @@ jobs:
             echo "== valley path, kernel $k"
             target/release/fd reuse bench/path-valley.txt --store "out/reuse-$k" --size 128x72 --iter 50000 --columns nu,de --kernel "$k" --threads 4
           done
+      - name: stored BLA tables (ACC-01) along the valley path, vs plain iterations and the oracle
+        run: |
+          set -euo pipefail
+          fd=target/release/fd; st=out/bla/atlas; mkdir -p out/bla
+          common=(--re -0.743643887037158704752191506114774 --im 0.131825904205311970493132056385139 --size 128x72 --iter 50000 --columns nu,de --threads 4)
+          orbit=$($fd orbit put --store $st "${common[@]}" --width 1e-28 | awk '$1=="orbit"{print $2}')
+          echo "== shared table, built for the 1e-15 frame"
+          shared=$($fd orbit bla --store $st "${common[@]}" --width 1e-15 --orbit "$orbit" | tee /dev/stderr | awk '$1=="bla"{print $2}')
+          for w in 1e-15 1e-18 1e-21 1e-24 1e-28; do
+            own=$($fd orbit bla --store $st "${common[@]}" --width "$w" --orbit "$orbit" | awk '$1=="bla"{print $2}')
+            for t in "shared $shared" "own $own"; do
+              read -r name id <<< "$t"
+              echo "== width $w, $name table"
+              $fd render "${common[@]}" --width "$w" --store $st --bla "$id" -o "out/bla/$w-$name.fds"
+              python3 tools/oracle.py "out/bla/$w-$name.fds" --k 4
+            done
+            echo "== width $w, plain perturbation"
+            $fd bench "${common[@]}" --width "$w" --runs 1 -o "out/bla/$w-plain.fds" | grep -o '"iterations":{[^}]*}'
+            python3 tools/oracle.py "out/bla/$w-plain.fds" --k 4
+          done
+          echo "== shallow f64 frame (seahorse): no block is valid at |dc| ~ 4e-3, fallback 100%"
+          sea=(--re -0.7453 --im 0.1127 --width 0.0065 --size 192x108 --iter 20000 --columns nu,de --threads 4)
+          id=$($fd orbit bla --store $st "${sea[@]}" | tee /dev/stderr | awk '$1=="bla"{print $2}')
+          $fd render "${sea[@]}" --store $st --bla "$id" -o out/bla/seahorse.fds
+          python3 tools/oracle.py out/bla/seahorse.fds --k 8
+          $fd chunk stats --store $st
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -11,9 +11,11 @@
 //!   times an exact power of two: any depth.
 //!
 //! Results carry `Evidence::Heuristic`, except escaped samples of the f64/fx tiers when
-//! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). No series/BLA skipping
-//! (ACC-01). `render_refined` skips supersamples in blocks the screen-space error rule
-//! accepts from one sample per pixel (LOD-02).
+//! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). `render_bla` skips runs
+//! of steps with a stored BLA table (ACC-01, f64/fx tiers, `bla.rs`). `render_refined`
+//! skips supersamples in blocks the screen-space error rule accepts from one sample per
+//! pixel (LOD-02).
+mod bla;
 mod grid;
 mod interior;
 mod reference;
@@ -23,7 +25,8 @@ mod scaled;
 mod store;
 mod view;
 
-pub use grid::{reference, reference_bits, render, render_stats, render_with, Params, Stats};
+pub use bla::{Bla, Block, EPS_MAX as BLA_EPS_MAX};
+pub use grid::{bla_dc_max, reference, reference_bits, render, render_bla, render_stats, render_with, BlaStats, Params, Stats};
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};
