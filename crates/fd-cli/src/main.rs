@@ -2,6 +2,7 @@
 mod addr;
 mod args;
 mod bench;
+mod chunk;
 mod render;
 mod shade;
 
@@ -17,7 +18,13 @@ usage:
   fd addr locate --re X --im Y --level L
   fd addr show <key>
   fd addr sample <key> --grid K --at I,J
-  fd addr owner <cell-key> --grid K";
+  fd addr owner <cell-key> --grid K
+  fd chunk put --store DIR --kind K [--encoding N] [--formula F]
+               [--precision BITS] [--rounding exact|nearest|outward] <file>
+  fd chunk get --store DIR <id> -o out
+  fd chunk show --store DIR <id>
+  fd chunk verify --store DIR
+  fd chunk stats --store DIR";
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -27,6 +34,7 @@ fn main() {
         Some("shade") => shade::run(&argv[1..]),
         Some("info") => shade::info(&argv[1..]),
         Some("addr") => addr::run(&argv[1..]),
+        Some("chunk") => chunk::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {

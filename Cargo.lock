@@ -10,10 +10,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fd-atlas"
+version = "0.1.0"
+
+[[package]]
 name = "fd-cli"
 version = "0.1.0"
 dependencies = [
  "fd-addr",
+ "fd-atlas",
  "fd-kernel",
  "fd-samples",
  "fd-shade",

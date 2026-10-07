@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 fd-addr = { path = "../fd-addr" }
+fd-atlas = { path = "../fd-atlas" }
 fd-samples = { path = "../fd-samples" }
 fd-kernel = { path = "../fd-kernel" }
 fd-shade = { path = "../fd-shade" }
