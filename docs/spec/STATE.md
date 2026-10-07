@@ -41,13 +41,21 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
    both correctness-gated scores are 0. No 1,000-point/depth promotion or
    full-v0 sharing claim. This rejects these configurations, not adaptive tables,
    resume-state representations or the return decomposition itself.
-3. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
+3. **Done: PROB-08 timed it for real.** All-double deep pixel (biseries loops, Koenigs jump
+   on the exit tail, plain-double finish) vs per-frame BLA on whole 480x270 frames, 1e-35 to
+   2e-48, on GitHub Actions (`gh workflow run koenigs-bench.yml`): **8.5-23x faster, 0 wrong
+   pixels out of 777,600** (max 3.2e-4 px). Valid for frames inside the minibrot band centred
+   at the zone nucleus. It is a per-frame technique (DEC-15). Next: shallower frames and
+   off-centre pixels (a c ≠ C correction in the tail), other zones (PROB-06), Fatou
+   coordinates for the remaining "seahorse gate" steps (deep-research questions offered
+   2026-10-07), and whether it becomes an fd-kernel fast path.
+4. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
    transforms, spot-check error contract.
-4. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
+5. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
    detection.
-5. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
+6. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
    (deep interior detection), FIX-09 (BLA slower than plain at 1e-14 to 1e-29).
-6. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
+7. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
    (exponential-map strips, prior art: 2-11x) is still worth measuring. RESE-02 is the
    Imagina/NanoMB source read (lower-degree or LA/AT returns).
 
