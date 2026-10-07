@@ -139,5 +139,5 @@ fn get(s: &Store, id: &ChunkId) -> Result<Chunk, String> {
 fn put(s: &Store, chunk: &Chunk) -> Result<(), String> {
     let (id, outcome) = s.put(chunk).map_err(|e| e.to_string())?;
     println!("id {id}\nresult {}\nbytes {}", outcome.name(), chunk.bytes().len());
-    Ok(())
+    crate::chunk::report_target(s)
 }

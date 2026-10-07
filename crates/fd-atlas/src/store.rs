@@ -2,20 +2,48 @@
 //!
 //! ```text
 //! <root>/FDATLAS                  marker: "fd-atlas store 1\n"
+//! <root>/BUDGET                   optional: "target <bytes>\ncap <bytes>\n" (DEC-03)
 //! <root>/chunks/<2 hex>/<62 hex>  one file per chunk, its canonical bytes, named by id
 //! <root>/tmp/                     staging for atomic writes
 //! ```
 //!
 //! A chunk file is written once (staged, then renamed into place) and never modified.
 //! Every read re-hashes the bytes, so corruption is detected rather than returned.
-use crate::{Chunk, ChunkId, Error};
+//! A put that would take the store's chunk bytes over its hard cap is refused.
+use crate::{Chunk, ChunkId, Error, Kind};
 use std::fs;
-use std::io::{ErrorKind, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
 
 const MARKER: &str = "FDATLAS";
 const MARKER_TEXT: &str = "fd-atlas store 1\n";
+const BUDGET: &str = "BUDGET";
+
+/// An atlas byte budget over stored chunk bytes (DEC-03). Exceeding `target` is reported;
+/// a put that would exceed `cap` is refused and writes nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Budget {
+    /// Planning target in bytes.
+    pub target: u64,
+    /// Hard cap in bytes.
+    pub cap: u64,
+}
+
+impl Budget {
+    /// DEC-03 default: 2.5 GiB target, 3 GiB hard cap.
+    pub const DEFAULT: Budget = Budget { target: 5 << 29, cap: 3 << 30 };
+
+    /// Parse the BUDGET file; anything but exactly the canonical two lines is refused.
+    fn parse(text: &str) -> Option<Budget> {
+        let mut lines = text.lines();
+        let mut field = |name: &str| -> Option<u64> { lines.next()?.strip_prefix(name)?.strip_prefix(' ')?.parse().ok() };
+        let b = Budget { target: field("target")?, cap: field("cap")? };
+        let canonical = format!("target {}\ncap {}\n", b.target, b.cap);
+        (text == canonical && b.target <= b.cap).then_some(b)
+    }
+}
 
 /// What [`Store::put`] did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +79,10 @@ pub struct Stats {
 /// A content-addressed chunk store rooted at a directory.
 pub struct Store {
     root: PathBuf,
+    budget: Budget,
+    /// Stored chunk bytes, counted on first put and kept current; the lock also
+    /// serialises the cap check with the write within this process.
+    used: Mutex<Option<u64>>,
 }
 
 impl Store {
@@ -73,7 +105,31 @@ impl Store {
         }
         fs::create_dir_all(root.join("chunks"))?;
         fs::create_dir_all(root.join("tmp"))?;
-        Ok(Store { root })
+        let budget = match fs::read_to_string(root.join(BUDGET)) {
+            Ok(text) => Budget::parse(&text)
+                .ok_or_else(|| Error::Malformed(format!("{}: bad budget file", root.join(BUDGET).display())))?,
+            Err(e) if e.kind() == ErrorKind::NotFound => Budget::DEFAULT,
+            Err(e) => return Err(e.into()),
+        };
+        Ok(Store { root, budget, used: Mutex::new(None) })
+    }
+
+    /// The byte budget in force: the BUDGET file, else [`Budget::DEFAULT`].
+    pub fn budget(&self) -> Budget {
+        self.budget
+    }
+
+    /// Persist a new budget for this store; `target` must not exceed `cap`. A cap below
+    /// current usage is allowed: existing chunks stay, new ones are refused.
+    pub fn set_budget(&mut self, budget: Budget) -> Result<(), Error> {
+        if budget.target > budget.cap {
+            return Err(Error::Malformed(format!("budget target {} exceeds cap {}", budget.target, budget.cap)));
+        }
+        let text = format!("target {}\ncap {}\n", budget.target, budget.cap);
+        let tmp = self.root.join("tmp").join(format!("{BUDGET}.{}", std::process::id()));
+        write_then_rename(&tmp, &self.root.join(BUDGET), text.as_bytes())?;
+        self.budget = budget;
+        Ok(())
     }
 
     /// The store directory.
@@ -93,15 +149,26 @@ impl Store {
     }
 
     /// Store `chunk` under its content address. Identical chunks are kept once: a second
-    /// put of the same bytes verifies the stored copy and writes nothing.
+    /// put of the same bytes verifies the stored copy and writes nothing. A new chunk that
+    /// would take stored bytes over the budget's cap is refused with [`Error::OverBudget`].
+    /// Repairs are always allowed: they restore bytes that were already admitted.
     pub fn put(&self, chunk: &Chunk) -> Result<(ChunkId, Put), Error> {
         let id = chunk.id();
+        let mut used = self.used.lock().unwrap_or_else(|e| e.into_inner());
         let outcome = match self.get(&id) {
             Ok(_) => return Ok((id, Put::Deduplicated)),
             Err(Error::Missing(_)) => Put::Stored,
             Err(Error::Corrupt { .. } | Error::Malformed(_)) => Put::Repaired,
             Err(e) => return Err(e),
         };
+        let total = match *used {
+            Some(u) => u,
+            None => self.stats()?.bytes,
+        };
+        let len = chunk.bytes().len() as u64;
+        if outcome == Put::Stored && total.saturating_add(len) > self.budget.cap {
+            return Err(Error::OverBudget { need: len, used: total, cap: self.budget.cap });
+        }
         let dest = self.path(&id);
         fs::create_dir_all(dest.parent().expect("chunk path has a parent"))?;
         let tmp = self.staging(&id);
@@ -110,6 +177,8 @@ impl Store {
             let _ = fs::remove_file(&tmp);
         }
         staged?;
+        // A repaired file's old length is unknown here; recount on the next put.
+        *used = (outcome == Put::Stored).then_some(total + len);
         Ok((id, outcome))
     }
 
@@ -136,6 +205,30 @@ impl Store {
     pub fn stats(&self) -> Result<Stats, Error> {
         let files = self.files()?;
         Ok(Stats { chunks: files.len() as u64, bytes: files.iter().map(|(_, len)| len).sum() })
+    }
+
+    /// Unique chunks and bytes per kind, sorted by kind code. The kind is read from each
+    /// file's header without verifying it; a file too short to have one counts as kind 0.
+    pub fn stats_by_kind(&self) -> Result<Vec<(Kind, Stats)>, Error> {
+        let mut out: Vec<(Kind, Stats)> = Vec::new();
+        for (id, len) in self.files()? {
+            let mut head = [0u8; 14];
+            let kind = match fs::File::open(self.path(&id))?.read_exact(&mut head) {
+                Ok(()) => Kind(u16::from_le_bytes([head[12], head[13]])),
+                Err(e) if e.kind() == ErrorKind::UnexpectedEof => Kind(0),
+                Err(e) => return Err(e.into()),
+            };
+            let i = match out.binary_search_by_key(&kind.0, |(k, _)| k.0) {
+                Ok(i) => i,
+                Err(i) => {
+                    out.insert(i, (kind, Stats::default()));
+                    i
+                }
+            };
+            out[i].1.chunks += 1;
+            out[i].1.bytes += len;
+        }
+        Ok(out)
     }
 
     /// Re-hash every stored chunk; returns the ones that fail, with the reason.
@@ -241,6 +334,27 @@ mod tests {
         assert!(s.verify().unwrap().is_empty());
         let missing = ChunkId::of(b"nothing");
         assert!(matches!(s.get(&missing), Err(Error::Missing(_))));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn hard_cap_refuses_new_chunks_only() {
+        let dir = scratch("budget");
+        let mut s = Store::open(&dir).unwrap();
+        assert_eq!(s.budget(), Budget::DEFAULT);
+        let one = chunk(b"one").bytes().len() as u64;
+        s.set_budget(Budget { target: one, cap: one * 2 }).unwrap();
+        s.put(&chunk(b"one")).unwrap();
+        s.put(&chunk(b"two")).unwrap();
+        assert!(matches!(s.put(&chunk(b"six")), Err(Error::OverBudget { .. })));
+        assert_eq!(s.put(&chunk(b"one")).unwrap().1, Put::Deduplicated);
+        assert_eq!(s.stats().unwrap().bytes, one * 2);
+        let reopened = Store::open(&dir).unwrap();
+        assert_eq!(reopened.budget().cap, one * 2);
+        assert_eq!(reopened.stats_by_kind().unwrap(), vec![(Kind::CERTIFICATE, Stats { chunks: 2, bytes: one * 2 })]);
+        assert!(s.set_budget(Budget { target: 3, cap: 2 }).is_err());
+        fs::write(dir.join(BUDGET), "target 1\ncap 2\nextra\n").unwrap();
+        assert!(matches!(Store::open(&dir), Err(Error::Malformed(_))));
         fs::remove_dir_all(&dir).unwrap();
     }
 

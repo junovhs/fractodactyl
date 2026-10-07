@@ -26,6 +26,7 @@ usage:
   fd chunk show --store DIR <id>
   fd chunk verify --store DIR
   fd chunk stats --store DIR
+  fd chunk budget --store DIR [--target BYTES] [--cap BYTES]
   fd manifest tile --store DIR --tile KEY [--evidence heuristic,bounded,certified]
                    [--children Q:ID,...] [--refs ID,...]
   fd manifest frame --store DIR --anchor KEY [--offset U,V] [--width W]

@@ -86,3 +86,59 @@ fn identical_chunks_stored_once_and_corruption_detected() {
     ok(&["chunk", "verify", "--store", s(&store)]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn hard_cap_refuses_and_stats_report_bytes_by_kind() {
+    let dir = scratch("budget");
+    let store = dir.join("atlas");
+    let st = s(&store);
+    let defaults = ok(&["chunk", "budget", "--store", st]);
+    assert_eq!(get(&defaults, "target"), (5u64 << 29).to_string());
+    assert_eq!(get(&defaults, "cap"), (3u64 << 30).to_string());
+    assert!(!fd(&["chunk", "budget", "--store", st, "--target", "2KiB", "--cap", "1KiB"]).status.success());
+
+    // Chunks are 32 header bytes + payload padded to 8: 64, 48 and 64 bytes here.
+    let set = ok(&["chunk", "budget", "--store", st, "--target", "100", "--cap", "150"]);
+    assert_eq!((get(&set, "target"), get(&set, "cap")), ("100", "150"));
+    let (a, b, c) = (dir.join("a.bin"), dir.join("b.bin"), dir.join("c.bin"));
+    std::fs::write(&a, b"reference orbit slab bytes").unwrap();
+    std::fs::write(&b, b"certificate data").unwrap();
+    std::fs::write(&c, b"one more orbit slab, too many").unwrap();
+    let put = |k: &str, f: &Path| fd(&["chunk", "put", "--store", st, "--kind", k, s(f)]);
+
+    let first = put("orbit-slab", &a);
+    assert!(first.status.success());
+    assert!(String::from_utf8_lossy(&first.stdout).contains("over_target 0"));
+    let second = put("certificate", &b);
+    assert!(second.status.success(), "{second:?}");
+    assert!(String::from_utf8_lossy(&second.stdout).contains("atlas_bytes 112\nover_target 1"));
+    assert!(String::from_utf8_lossy(&second.stderr).contains("over its 100 byte target"));
+
+    // 112 + 64 > 150: refused, nothing written; a duplicate still succeeds.
+    let refused = put("orbit-slab", &c);
+    assert!(!refused.status.success());
+    let err = String::from_utf8_lossy(&refused.stderr);
+    assert!(err.contains("hard cap of 150") && err.contains("nothing written"), "{err}");
+    assert!(put("orbit-slab", &a).status.success());
+
+    let stats = ok(&["chunk", "stats", "--store", st]);
+    assert_eq!(get(&stats, "chunks"), "2");
+    assert_eq!(get(&stats, "bytes"), "112");
+    assert_eq!(get(&stats, "headroom"), "38");
+    assert_eq!(get(&stats, "over_target"), "1");
+    assert_eq!(get(&stats, "kind.orbit-slab"), "1 64");
+    assert_eq!(get(&stats, "kind.certificate"), "1 48");
+    assert_eq!(get(&stats, "class.operators"), "64");
+    assert_eq!(get(&stats, "class.evidence"), "48");
+    assert_eq!(get(&stats, "class.manifests"), "0");
+
+    // Manifest builds go through the same cap.
+    let tile = fd(&["manifest", "tile", "--store", st, "--tile", "0/0/0"]);
+    assert!(!tile.status.success());
+    assert!(String::from_utf8_lossy(&tile.stderr).contains("hard cap"), "{tile:?}");
+
+    // Raising the cap admits it.
+    ok(&["chunk", "budget", "--store", st, "--cap", "1MiB"]);
+    assert_eq!(get(&ok(&["chunk", "put", "--store", st, "--kind", "orbit-slab", s(&c)]), "result"), "stored");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

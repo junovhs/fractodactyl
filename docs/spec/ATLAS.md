@@ -1,8 +1,8 @@
-# Atlas Chunk Store and Manifests (ATLA-01, ATLA-02)
+# Atlas Chunk Store, Manifests and Byte Budget (ATLA-01..03)
 
 Content-addressed, immutable, semantic chunks (DEC-06), implemented in `crates/fd-atlas`
-(depends only on workspace `fd-addr`) and exposed as `fd chunk` and `fd manifest`. The
-byte budget (ATLA-03, 3 GiB hard cap per DEC-03) builds on this layer.
+(depends only on workspace `fd-addr`) and exposed as `fd chunk` and `fd manifest`, with
+a per-store byte budget (DEC-03: 2.5 GiB target, 3 GiB hard cap).
 
 ## Chunks
 
@@ -62,6 +62,7 @@ Other non-zero codes are accepted and shown numerically.
 
 ```text
 <root>/FDATLAS                  marker "fd-atlas store 1\n"
+<root>/BUDGET                   optional "target <bytes>\ncap <bytes>\n" (Byte budget)
 <root>/chunks/<2 hex>/<62 hex>  the chunk's canonical bytes, named by its id
 <root>/tmp/                     staging for atomic writes
 ```
@@ -72,7 +73,7 @@ Other non-zero codes are accepted and shown numerically.
 - **Get** re-hashes the file on every read and refuses bytes that do not hash to the
   requested id (`corrupt`) or are not canonical. Corruption is never returned as data.
 - **Stats** reports unique chunks and the bytes their files occupy, the quantity the
-  byte budget will account.
+  byte budget accounts, in total and per kind.
 - A non-empty directory without the marker is refused rather than turned into a store.
 
 ## CLI
@@ -84,10 +85,43 @@ fd chunk get --store DIR <id> -o out      # writes the verified payload
 fd chunk show --store DIR <id>            # verified header fields and path
 fd chunk verify --store DIR               # exit non-zero if any chunk fails
 fd chunk stats --store DIR
+fd chunk budget --store DIR [--target BYTES] [--cap BYTES]   # BYTES: N, NKiB, NMiB, NGiB
 ```
 
 Defaults for `put`: encoding 1, formula `mandelbrot`, precision 53, rounding `nearest`.
 Output is `name value` lines (`id`, `result stored|deduplicated|repaired`, `bytes`, ...).
+
+## Byte budget
+
+Each store has a budget over the sum of its chunk file sizes (DEC-03). Without a
+`BUDGET` file it is the default: target 2.5 GiB (2684354560), hard cap 3 GiB
+(3221225472). `fd chunk budget` persists another (target <= cap; a cap below current
+usage is allowed and simply admits nothing new). A malformed `BUDGET` file is refused.
+
+Policy (the simple one; choosing what to drop is the compiler's job):
+
+- A put of a **new** chunk that would take stored bytes over the cap is refused with
+  `atlas over budget ... hard cap ...; nothing written` and a non-zero exit. This covers
+  every build path: `fd chunk put`, `fd manifest tile|frame`.
+- Deduplicated puts write nothing and always succeed; repairs restore already-admitted
+  bytes and are allowed.
+- Exceeding the target is allowed but reported: puts print `atlas_bytes N` and
+  `over_target 0|1`, and warn on stderr when over.
+- Within one process the check and write are serialised; concurrent writer processes
+  each check against their own count and may together overshoot by their in-flight
+  chunks.
+
+`fd chunk stats` reports `target`, `cap`, `headroom` (cap minus bytes, floored at 0),
+`over_target`, one `kind.<name> <chunks> <bytes>` line per stored kind, and bytes per
+allocation class. The research allocation guide (tuning targets only, not enforced):
+
+| Class | Kinds | Guide share |
+|---|---|---|
+| `class.operators` | orbit-slab, bla, return-map | 55-70% |
+| `class.evidence` | certificate, exact-sample, samples | 10-20% |
+| (previews) | no kind yet | 10-20% |
+| `class.manifests` | tile-manifest, frame-manifest | rest |
+| `class.other` | unknown kinds | - |
 
 ## Manifests
 

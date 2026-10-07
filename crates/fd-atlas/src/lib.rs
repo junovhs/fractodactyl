@@ -10,7 +10,7 @@ mod store;
 pub use chunk::{canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN};
 pub use manifest::{is_manifest, walk, Evidence, FrameManifest, TileManifest, Walk, MANIFEST_ENCODING};
 pub use sha256::Sha256;
-pub use store::{Put, Stats, Store};
+pub use store::{Budget, Put, Stats, Store};
 
 use std::fmt;
 
@@ -67,6 +67,8 @@ pub enum Error {
     Corrupt { id: ChunkId, actual: ChunkId },
     /// Bytes are not a canonical chunk (or the store directory is not a store).
     Malformed(String),
+    /// Storing `need` more bytes on top of `used` would exceed the hard `cap` (DEC-03).
+    OverBudget { need: u64, used: u64, cap: u64 },
     /// Filesystem failure.
     Io(std::io::Error),
 }
@@ -77,6 +79,10 @@ impl fmt::Display for Error {
             Error::Missing(id) => write!(f, "chunk {id} is not in the store"),
             Error::Corrupt { id, actual } => write!(f, "chunk {id} is corrupt: stored bytes hash to {actual}"),
             Error::Malformed(m) => write!(f, "malformed chunk: {m}"),
+            Error::OverBudget { need, used, cap } => write!(
+                f,
+                "atlas over budget: {need} more bytes on top of {used} would exceed the hard cap of {cap} bytes (DEC-03); nothing written"
+            ),
             Error::Io(e) => write!(f, "{e}"),
         }
     }
