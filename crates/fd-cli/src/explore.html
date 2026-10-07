@@ -19,6 +19,11 @@
   #presets button:hover { background: rgba(255, 255, 255, 0.1); }
   #presets button span { color: var(--dim); }
   #help { position: fixed; left: 12px; bottom: 12px; padding: 6px 10px; background: var(--panel); border-radius: 6px; color: var(--dim); }
+  #look { position: fixed; right: 12px; bottom: 12px; width: 240px; padding: 8px 10px; background: var(--panel); border-radius: 6px; }
+  #look label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; color: var(--dim); gap: 8px; }
+  #look input[type=range] { width: 120px; accent-color: var(--accent); }
+  #look select { background: #222; color: var(--ink); border: 0; font: inherit; }
+  #look .title { color: var(--accent); margin-bottom: 4px; }
   #err { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 10px; background: #5a1d1d; border-radius: 6px; display: none; }
 </style>
 </head>
@@ -26,7 +31,19 @@
 <canvas id="c"></canvas>
 <div id="hud"></div>
 <div id="presets"></div>
-<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets</div>
+<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets · space: pause flow · R: reset look · H: hide panels</div>
+<div id="look">
+  <div class="title">look (live, no re-render)</div>
+  <label>palette <select id="pal"></select></label>
+  <label>bands <input id="bands" type="range" min="-2.3" max="3.3" step="0.01"></label>
+  <label>flow <input id="flow" type="range" min="-1.5" max="1.5" step="0.01"></label>
+  <label>breathe <input id="breathe" type="range" min="0" max="0.6" step="0.01"></label>
+  <label>breathe rate <input id="brate" type="range" min="0.02" max="1" step="0.01"></label>
+  <label>hue drift <input id="drift" type="range" min="-0.3" max="0.3" step="0.005"></label>
+  <label>relief <input id="relief" type="range" min="0" max="1" step="0.01"></label>
+  <label>edge dark <input id="edge" type="range" min="0" max="1" step="0.01"></label>
+  <label>edge glow <input id="glow" type="range" min="0" max="1.5" step="0.01"></label>
+</div>
 <div id="err"></div>
 <script>
 "use strict";
@@ -51,11 +68,28 @@ const PRESETS = [
 // long behind an old one.
 const LEVELS = [{ s: 8, ss: 1 }, { s: 4, ss: 1 }, { s: 2, ss: 1 }, { s: 1, ss: 1 }, { s: 1, ss: 2 }];
 
+// EXPL-03: the server sends raw shading inputs (ln nu, relief light, edge, escaped share)
+// and the page colours them every frame, so bands can flow and breathe without rendering.
+const PALETTES = {   // cosine palettes a + b cos(2 pi (c t + d))
+  "gold & blue": [[0.55, 0.5, 0.5], [0.45, 0.45, 0.5], [1, 1, 1], [0.0, 0.15, 0.35]],
+  "psychedelic": [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0.0, 0.33, 0.67]],
+  "fire": [[0.5, 0.3, 0.15], [0.5, 0.35, 0.2], [1, 1, 1], [0.0, 0.1, 0.2]],
+  "ice": [[0.35, 0.5, 0.65], [0.3, 0.35, 0.35], [1, 1, 1], [0.5, 0.55, 0.6]],
+  "umber": [[0.22, 0.13, 0.06], [0.18, 0.11, 0.05], [1, 1, 1], [0.0, 0.02, 0.05]],
+  "neon": [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [2, 1, 0], [0.5, 0.2, 0.25]],
+  "mono": [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0, 0, 0]],
+};
+const LOOK0 = { pal: "gold & blue", bands: 0.7, flow: 0.25, breathe: 0, brate: 0.15, drift: 0, relief: 0.6, edge: 0.5, glow: 0 };
+const KNOBS = ["bands", "flow", "breathe", "brate", "drift", "relief", "edge", "glow"];
+const look = { ...LOOK0 };
+let paused = false, phase = 0, hue = 0, clock = 0, lastT = performance.now();
+let raw = null, rawSnap = null;            // W x H x 4 floats: the best image so far
+let shaded = null, shadedSnap = null, shadeImg = null, shadeDirty = true;
+let lastShade = -Infinity;
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud"), errBox = document.getElementById("err");
 let W = 0, H = 0;
 let view = null, baseIter = 2000;
-let comp = null, compSnap = null;          // best image so far and the view it shows
 let gen = 0, job = null, inflight = false, dirty = false;
 let secPerSample = 1e-6, last = { info: {}, level: 0 };
 
@@ -118,7 +152,7 @@ function jump(p) {
   const l10w = log10Dec(p.w), D = needDigits(l10w);
   view = { re: parseDec(p.re, D), im: parseDec(p.im, D), D, l10w };
   baseIter = p.iter;
-  comp = null; compSnap = null;
+  raw = null; rawSnap = null; shadedSnap = null;
   changed();
 }
 function changed() { dirty = true; }
@@ -127,7 +161,7 @@ function resize() {
   W = Math.max(8, Math.floor(innerWidth / 8) * 8);
   H = Math.max(8, Math.floor(innerHeight / 8) * 8);
   canvas.width = W; canvas.height = H;
-  comp = null; compSnap = null;
+  raw = null; rawSnap = null; shadedSnap = null;
   if (view) changed();
 }
 
@@ -142,7 +176,7 @@ function nextRequest(j) {
   shift(v, 0, ((r0 + r1) / 2 - Hl / 2) * L.s);
   const q = new URLSearchParams({
     re: toDec(v.re, v.D), im: toDec(v.im, v.D), width: widthStr(v.l10w),
-    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen,
+    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen, raw: 1,
   });
   return { url: "/render?" + q, L, Wl, Hl, r0, r1 };
 }
@@ -156,7 +190,7 @@ async function kick() {
     if (r.status === 200) {
       const w = +r.headers.get("X-Width"), h = +r.headers.get("X-Height");
       const info = Object.fromEntries((r.headers.get("X-Info") || "").split(" ").map(kv => kv.split("=")));
-      const rgb = new Uint8Array(await r.arrayBuffer());
+      const rgb = new Float32Array(await r.arrayBuffer());
       secPerSample = Math.max(1e-9, +info.seconds / (w * h * req.L.ss * req.L.ss));
       if (j.level === 0 || j.gen === gen) {
         paint(j, req, rgb, w, h);
@@ -182,25 +216,66 @@ async function kick() {
   kick();
 }
 
-function paint(j, req, rgb, w, h) {
-  const img = new ImageData(w, h), d = img.data;
-  for (let i = 0, k = 0; i < w * h; i++, k += 3) {
-    d[4 * i] = rgb[k]; d[4 * i + 1] = rgb[k + 1]; d[4 * i + 2] = rgb[k + 2]; d[4 * i + 3] = 255;
-  }
-  const tmp = new OffscreenCanvas(w, h);
-  tmp.getContext("2d").putImageData(img, 0, 0);
-  if (j.level === 0) {
+function paint(j, req, f, w, h) {
+  if (j.level === 0 || !raw) {
     // A coarse frame always becomes the new base image, even for a view the mouse
     // has since left: it is drawn transformed until a newer one lands.
-    comp = new OffscreenCanvas(W, H);
-    compSnap = j.snap;
+    raw = new Float32Array(W * H * 4);
+    rawSnap = j.snap;
   }
-  const c = comp.getContext("2d");
-  c.imageSmoothingEnabled = false;
-  c.drawImage(tmp, 0, req.r0 * req.L.s, w * req.L.s, h * req.L.s);
+  const s = req.L.s, y0 = req.r0 * s;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const k = 4 * (y * w + x);
+      for (let dy = 0; dy < s; dy++) {
+        const row = y0 + y * s + dy;
+        if (row >= H) break;
+        let o = 4 * (row * W + x * s);
+        for (let dx = 0; dx < s && x * s + dx < W; dx++, o += 4) {
+          raw[o] = f[k]; raw[o + 1] = f[k + 1]; raw[o + 2] = f[k + 2]; raw[o + 3] = f[k + 3];
+        }
+      }
+    }
+  }
+  shadeDirty = true;
+}
+
+// Colour the raw buffer with the current look and time into the `shaded` canvas.
+function shade() {
+  if (!raw) return;
+  if (!shaded || shaded.width !== W || shaded.height !== H) {
+    shaded = new OffscreenCanvas(W, H); shadeImg = new ImageData(W, H);
+  }
+  const [a, b, c, d] = PALETTES[look.pal];
+  const k = 10 ** look.bands * (1 + look.breathe * Math.sin(2 * Math.PI * look.brate * clock));
+  const T = 2 * Math.PI, rel = look.relief, ed = look.edge, gl = look.glow;
+  const ca = [T * c[0], T * c[1], T * c[2]];
+  const da = [T * (d[0] + phase * c[0]), T * (d[1] + phase * c[1] + 0.37 * hue), T * (d[2] + phase * c[2] + 0.71 * hue)];
+  const px = shadeImg.data, n = W * H;
+  for (let i = 0, o = 0; i < n; i++, o += 4) {
+    const cov = raw[o + 3];
+    if (cov <= 0) { px[o] = 0; px[o + 1] = 0; px[o + 2] = 0; px[o + 3] = 255; continue; }
+    const t = k * raw[o], lit = raw[o + 1], edge = raw[o + 2];
+    const sh = ((1 - rel) + rel * (0.15 + 0.85 * lit)) * ((1 - ed) + ed * edge);
+    const g = gl * (1 - edge) ** 3;
+    px[o] = 255 * cov * Math.min(1, (a[0] + b[0] * Math.cos(ca[0] * t + da[0])) * sh + g);
+    px[o + 1] = 255 * cov * Math.min(1, (a[1] + b[1] * Math.cos(ca[1] * t + da[1])) * sh + 0.85 * g);
+    px[o + 2] = 255 * cov * Math.min(1, (a[2] + b[2] * Math.cos(ca[2] * t + da[2])) * sh + 0.6 * g);
+    px[o + 3] = 255;
+  }
+  shaded.getContext("2d").putImageData(shadeImg, 0, 0);
+  shadedSnap = rawSnap;
 }
 
 function draw() {
+  const now = performance.now(), dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  if (!paused && (look.flow !== 0 || look.breathe !== 0 || look.drift !== 0)) {
+    clock += dt; phase -= look.flow * dt; hue += look.drift * dt; shadeDirty = true;
+  }
+  // Leave time for refinement responses and input between full-image recolours.
+  if (shadeDirty && now - lastShade >= 1000 / 30) {
+    shadeDirty = false; lastShade = now; shade();
+  }
   if (dirty && view) {
     dirty = false;
     gen = Math.max(gen + 1, Date.now());   // stays newer than any earlier tab or reload
@@ -209,14 +284,14 @@ function draw() {
   }
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
-  if (comp && compSnap) {
+  if (shaded && shadedSnap) {
     // Where the stored image lands in the current view (display only, until replaced).
-    const D = Math.max(compSnap.D, view.D);
-    const dx = bigToPx(rescale(compSnap.re, compSnap.D, D) - rescale(view.re, view.D, D), D, view.l10w);
-    const dy = -bigToPx(rescale(compSnap.im, compSnap.D, D) - rescale(view.im, view.D, D), D, view.l10w);
-    const k = 10 ** (compSnap.l10w - view.l10w);
+    const D = Math.max(shadedSnap.D, view.D);
+    const dx = bigToPx(rescale(shadedSnap.re, shadedSnap.D, D) - rescale(view.re, view.D, D), D, view.l10w);
+    const dy = -bigToPx(rescale(shadedSnap.im, shadedSnap.D, D) - rescale(view.im, view.D, D), D, view.l10w);
+    const k = 10 ** (shadedSnap.l10w - view.l10w);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(comp, W / 2 + dx - (W / 2) * k, H / 2 + dy - (H / 2) * k, W * k, H * k);
+    ctx.drawImage(shaded, W / 2 + dx - (W / 2) * k, H / 2 + dy - (H / 2) * k, W * k, H * k);
   }
   if (view) {
     const i = last.info, zoom = Math.log10(4) - view.l10w;
@@ -266,9 +341,24 @@ PRESETS.forEach((p, n) => {
   b.onclick = () => jump(p);
   list.appendChild(b);
 });
+const sel = document.getElementById("pal");
+Object.keys(PALETTES).forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
+function syncControls() {
+  sel.value = look.pal;
+  for (const id of KNOBS) document.getElementById(id).value = look[id];
+}
+sel.onchange = () => { look.pal = sel.value; shadeDirty = true; sel.blur(); };
+for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
+syncControls();
 addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
   const n = "1234567890".indexOf(e.key);
   if (n >= 0) jump(PRESETS[n]);
+  if (e.key === " ") { paused = !paused; e.preventDefault(); }
+  if (e.key === "r" || e.key === "R") { Object.assign(look, LOOK0); phase = 0; hue = 0; clock = 0; syncControls(); shadeDirty = true; }
+  if (e.key === "h" || e.key === "H") for (const id of ["hud", "presets", "help", "look"]) {
+    const el = document.getElementById(id); el.style.display = el.style.display === "none" ? "" : "none";
+  }
 });
 addEventListener("resize", resize);
 resize();

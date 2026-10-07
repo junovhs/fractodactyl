@@ -47,6 +47,16 @@ fn serves_page_and_renders() {
     assert_eq!(body.len(), 64 * 36 * 3);
     assert!(body.contains(&0) && body.iter().any(|&b| b > 128), "expected both set and lit background");
 
+    // EXPL-03: raw shading inputs, four finite f32 per pixel, with set and background.
+    let (head, body) = get(port, "/render?re=-0.65&im=0&width=4.2&w=64&h=36&ss=2&iter=500&gen=5&raw=1");
+    assert!(head.starts_with("HTTP/1.1 200") && head.contains("X-Width: 64"), "{head}");
+    assert_eq!(body.len(), 64 * 36 * 16);
+    let f: Vec<f32> = body.chunks(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+    assert!(f.iter().all(|v| v.is_finite()));
+    let cover: Vec<f32> = f.chunks(4).map(|p| p[3]).collect();
+    assert!(cover.contains(&0.0) && cover.contains(&1.0), "expected interior and escaped pixels");
+    assert!(f.chunks(4).filter(|p| p[3] > 0.0).all(|p| p[0] > 0.0 && (0.0..=1.0).contains(&p[1])));
+
     // Deep: the scaled tier at 1e-300.
     let (head, body) = get(port, "/render?re=0&im=1&width=1e-300&w=32&h=18&ss=1&iter=2000&gen=6");
     assert!(head.starts_with("HTTP/1.1 200") && head.contains("pert-fx-scaled/1"), "{head}");
