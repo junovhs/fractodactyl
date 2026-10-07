@@ -24,10 +24,16 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
 
 ## Do next, in order
 
-1. **PROB-03 (make-or-break).** Is a cheap per-loop return map (NanoMB/Imagina-AT style)
-   accurate enough to replace the 764-iteration loops?
-2. **PROB-04.** Build the shared exit table E_{c0}: its size, resampling error and
-   self-similar ring.
+1. **Done: the cheap loop shortcut works.** PROB-03 killed a fixed map over the
+   too-wide exit schedule. PROB-07 (aead5b7) kept a degree-4 biseries used only within
+   1e-26 of C, followed by a tail at the fixed parameter C: 0 wrong pixels, max
+   2.24e-4 px, 1e-35 to 2e-48. Projected cost: 240-1,080 ops plus one lookup per deep
+   pixel, against about 10,000 with BLA. That is only a projection, on 8 points per
+   depth.
+2. **PROB-04 (make-or-break #2, urgent).** Build the shared exit table E_C at parameter
+   C, over the measured exit range 1.2e-26 to 7.6e-5. Measure its size and lookup
+   error, validate on at least 1,000 points per depth, and measure real speed against
+   BLA.
 3. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
    transforms, spot-check error contract.
 4. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
@@ -36,7 +42,7 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
    (deep interior detection), FIX-09 (BLA slower than plain at 1e-14 to 1e-29).
 6. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
    (exponential-map strips, prior art: 2-11x) is still worth measuring. RESE-02 is the
-   Imagina/NanoMB source read; it feeds PROB-03.
+   Imagina/NanoMB source read (lower-degree or LA/AT returns).
 
 ## Decisions to know
 
