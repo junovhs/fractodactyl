@@ -227,3 +227,52 @@ stops these candidates before >=1,000 points/depth promotion; no widened
 correctness or atlas-win claim is made. Rejected table values require direct
 fallback. Adaptive or resume-state representations remain untested and would
 need a new cheap probe. Continue the plan with PROB-05.
+
+## Koenigs exit tail and real timing: the deep band is 8.5-25x faster (2026-10-07)
+
+PROB-04 showed the exit function cannot be interpolated from a table. Instead the exit
+tail is now *computed*, cheaply and exactly:
+
+1. **Loops** (PROB-07): k returns of the degree-4 biseries in u = (z − C)/1e-25, while
+   |z − C| ≤ 1e-28 (degree 3 also passes; degree 2 and guards of 1e-26 or ≤ 1e-29 fail on
+   whole frames). The v powers are folded in once per pixel, so a return is a degree-4
+   Horner in u.
+2. **Approach:** 23 double perturbation steps against C's critical orbit, from the exit
+   offset δ = ζ − C to the Misiurewicz neighbourhood of the 2-cycle point α_C.
+3. **Koenigs jump:** φ (12-term Koenigs series of f_C² at α_C, multiplier
+   ρ = 1.02683+0.52496i) linearises the spiral-out. Jump j = ⌊log(R0/|φ(h0)|)/log|ρ|⌋
+   cycles at once (R0 = 0.03), then invert with Newton on φ.
+4. **Finish:** 56-342 plain double steps of z² + C to escape.
+
+Everything per pixel is IEEE double. The per-zone constants (biseries, orbit, α, ρ, φ) are
+computed once at high precision (`koenigs_bench_consts.py`, about 0.1 s).
+
+**Result (PROB-08):** Rust bench `tools/research/misiurewicz/koenigs_bench`, GitHub
+Actions workflow `koenigs-bench.yml`. Whole 480x270 frames centred at C, at 1e-35, 1e-38,
+1e-40, 1e-43, 1e-46 and 2e-48. Every pixel was compared with `fd control --bla per-frame`:
+0 wrong pixels and 0 class mismatches out of 777,600, max 3.2e-4 px.
+- Speed-up against fd's per-frame BLA: **8.1-25x**, across three runs (4 threads twice,
+  1 thread once).
+- Speed-up against a lean double-perturbation loop written in the same file: 11-37x.
+- The pipeline's frame time is flat with depth; both opponents slow down as depth grows.
+
+This is a per-frame technique (DEC-15). Any renderer that knows the zone can use it.
+
+**What's left per pixel:** the 56-342 finish steps. The diagnostic
+(`koenigs_leftover.py`) shows the long tails wander 0.1-0.5 from the weakly repelling α
+fixed point (|λ| = 1.00622) near the parabolic c = −3/4: the "seahorse gate". The
+deep-research report `skipping-near-parabolic-transits-what-is-computable.md` gives exact
+ways to skip it: Koenigs at α, Kapiamba's q = 2 near-parabolic identity, Buff
+coordinates, and Braverman long iterates. PROB-09 tests them.
+
+**Lessons:**
+- 48 frozen points were not enough. Two configurations passed them and failed whole
+  frames (DEC-17, proposed).
+- Script bugs that looked like results: ζ rounded straight to double, and ν off by one.
+
+**Next:**
+- PROB-09: skip the gate.
+- PROB-10: every v0-path frame in the band, at full resolution.
+- PROB-11: off-centre and shallower frames (a c ≠ C correction).
+- KERN-01: put it in fd so the films get faster.
+- PROB-06: other zones, with automatic detection.

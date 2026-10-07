@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-07)
+# Where We Are (updated 2026-10-07, evening)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -17,13 +17,18 @@ search for something worth caching produced one strong lead.
 - On the approach to a minibrot, every pixel is "k loops around the minibrot" plus "one
   shared exit function".
 
-Frame transfer passed its sampled comparisons; the tight degree-4 decomposition
-passed 48 frozen points with max error 2.24e-4 px. PROB-04 rejected two uniform
-log-polar exit tables: the finer 2.07 MiB table still has 27.0 px interpolation
-error. The shared exit-table accelerator is therefore not established. If new representations
-work, a deep pixel costs a few cheap steps plus a table lookup instead of thousands of
-iterations, and the tables are shared by every frame: the atlas idea, with something
-worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`.
+**The first real speed win is measured.** A deep pixel inside the minibrot band is now:
+- a few cheap loops of the return map;
+- 23 approach steps;
+- one exact Koenigs jump over the spiral-out;
+- 56-342 plain double steps.
+
+There is no table and no multiprecision per pixel. On GitHub Actions (PROB-08), whole
+480x270 frames from 1e-35 to 2e-48 render **8.1-25x faster than fd's per-frame BLA,
+with 0 wrong pixels out of 777,600**. It is a per-frame technique (DEC-15). The
+interpolated exit table (PROB-04) stays rejected; the Koenigs jump replaced it. Full
+write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`. Conversation context:
+`PHILO-HANDOFF.md`.
 
 ## Do next, in order
 
@@ -41,21 +46,30 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
    both correctness-gated scores are 0. No 1,000-point/depth promotion or
    full-v0 sharing claim. This rejects these configurations, not adaptive tables,
    resume-state representations or the return decomposition itself.
-3. **Done: PROB-08 timed it for real.** All-double deep pixel (biseries loops, Koenigs jump
-   on the exit tail, plain-double finish) vs per-frame BLA on whole 480x270 frames, 1e-35 to
-   2e-48, on GitHub Actions (`gh workflow run koenigs-bench.yml`): **8.5-23x faster, 0 wrong
-   pixels out of 777,600** (max 3.2e-4 px). Valid for frames inside the minibrot band centred
-   at the zone nucleus. It is a per-frame technique (DEC-15). Next: shallower frames and
-   off-centre pixels (a c ≠ C correction in the tail), other zones (PROB-06), Fatou
-   coordinates for the remaining "seahorse gate" steps (deep-research questions offered
-   2026-10-07), and whether it becomes an fd-kernel fast path.
-4. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
+3. **Done: PROB-08 timed it for real.** All-double deep pixel vs per-frame BLA, whole
+   480x270 frames, 1e-35 to 2e-48, on GitHub Actions (`gh workflow run
+   koenigs-bench.yml`): **8.1-25x faster, 0 wrong pixels out of 777,600** (max 3.2e-4
+   px), repeated on 4 threads and 1 thread. Valid for frames centred at the zone nucleus
+   with every pixel within 1e-28 of it.
+4. **Next, in this order (all filed):**
+   - **PROB-09:** skip the ~300-step "seahorse gate" leftovers (diagnose gate passes vs
+     dwell, then Koenigs at α, then a Kapiamba/Buff gate map). Report:
+     `docs/research/10-8-26/skipping-near-parabolic-transits-what-is-computable.md`.
+   - **PROB-10:** every v0-path frame in the band, at full resolution, every pixel
+     scored, total time, plus the fraction of the whole film.
+   - **KERN-01:** the fast path inside fd render/control/play, so videos benefit.
+     Depends on PROB-10.
+   - **PROB-11** (mid; the owner rates this low): off-centre and shallower frames via a
+     c ≠ C tail correction.
+   - **DEC-17** (proposed, the owner decides): whole-frame every-pixel validation before
+     "keep".
+5. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
    transforms, spot-check error contract.
-5. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
+6. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
    detection.
-6. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
+7. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
    (deep interior detection), FIX-09 (BLA slower than plain at 1e-14 to 1e-29).
-7. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
+8. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
    (exponential-map strips, prior art: 2-11x) is still worth measuring. RESE-02 is the
    Imagina/NanoMB source read (lower-degree or LA/AT returns).
 
@@ -67,6 +81,8 @@ worth caching in it. Full write-up: `docs/research/10-8-26/misiurewicz-frame-tra
   inherently cross-frame.
 - DEC-16 (**PROPOSED, needs the owner**): theorem-backed frame transfer counts as
   genuine depth under an error contract. It is not twin substitution.
+- DEC-17 (**PROPOSED, needs the owner**): a per-pixel shortcut is kept only after it
+  passes every pixel of whole frames, not just sampled points.
 
 ## Things that exist for the owner
 

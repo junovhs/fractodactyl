@@ -55,6 +55,13 @@ A candidate is compared in seconds. The independent oracle (tools/oracle.py) run
 when a candidate is promoted. Errors use the oracle's measure, equivalent pixel
 displacement (DEC-10).
 
+Frozen points rank and kill; they do not promote. A per-pixel shortcut is **kept** only
+after it matches fd (or the oracle) on every pixel of at least one whole frame per tested
+depth (≤1e-3 px, 0 class mismatches), with the worst pixels re-checked at high precision
+to see which side is wrong (DEC-17, proposed). On 2026-10-07 two configurations passed 48
+frozen points and failed whole frames. Whole-frame checks run on GitHub Actions
+(`gh workflow run koenigs-bench.yml`).
+
 ## 5. Generate and test
 
 Ideas are cheap and scoring decides. Each probe ends in **one number per candidate**,

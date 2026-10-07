@@ -11,6 +11,15 @@ on:
       runs:
         description: timed runs per frame (best is reported)
         default: "5"
+      size:
+        description: frame size NXxNY
+        default: "480x270"
+      degree:
+        description: biseries degree of the loop map
+        default: "4"
+      guard:
+        description: loop exit guard |z - C|
+        default: "1e-28"
 
 env:
   CARGO_TERM_COLOR: never
@@ -30,7 +39,8 @@ jobs:
         run: nproc && lscpu | grep -E 'Model name|^CPU\(s\)'
       - name: timing and scoring
         run: |
-          THREADS=${{ inputs.threads }} RUNS=${{ inputs.runs }} \
+          THREADS=${{ inputs.threads }} RUNS=${{ inputs.runs }} SIZE=${{ inputs.size }} \
+            DEGREE=${{ inputs.degree }} GUARD=${{ inputs.guard }} \
             bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/koenigs
           cat out/koenigs/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
