@@ -8,6 +8,7 @@ The previous twin-minibrot swap prototype is intentionally absent from this bran
 
 ## Start here
 
+0. **Start with `docs/spec/STATE.md`** (where we are, what to do next), then `ishoo_status`.
 1. Read `SPEC.md`.
 2. Read `docs/spec/ARCHITECTURE.md`.
 3. Read `docs/spec/ISHOO-LEDGER.md`.

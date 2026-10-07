@@ -98,6 +98,7 @@ Each chunk has:
 Schedule by deadline/slack, not simply spatial distance.
 The implemented scheduler (jobs, deadlines, cost model, `fd schedule`) is docs/spec/SCHEDULE.md;
 the compiler built on it (`fd compile`, Atlas v0) is docs/spec/COMPILE.md.
+Current state and next steps: docs/spec/STATE.md.
 A local browser explorer (`fd explore`, a dev-tool sidequest) is docs/spec/EXPLORE.md.
 
 ### Temporal reuse
