@@ -3,6 +3,7 @@ mod addr;
 mod args;
 mod bench;
 mod chunk;
+mod control;
 mod lod;
 mod manifest;
 mod orbit;
@@ -46,6 +47,9 @@ usage:
   fd plan PATH --size WxH [--ss N] [--tile-px N]
   fd reuse PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
            [--threads N] [--kernel K] [--slab N]
+  fd control PATH [--size WxH] [--ss N] [--iter N] [--columns C] [--threads N]
+             [--kernel K] [--runs N] [-o DIR]
+             [--oracle tools/oracle.py [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]";
 
 fn main() {
@@ -61,6 +65,7 @@ fn main() {
         Some("orbit") => orbit::run(&argv[1..]),
         Some("plan") => plan::run(&argv[1..]),
         Some("reuse") => reuse::run(&argv[1..]),
+        Some("control") => control::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };

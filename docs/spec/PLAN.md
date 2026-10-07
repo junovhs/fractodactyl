@@ -12,6 +12,8 @@ One frame per non-blank line, `#` starts a comment:
 re im width [rotation]
 ```
 
+The same file feeds `fd reuse` (ATLAS.md "Orbit reuse") and `fd control`, the
+independent-frame control renderer (SAMPLES.md "Independent-frame control").
 Fields mean exactly what `fd render --re --im --width --rotation` means (SAMPLES.md View);
 `re`/`im` are exact decimals of any length, so deep paths stay exact.
 

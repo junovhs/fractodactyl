@@ -110,7 +110,8 @@ bits, no perturbation) over the locations in `bench/locations.txt`; see
 `fd bench` takes the `fd render` flags plus `--runs N` (default 3), renders the view
 `N` times in one process and prints one JSON line (schema `fd-bench/1`): per-run
 seconds and reference-orbit seconds with an explicit `cold`/`warm` state, cold and
-median-warm seconds, peak RSS (Linux `VmHWM`, else null), sample and reference bytes,
+median-warm seconds (`warm_seconds` and `warm_statistic` null with `--runs 1`), run 1's
+peak RSS (Linux `VmHWM`, else null; see "Peak RSS" below), sample and reference bytes,
 iterations (total, per output pixel, reference length), `.fds` bytes, fallback
 (`pixel_fraction` 1: with no atlas every sample takes the perturbation path), class
 counts, depth, and whether all runs were byte-identical. Cache state is stated, not
@@ -120,6 +121,69 @@ the error-vs-oracle metrics and exits 1 when the oracle (or determinism) fails.
 `scripts/bench.sh` runs it on named `bench/locations.txt` entries and fails on any
 null metric; CI runs it on `seahorse` and `i-1e-300`.
 
+## Independent-frame control (VIDE-03)
+
+`fd control PATH` renders every frame of a camera path (PLAN.md "Path file") as an
+independent render: the control that the atlas player is measured against (SPEC.md
+success criterion 5, BENC-01). Each frame is exactly `fd render` / `fd bench` of its
+view (same `.fds` bytes): its own reference orbit computed fresh, the cheapest valid
+kernel (`--kernel auto` by default, or the one forced), no stored orbit, BLA table or
+atlas (`--store`, `--orbit`, `--bla` are refused), nothing kept from one frame for the
+next. It takes the `fd render` flags other than the view (`--re --im --width
+--rotation`, which come from the path), plus `--runs N` (default 1), `-o DIR` (writes
+`DIR/frame-NNNNN.fds`, `NNNNN` = frame index) and `--oracle tools/oracle.py [--k K]
+[--python P]` (needs `-o`; checks every frame). It is not optimised beyond the normal
+renderer: it is the honest baseline, not a competitor.
+
+Output is JSON lines, schema `fd-control/1`: one `"record":"frame"` line per frame in
+path order, then one `"record":"totals"` line. Exit status: 2 for a usage error found
+before the first frame (flags, unreadable path file, unusable `-o DIR`); 1 when a frame
+fails the oracle or determinism, or a runtime failure (render, I/O, oracle run) stops the
+path part-way. Then the totals line still covers the frames already done and `error`
+names the failing frame; 0 otherwise.
+
+**Frame record.** `frame` (0-based index), `line` (path file line), then the fd-bench/1
+fields with the same names and meaning (`view`, `grid`, `kernel`, `threads`, `depth`,
+`cache`, `runs`, `timing`, `memory`, `iterations`, `bytes`, `atlas_work`, `fallback`,
+`classes`, `oracle`, `oracle_seconds`, `ok`), so a BENC-01 report can diff a player
+frame against it key by key. Differences from fd-bench/1:
+
+| Field | Control meaning |
+|---|---|
+| `runs[0].state` | `cold`: no mathematical work reused. The process (allocator, CPU caches) is warm after frame 0; that is not reuse. |
+| `runs[1..].state` | `repeat`: re-renders used only to check determinism, never timed as warm |
+| `timing.warm_seconds` | always `null`: a control frame has no warm state (`warm_statistic` `null` too) |
+| `deterministic` | runs byte-identical with equal iterations; `null` with `--runs 1` (not checked) |
+| `memory.peak_rss_bytes` | run 1's peak, as in fd-bench/1 ("Peak RSS" below) |
+| `fds` | path of the written `.fds`, or `null` without `-o` |
+
+**Totals record.** `path`, `frames`, `cache`; `timing.cold_seconds` (sum of run-1
+seconds) and `cold_seconds_per_frame` (mean), `warm_seconds` `null`;
+`reference_seconds.total`/`per_frame`; `iterations.total`, `per_pixel` and `per_sample`
+over all frames, `reference_length_max`; `bytes.fds_bytes` (sum), `atlas_bytes_read` 0;
+`atlas_work` zeros; `fallback.pixel_fraction` 1, `iterations_per_pixel`,
+`unresolved_fraction`; `memory.peak_rss_bytes` (max over frames), `sample_bytes` (sum),
+`device` `cpu`, `peak_vram_bytes` 0; `classes` (sums); `depth.log10_width_min`/`max`,
+`precision_bits_max`; `deterministic` (all frames; `null` unchecked), `oracle_frames`,
+`oracle_failures`, `error` (`null`, or the runtime failure that stopped the path), `ok`.
+Ratios over zero completed frames are `null`.
+
+**Not-applicable metrics are explicit, never absent.** Shared by fd-bench/1 and
+fd-control/1: `depth.precision_bits` (reference precision the frame needs,
+`fd_kernel::reference_bits`), `memory.device` `cpu` with `peak_vram_bytes` 0 (CPU
+renderer), and `atlas_work.tiles_touched`, `microblocks_touched`,
+`macro_operators_per_pixel` 0 (no atlas is consulted, so these are zero by construction,
+not unmeasured). `sample_bytes` counts every computed column, `bound` included. `device` and
+`peak_vram_bytes` are constants because every kernel is CPU-only today; they must come
+from the kernel once a GPU kernel lands.
+
+**Peak RSS (both schemas).** `memory.peak_rss_bytes` is run 1's peak alone: before each
+run the high-water mark is reset (Linux `/proc/self/clear_refs` 5) and the previous
+run's samples are already freed (only run 1's encoded bytes are kept, for the
+determinism check). `memory.peak_rss_scope` is `run` when the reset worked, else
+`process` (high-water mark since process start). A reset sets the mark to the current
+RSS, so it still includes memory the allocator retained from earlier runs and frames.
+
 ## Command surface
 
 ```text
@@ -127,6 +191,7 @@ fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
           [--columns nu,de,normal] [--threads N] [--rotation R]
           [--kernel auto|f64|fx|scaled] -o out.fds
 fd bench <render flags> [--runs N] [-o out.fds] [--oracle tools/oracle.py [--k K]]
+fd control PATH <render flags but the view> [--runs N] [-o DIR] [--oracle tools/oracle.py [--k K]]
 fd shade <palette|relief> in.fds out.png
 fd info in.fds
 ```

@@ -26,17 +26,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if ss == 0 || tile_px == 0 {
         return Err("--ss and --tile-px must be positive".into());
     }
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
     let mut uses: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new(); // first, last, frames
     let (mut frames, mut demand, mut samples, mut unpredicted) = (Vec::new(), 0usize, 0u64, 0u64);
-    for (n, line) in text.lines().enumerate() {
-        let line = line.split('#').next().unwrap_or("").trim();
-        if line.is_empty() {
-            continue;
-        }
+    for (n, view) in read_path(file)? {
         let f = frames.len();
-        let view = view(line).map_err(|e| format!("{file}:{}: {e}", n + 1))?;
-        let fp = footprint(&view, w * ss, h * ss, tile_px * ss).map_err(|e| format!("{file}:{}: {e}", n + 1))?;
+        let fp = footprint(&view, w * ss, h * ss, tile_px * ss).map_err(|e| format!("{file}:{n}: {e}"))?;
         samples += fp.samples;
         unpredicted += fp.unpredicted;
         demand += fp.tiles.len();
@@ -50,9 +44,6 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             u.2 += 1;
         }
         frames.push((fp.level, fp.tiles.len(), new));
-    }
-    if frames.is_empty() {
-        return Err(format!("{file}: no frames"));
     }
     println!("frames {}\ntile_px {tile_px}\ntiles {}\ndemand {demand}", frames.len(), uses.len());
     for (f, (level, n, new)) in frames.iter().enumerate() {
@@ -70,8 +61,25 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// The frames of a camera path file (docs/spec/PLAN.md "Path file") with their 1-based
+/// line numbers; an error names the file and line. A path with no frame is an error.
+pub(crate) fn read_path(file: &str) -> Result<Vec<(usize, View)>, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let mut frames = Vec::new();
+    for (n, line) in text.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if !line.is_empty() {
+            frames.push((n + 1, view(line).map_err(|e| format!("{file}:{}: {e}", n + 1))?));
+        }
+    }
+    if frames.is_empty() {
+        return Err(format!("{file}: no frames"));
+    }
+    Ok(frames)
+}
+
 /// One path line: `re im width [rotation]`.
-pub(crate) fn view(line: &str) -> Result<View, String> {
+fn view(line: &str) -> Result<View, String> {
     let f: Vec<&str> = line.split_whitespace().collect();
     let rotation = match f.len() {
         3 => 0.0,

@@ -4,7 +4,7 @@
 //! rendered both from that stored orbit and from its own, and the two are compared.
 use crate::args::Args;
 use crate::orbit::{load, put, same};
-use crate::plan::view;
+use crate::plan::read_path;
 use crate::render::{params, FLAGS};
 use fd_kernel::{reference, reference_bits, render_stats, render_with};
 use fd_samples::{Samples, View};
@@ -20,19 +20,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let p = params(&a)?;
     let size: u32 = a.num("slab", 4096)?;
     let s = crate::chunk::store(&a)?;
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
     let mut frames: Vec<(View, u32)> = Vec::new();
-    for (n, line) in text.lines().enumerate() {
-        let line = line.split('#').next().unwrap_or("").trim();
-        if !line.is_empty() {
-            let at = |e: String| format!("{file}:{}: {e}", n + 1);
-            let v = view(line).map_err(at)?;
-            let bits = reference_bits(&v, &p).map_err(at)?;
-            frames.push((v, bits));
-        }
-    }
-    if frames.is_empty() {
-        return Err(format!("{file}: no frames"));
+    for (n, v) in read_path(file)? {
+        let bits = reference_bits(&v, &p).map_err(|e| format!("{file}:{n}: {e}"))?;
+        frames.push((v, bits));
     }
     // Group frames by exact centre, f64-tier (53-bit) orbits apart from deep ones.
     let mut groups: Vec<Vec<usize>> = Vec::new();

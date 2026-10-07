@@ -52,6 +52,12 @@ jobs:
             echo "== valley path, kernel $k"
             target/release/fd reuse bench/path-valley.txt --store "out/reuse-$k" --size 128x72 --iter 50000 --columns nu,de --kernel "$k" --threads 4
           done
+      - name: independent-frame control (VIDE-03) along the valley path, every frame vs the oracle
+        run: |
+          set -euo pipefail
+          mkdir -p out/control
+          target/release/fd control bench/path-valley.txt --size 128x72 --iter 50000 --columns nu,de --threads 4 \
+            --runs 2 -o out/control --oracle tools/oracle.py --k 4 | tee out/control/control.jsonl
       - name: stored BLA tables (ACC-01) along the valley path, vs plain iterations and the oracle
         run: |
           set -euo pipefail
@@ -85,3 +91,4 @@ jobs:
           path: |
             out/locations/oracle.jsonl
             out/bench/bench.jsonl
+            out/control/control.jsonl

@@ -27,6 +27,8 @@ fn reports_baseline_metrics() {
         "\"run\":3,\"state\":\"warm\"",
         "\"atlas\":\"none\"",
         "\"kernel\":\"pert-f64/1\"",
+        "\"warm_statistic\":\"median\"",
+        "\"peak_rss_scope\":\"run\"",
         "\"deterministic\":true",
         "\"oracle\":null",
         "\"ok\":true",
@@ -51,7 +53,7 @@ fn iterations_do_not_depend_on_threads() {
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         let json = String::from_utf8(out.stdout).unwrap();
         assert!(json.contains("\"kernel\":\"pert-fx-scaled/1"), "{json}");
-        assert!(json.contains("\"warm_seconds\":null"), "{json}");
+        assert!(json.contains("\"warm_seconds\":null,\"warm_statistic\":null"), "{json}");
         num(&json, "total")
     };
     assert_eq!(run("1"), run("3"));
