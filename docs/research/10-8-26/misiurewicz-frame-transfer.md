@@ -98,3 +98,43 @@ fd render --re C'.re --im C'.im --width 1e-12 ... -o s12.fds
 fd render --re C.re --im C.im --width 1e-12/|rho| --rotation -arg(rho) ... -o v12d.fds
 # compare: class equality; displacement = |nu_B - nu_A - p| * ln2 * de_A
 ```
+
+## Follow-up (same day): the approach band IS structured. Returns plus one shared exit table
+
+The hypothesis "level j+1 is the z² warp of level j" was tested pointwise with mpmath
+(oracle-grade, 110 digits), using 120-160 random pixels per depth from 1e-30 to 2e-48 on
+the v0 target. Error is measured as px displacement against direct iteration of the
+deep pixel.
+
+1. **Naive z² map** (ν(C+d) = ν(C+d+B²d²) + p): fails, with errors of hundreds of px at
+   every depth. Kicking the orbit's position once is not the same as shifting the
+   parameter.
+2. **Tan Lei correspondence after one return** (c' = c0 + (z_{p+1} − c0)·D/Δ′(c0), with
+   D = (f^{l−1})′(c0), Δ′ = d/dc(z_l − α(c)), K = 0.110+0.146i): **exact at 1e-30**
+   (ν offset 764.000000, max 7.8e-7 px), near-exact at 1e-35, and broken deeper,
+   because one return does not get the orbit far enough from the minibrot.
+3. **Repeated returns** (keep adding periods while |z − C| < 1e10·|C − c0|): ν offset is
+   exactly k·764. The error is then purely a function of the exit distance |ζ − c0|:
+   ≤1e-7 gives ≤1e-4 px; 1e-6 gives 6e-3; 1e-5 gives 3e-2; ≥1e-3 gives large errors
+   (the parameter-plane linearisation range).
+4. **Exit tail in the dynamical plane with the fixed parameter c0** (ν(c) = k·p + 1 +
+   E_{c0}(ζ), where E_{c0} is the escape of the point ζ under z² + c0): **exact at every
+   depth tested**. 0 class mismatches; max displacement 1.2e-8 px (1e-40), 2.5e-12
+   (1e-43), 4.8e-10 (1e-46), 4.2e-12 (1e-47), 2.3e-9 (2e-48). Returns per pixel:
+   k = 2 to 7.
+
+**Meaning:** every pixel of the minibrot approach band decomposes into (a) k returns
+around the minibrot (period p = 764 each), then (b) a tail that depends only on the exit
+point ζ, through **one fixed function E_{c0}** on the dynamical plane. E_{c0} does not
+depend on the pixel, the frame or the depth. Near c0 it is exactly self-similar (the
+repelling 2-cycle), so it is a finite object: a self-similar ring plus a shallow region.
+
+**Not yet shown:** (i) cost. The returns were computed by brute iteration here; the win
+needs a cheap per-period return map (NanoMB/Imagina-AT style) accurate to this
+tolerance. (ii) A sampled E table with an interpolation error contract and its size.
+(iii) Nested minibrot chains (deeper zooms), where each level adds returns.
+
+**If (i) and (ii) hold:** a deep pixel costs about k ≤ 7 return-map evaluations plus one
+table lookup, instead of 1,600-4,200 iterations (about 536 with BLA). That is roughly
+depth-independent, and E is shared by every frame of the approach: a genuine atlas
+payload.
