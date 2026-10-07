@@ -1,0 +1,63 @@
+name: f3-bench
+# BENC-04: fraktaler-3 3.1 (mathr's perturbation + BLA deep-zoom renderer, AGPL, official
+# Windows build) vs fd per-frame BLA vs our deep pipeline, all on one Windows runner, plus a
+# point-for-point comparison with fraktaler-3. Run with: gh workflow run f3-bench.yml
+on:
+  workflow_dispatch:
+    inputs:
+      size:
+        description: frame size WxH
+        default: "480x270"
+      runs:
+        description: timed runs per frame (best is reported)
+        default: "3"
+
+env:
+  CARGO_TERM_COLOR: never
+  F3_URL: https://fraktaler.mathr.co.uk/download/latest/fraktaler-3-3.1-windows.7z
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath gmpy2 numpy OpenEXR
+      - run: cargo build --release -j 4
+      - name: fetch fraktaler-3
+        run: |
+          curl -sSL -o f3.7z "$F3_URL"
+          sha256sum f3.7z
+          7z x -y -of3 f3.7z > /dev/null
+          find f3 -iname '*.exe' | head -20
+      - name: machine
+        run: nproc && (powershell -c "(Get-CimInstance Win32_Processor).Name" || true)
+      - name: benchmark
+        run: |
+          exe=$(find f3 -iname 'fraktaler-3*.x86_64.exe' | head -1)
+          echo "using $exe"
+          SIZE=${{ inputs.size }} RUNS=${{ inputs.runs }} \
+            bash tools/research/misiurewicz/koenigs_bench/f3_bench.sh "$exe" target/release/fd.exe out/f3
+          cat out/f3/report.md >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          cat out/f3/ours/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: f3-bench
+          path: |
+            out/f3/report.md
+            out/f3/f3-times.txt
+            out/f3/f3-score.txt
+            out/f3/*.log
+            out/f3/*.f3.toml
+            out/f3/wisdom.toml
+            out/f3/ours/report.md
+            out/f3/ours/*.jsonl
+            out/f3/ours/*-score.txt

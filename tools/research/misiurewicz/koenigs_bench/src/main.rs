@@ -274,6 +274,23 @@ fn patch(k: &Consts, w0: Cx, j: f64) -> Option<(Cx, u64)> {
     Some((z, *m as u64))
 }
 
+/// fraktaler-3 3.1's sample offset for pixel (i, j) of `frame`, subframe 0 (hybrid.h
+/// `jitter`): the same offset in x and y, in pixels.
+fn f3_jitter(nx: usize, ny: usize, frame: i64, i: usize, j: usize) -> f64 {
+    let ix = (frame.wrapping_mul(ny as i64).wrapping_add(j as i64)).wrapping_mul(nx as i64).wrapping_add(i as i64);
+    let mut a = ix as u32;
+    a = a.wrapping_add(0x7ed5_5d16).wrapping_add(a << 12);
+    a = (a ^ 0xc761_c23c) ^ (a >> 19);
+    a = a.wrapping_add(0x1656_67b1).wrapping_add(a << 5);
+    a = a.wrapping_add(0xd3a2_646c) ^ (a << 9);
+    a = a.wrapping_add(0xfd70_46c5).wrapping_add(a << 3);
+    a = (a ^ 0xb55a_4f09) ^ (a >> 16);
+    let h = f64::from(a) / 4_294_967_296.0;
+    let orig = h * 2.0 - 1.0;
+    let v = (orig / orig.abs().sqrt()).max(-1.0);
+    v - if orig >= 0.0 { 1.0 } else { -1.0 }
+}
+
 #[inline]
 fn phi(k: &Consts, h: Cx) -> Cx {
     let mut s = Cx::default();
@@ -311,6 +328,12 @@ fn main() {
     let threads: usize = a[5].parse().unwrap();
     let runs: usize = a[6].parse().unwrap();
     let r2 = 1e20;
+    // BENC-04: F3_FRAME (and F3_YSIGN, default 1) sample fraktaler-3's jittered points
+    // instead of pixel centres, so the two renderers can be compared point for point.
+    let f3: Option<(i64, f64)> = std::env::var("F3_FRAME").ok().map(|v| {
+        let ys = std::env::var("F3_YSIGN").map_or(1.0, |s| s.parse().unwrap());
+        (v.parse().unwrap(), ys)
+    });
     fs::create_dir_all(out).unwrap();
     for width_s in &a[7..] {
         let width: f64 = width_s.parse().unwrap();
@@ -335,6 +358,14 @@ fn main() {
                                 let y = -(j as f64 + 0.5 - ny as f64 / 2.0) * h;
                                 for i in 0..nx {
                                     let x = (i as f64 + 0.5 - nx as f64 / 2.0) * h;
+                                    let (x, y) = match f3 {
+                                        None => (x, y),
+                                        Some((frame, ysign)) => {
+                                            let d = f3_jitter(nx, ny, frame, i, j);
+                                            let x = (i as f64 + 0.5 + d - nx as f64 / 2.0) * h;
+                                            (x, ysign * (j as f64 + 0.5 + d - ny as f64 / 2.0) * h)
+                                        }
+                                    };
                                     let (esc, v) = f(&k, Cx(x / k.scale, y / k.scale), max_iter, r2);
                                     cl[i] = u8::from(!esc);
                                     nv[i] = v;
