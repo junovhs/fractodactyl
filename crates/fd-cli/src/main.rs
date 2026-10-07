@@ -5,6 +5,7 @@ mod bench;
 mod chunk;
 mod compare;
 mod compile;
+mod explore;
 mod control;
 mod lod;
 mod manifest;
@@ -70,6 +71,7 @@ usage:
           [--look L[,L...]] [--mp4 FILE]
           [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]
+  fd explore [--port 8737] [--threads N]   (local browser explorer)
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error";
 
@@ -97,6 +99,7 @@ fn main() {
         Some("play") => play::run(&argv[1..]),
         Some("path") => path::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
+        Some("explore") => explore::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {

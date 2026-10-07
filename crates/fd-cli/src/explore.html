@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fd explore</title>
+<style>
+  :root { --bg: #000; --panel: rgba(20, 18, 16, 0.82); --ink: #eee8de; --dim: #a59c8e; --accent: #e0b070; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
+    font: 13px/1.4 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: grab; image-rendering: pixelated; }
+  canvas.drag { cursor: grabbing; }
+  #hud { position: fixed; left: 12px; top: 12px; padding: 8px 10px; background: var(--panel); border-radius: 6px;
+    pointer-events: none; white-space: pre; }
+  #hud b { color: var(--accent); font-weight: normal; }
+  #presets { position: fixed; right: 12px; top: 12px; width: 230px; padding: 6px; background: var(--panel); border-radius: 6px; }
+  #presets button { display: flex; justify-content: space-between; width: 100%; margin: 2px 0; padding: 5px 8px; border: 0;
+    border-radius: 4px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+  #presets button:hover { background: rgba(255, 255, 255, 0.1); }
+  #presets button span { color: var(--dim); }
+  #help { position: fixed; left: 12px; bottom: 12px; padding: 6px 10px; background: var(--panel); border-radius: 6px; color: var(--dim); }
+  #err { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 10px; background: #5a1d1d; border-radius: 6px; display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="presets"></div>
+<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets</div>
+<div id="err"></div>
+<script>
+"use strict";
+// Exact centre: BigInt decimal fixed point with D fraction digits, so panning stays exact
+// at any depth. Width: log10 of the horizontal extent (a float is plenty for a zoom level).
+const V0_RE = "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502";
+const V0_IM = "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922";
+const VAL_RE = "-0.743643887037158704752191506114774", VAL_IM = "0.131825904205311970493132056385139";
+const PRESETS = [
+  { name: "Whole set", re: "-0.65", im: "0", w: "4.2", iter: 2000 },
+  { name: "Seahorse valley", re: "-0.7453", im: "0.1127", w: "0.0065", iter: 5000 },
+  { name: "Elephant valley", re: "0.2855", im: "0.0115", w: "0.012", iter: 20000 },
+  { name: "Antenna minibrot", re: "-1.7548776662466927", im: "0", w: "0.06", iter: 5000 },
+  { name: "Misiurewicz spiral", re: V0_RE, im: V0_IM, w: "4e-5", iter: 20000 },
+  { name: "Deep valley", re: VAL_RE, im: VAL_IM, w: "3e-12", iter: 20000 },
+  { name: "Spiral M(24,2)", re: V0_RE, im: V0_IM, w: "1e-24", iter: 50000 },
+  { name: "Deeper valley", re: VAL_RE, im: VAL_IM, w: "1e-28", iter: 50000 },
+  { name: "Period-764 minibrot", re: V0_RE, im: V0_IM, w: "1e-48", iter: 100000 },
+  { name: "c = i, 1e-1000", re: "0", im: "1", w: "1e-1000", iter: 20000 },
+];
+// Coarse to fine. Levels with s <= 2 render in row strips so a new view never waits
+// long behind an old one.
+const LEVELS = [{ s: 8, ss: 1 }, { s: 4, ss: 1 }, { s: 2, ss: 1 }, { s: 1, ss: 1 }, { s: 1, ss: 2 }];
+
+const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud"), errBox = document.getElementById("err");
+let W = 0, H = 0;
+let view = null, baseIter = 2000;
+let comp = null, compSnap = null;          // best image so far and the view it shows
+let gen = 0, job = null, inflight = false, dirty = false;
+let secPerSample = 1e-6, last = { info: {}, level: 0 };
+
+function log10Dec(s) {
+  const m = /^\s*([0-9.]+)(?:[eE]([-+]?\d+))?\s*$/.exec(s);
+  return Math.log10(parseFloat(m[1])) + (m[2] ? parseInt(m[2], 10) : 0);
+}
+function parseDec(s, D) {
+  s = s.trim();
+  const neg = s.startsWith("-");
+  if (neg || s.startsWith("+")) s = s.slice(1);
+  const [i, f = ""] = s.split(".");
+  const v = BigInt((i || "0") + (f + "0".repeat(D)).slice(0, D));
+  return neg ? -v : v;
+}
+function toDec(v, D) {
+  const neg = v < 0n;
+  let t = (neg ? -v : v).toString().padStart(D + 1, "0");
+  let i = t.slice(0, t.length - D), f = t.slice(t.length - D).replace(/0+$/, "");
+  return (neg ? "-" : "") + i + (f ? "." + f : "");
+}
+function needDigits(l10w) { return Math.max(20, Math.ceil(-l10w) + 20); }
+function widthStr(l10w) {
+  const e = Math.floor(l10w);
+  return (10 ** (l10w - e)).toFixed(9) + "e" + e;
+}
+function rescale(v, from, to) { return to > from ? v * 10n ** BigInt(to - from) : v; }
+function snapshot(v) { return { re: v.re, im: v.im, D: v.D, l10w: v.l10w }; }
+
+// The BigInt step for `px` pixels of a W-wide view: px / W * 10^l10w, in units of 10^-D.
+function pxToBig(px, v) {
+  const x = v.l10w + v.D, e = Math.floor(x);
+  const m = (px / W) * 10 ** (x - e);
+  return BigInt(Math.round(m * 1e12)) * 10n ** BigInt(e - 12);
+}
+// A BigInt difference (units 10^-D) in pixels of a view with log width l10w.
+function bigToPx(d, D, l10w) {
+  if (d === 0n) return 0;
+  const neg = d < 0n, a = neg ? -d : d, drop = Math.max(0, a.toString().length - 20);
+  const n = Number(a / 10n ** BigInt(drop)) * 10 ** (drop - D - l10w) * W;
+  return neg ? -n : n;
+}
+function shift(v, dx, dy) {
+  v.re += pxToBig(dx, v);
+  v.im -= pxToBig(dy, v);   // screen y points down, imaginary axis up
+}
+function ensureDigits(v) {
+  const need = needDigits(v.l10w);
+  if (need > v.D) {
+    v.re = rescale(v.re, v.D, need);
+    v.im = rescale(v.im, v.D, need);
+    v.D = need;
+  }
+}
+function iterFor(l10w) {
+  return Math.max(baseIter, Math.min(100000, Math.round(1000 + 2000 * Math.max(0, -l10w))));
+}
+
+function jump(p) {
+  const l10w = log10Dec(p.w), D = needDigits(l10w);
+  view = { re: parseDec(p.re, D), im: parseDec(p.im, D), D, l10w };
+  baseIter = p.iter;
+  comp = null; compSnap = null;
+  changed();
+}
+function changed() { dirty = true; }
+
+function resize() {
+  W = Math.max(8, Math.floor(innerWidth / 8) * 8);
+  H = Math.max(8, Math.floor(innerHeight / 8) * 8);
+  canvas.width = W; canvas.height = H;
+  comp = null; compSnap = null;
+  if (view) changed();
+}
+
+function nextRequest(j) {
+  const L = LEVELS[j.level], Wl = W / L.s, Hl = H / L.s;
+  let r0 = 0, r1 = Hl;
+  if (L.s <= 2) {
+    const rows = Math.round(0.2 / secPerSample / (Wl * L.ss * L.ss));
+    r0 = j.row; r1 = Math.min(Hl, r0 + Math.max(4, Math.min(Hl, rows)));
+  }
+  const v = { re: j.snap.re, im: j.snap.im, D: j.snap.D, l10w: j.snap.l10w };
+  shift(v, 0, ((r0 + r1) / 2 - Hl / 2) * L.s);
+  const q = new URLSearchParams({
+    re: toDec(v.re, v.D), im: toDec(v.im, v.D), width: widthStr(v.l10w),
+    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen,
+  });
+  return { url: "/render?" + q, L, Wl, Hl, r0, r1 };
+}
+
+async function kick() {
+  if (inflight || !job) return;
+  inflight = true;
+  const j = job, req = nextRequest(j);
+  try {
+    const r = await fetch(req.url);
+    if (r.status === 200) {
+      const w = +r.headers.get("X-Width"), h = +r.headers.get("X-Height");
+      const info = Object.fromEntries((r.headers.get("X-Info") || "").split(" ").map(kv => kv.split("=")));
+      const rgb = new Uint8Array(await r.arrayBuffer());
+      secPerSample = Math.max(1e-9, +info.seconds / (w * h * req.L.ss * req.L.ss));
+      if (j.level === 0 || j.gen === gen) {
+        paint(j, req, rgb, w, h);
+        last = { info, level: j.level + 1 };
+      }
+      errBox.style.display = "none";
+    } else if (r.status !== 204) {
+      errBox.textContent = await r.text();
+      errBox.style.display = "block";
+      if (j === job) job = null;
+    }
+  } catch (e) {
+    errBox.textContent = "fd explore is not answering: " + e;
+    errBox.style.display = "block";
+  }
+  // Advance this job; a newer job may already have replaced it.
+  if (j === job) {
+    j.row = req.r1;
+    if (j.row >= req.Hl) { j.level++; j.row = 0; }
+    if (j.level >= LEVELS.length) job = null;
+  }
+  inflight = false;
+  kick();
+}
+
+function paint(j, req, rgb, w, h) {
+  const img = new ImageData(w, h), d = img.data;
+  for (let i = 0, k = 0; i < w * h; i++, k += 3) {
+    d[4 * i] = rgb[k]; d[4 * i + 1] = rgb[k + 1]; d[4 * i + 2] = rgb[k + 2]; d[4 * i + 3] = 255;
+  }
+  const tmp = new OffscreenCanvas(w, h);
+  tmp.getContext("2d").putImageData(img, 0, 0);
+  if (j.level === 0) {
+    // A coarse frame always becomes the new base image, even for a view the mouse
+    // has since left: it is drawn transformed until a newer one lands.
+    comp = new OffscreenCanvas(W, H);
+    compSnap = j.snap;
+  }
+  const c = comp.getContext("2d");
+  c.imageSmoothingEnabled = false;
+  c.drawImage(tmp, 0, req.r0 * req.L.s, w * req.L.s, h * req.L.s);
+}
+
+function draw() {
+  if (dirty && view) {
+    dirty = false;
+    gen = Math.max(gen + 1, Date.now());   // stays newer than any earlier tab or reload
+    job = { gen, snap: snapshot(view), level: 0, row: 0 };
+    kick();
+  }
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, H);
+  if (comp && compSnap) {
+    // Where the stored image lands in the current view (display only, until replaced).
+    const D = Math.max(compSnap.D, view.D);
+    const dx = bigToPx(rescale(compSnap.re, compSnap.D, D) - rescale(view.re, view.D, D), D, view.l10w);
+    const dy = -bigToPx(rescale(compSnap.im, compSnap.D, D) - rescale(view.im, view.D, D), D, view.l10w);
+    const k = 10 ** (compSnap.l10w - view.l10w);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(comp, W / 2 + dx - (W / 2) * k, H / 2 + dy - (H / 2) * k, W * k, H * k);
+  }
+  if (view) {
+    const i = last.info, zoom = Math.log10(4) - view.l10w;
+    hud.innerHTML =
+      `width  <b>${(10 ** (view.l10w - Math.floor(view.l10w))).toFixed(2)}e${Math.floor(view.l10w)}</b>   zoom 10^${zoom.toFixed(1)}\n` +
+      `iter   ${iterFor(view.l10w)}   kernel ${i.kernel || "-"}\n` +
+      `level  ${job ? job.level + 1 : LEVELS.length}/${LEVELS.length}${job ? " refining" : " done"}   last ${i.seconds ? (+i.seconds).toFixed(3) + " s" : "-"}\n` +
+      `unresolved ${i.unresolved ? (100 * i.unresolved).toFixed(3) + "%" : "-"}`;
+  }
+  requestAnimationFrame(draw);
+}
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  if (!view) return;
+  const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+  let delta = Math.max(-0.5, Math.min(0.5, px * 0.0012));          // decades
+  delta = Math.min(delta, Math.log10(8) - view.l10w);
+  const r = canvas.getBoundingClientRect();
+  const cx = (e.clientX - r.left) * W / r.width, cy = (e.clientY - r.top) * H / r.height;
+  const f = 1 - 10 ** delta;   // keep the point under the cursor fixed
+  shift(view, (cx - W / 2) * f, (cy - H / 2) * f);
+  view.l10w += delta;
+  ensureDigits(view);
+  changed();
+}, { passive: false });
+
+let drag = null;
+canvas.addEventListener("pointerdown", e => {
+  drag = { x: e.clientX, y: e.clientY };
+  canvas.setPointerCapture(e.pointerId);
+  canvas.classList.add("drag");
+});
+canvas.addEventListener("pointermove", e => {
+  if (!drag || !view) return;
+  const r = canvas.getBoundingClientRect();
+  shift(view, -(e.clientX - drag.x) * W / r.width, -(e.clientY - drag.y) * H / r.height);
+  drag = { x: e.clientX, y: e.clientY };
+  changed();
+});
+canvas.addEventListener("pointerup", () => { drag = null; canvas.classList.remove("drag"); });
+
+const list = document.getElementById("presets");
+PRESETS.forEach((p, n) => {
+  const b = document.createElement("button");
+  b.innerHTML = `${(n + 1) % 10}  ${p.name} <span>${p.w}</span>`;
+  b.onclick = () => jump(p);
+  list.appendChild(b);
+});
+addEventListener("keydown", e => {
+  const n = "1234567890".indexOf(e.key);
+  if (n >= 0) jump(PRESETS[n]);
+});
+addEventListener("resize", resize);
+resize();
+jump(PRESETS[0]);
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
