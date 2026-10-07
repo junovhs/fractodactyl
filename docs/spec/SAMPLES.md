@@ -51,8 +51,8 @@ older readers still find every column they know at the same offset.
 Sample `(i, j)` is at `c = centre + e^{i·rotation} · h · (x − i·y)` with
 `x = i + 0.5 − nx/2`, `y = j + 0.5 − ny/2`, `h = width / nx`. Row `j` grows downward on
 screen and the imaginary axis points up. Output pixel `(px, py)` is the `ss × ss` block
-of samples starting at `(px·ss, py·ss)`. Exact dyadic addressing (ADDR-01) will add an
-address form beside this one.
+of samples starting at `(px·ss, py·ss)`. Exact dyadic tile addresses (ADDR-01) are a
+separate, axis-aligned form: see ADDRESS.md.
 
 ## Columns
 

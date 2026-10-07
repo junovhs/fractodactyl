@@ -3,9 +3,17 @@
 version = 4
 
 [[package]]
+name = "fd-addr"
+version = "0.1.0"
+dependencies = [
+ "fd-fixed",
+]
+
+[[package]]
 name = "fd-cli"
 version = "0.1.0"
 dependencies = [
+ "fd-addr",
  "fd-kernel",
  "fd-samples",
  "fd-shade",

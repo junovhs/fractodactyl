@@ -1,0 +1,9 @@
+[package]
+name = "fd-addr"
+description = "Exact dyadic quadtree tile addresses at any depth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+fd-fixed = { path = "../fd-fixed" }
