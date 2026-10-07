@@ -11,7 +11,7 @@ Usage: python shared_tail.py [PIXELS=60]
 """
 import sys, math, random, time
 import mpmath as mp
-mp.mp.dps = 80
+mp.mp.dps = 60
 NPIX = int(sys.argv[1]) if len(sys.argv) > 1 else 60
 CEN = mp.mpc('-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502',
              '0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922')
@@ -46,6 +46,50 @@ def run(c, switch=None, c2=None, maxit=20000, linear=False):
     return None, None, None
 
 
+def run_order(c, switch, c2, K, maxit=20000):
+    """After the switch, iterate at c2 with Taylor corrections in e = c - c2 up to order K:
+    z = Z + sum_k d_k e^k, d_1' = 2Z d_1 + 1, d_k' = 2Z d_k + sum_{a+b=k} d_a d_b (a,b >= 1)."""
+    z = mp.mpc(0); e = c - c2; d = [mp.mpc(0)]*(K + 1)
+    for n in range(1, maxit + 1):
+        if n > switch:
+            nd = [mp.mpc(0)]*(K + 1)
+            for k in range(1, K + 1):
+                acc = 2*z*d[k] + (1 if k == 1 else 0)
+                for a in range(1, k):
+                    acc += d[a]*d[k - a]
+                nd[k] = acc
+            d = nd
+            z = z*z + c2
+            zt = z + sum(d[k]*e**k for k in range(1, K + 1))
+            if abs(zt) > 1e10:
+                return n + 1 - float(mp.log(mp.log(abs(zt), 2), 2))
+        else:
+            z = z*z + c
+            if abs(z) > 1e10:
+                return n + 1 - float(mp.log(mp.log(abs(z), 2), 2))
+    return None
+
+
+def main_order():
+    random.seed(2); t0 = time.time()
+    W, p = BANDS_O
+    px = W/480; pix = []
+    while len(pix) < NPIX:
+        c = CEN + mp.mpc(random.uniform(-.5, .5)*W, random.uniform(-.28, .28)*W)
+        n, nu, de = run(c)
+        if n: pix.append((c, n, nu, de/px))
+    print(f"width {mp.nstr(W, 1)}: escape steps {sorted(q[1] for q in pix)[len(pix)//2]} (median)")
+    print(f"{'order':>5} {'T':>5}  {'max px':>8} {'>1e-3':>6}")
+    for T in TS_O:
+        for K in (1, 2, 3, 4):
+            errs = []
+            for c, n, nu, de in pix:
+                nu2 = run_order(c, max(0, n - T), C764, K)
+                errs.append(abs(nu2 - nu)*math.log(2)*de if nu2 is not None else float('inf'))
+            print(f"{K:5d} {T:5d}  {max(errs):8.1e} {sum(e > 1e-3 for e in errs):6d}  ({len(errs)})", flush=True)
+    print(f"({time.time() - t0:.0f} s)")
+
+
 def main():
     random.seed(1); t0 = time.time()
     print(f"{'width':>6} {'shared':>8} {'T':>4}  {'max px':>8} {'p90 px':>8} {'>1e-3':>6}  (pixels)")
@@ -67,5 +111,8 @@ def main():
     print(f"({time.time() - t0:.0f} s)")
 
 
+BANDS_O = (mp.mpf('1e-15'), 435)
+TS_O = (465, 700, 1000)
+
 if __name__ == '__main__':
-    main()
+    main_order() if len(sys.argv) > 2 and sys.argv[2] == 'order' else main()
