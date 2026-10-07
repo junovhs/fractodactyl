@@ -52,6 +52,8 @@ If arranging sample points differently lets future frames reuse yesterday’s wo
 
 If a mathematical shortcut works beautifully in only 20% of the Mandelbrot set, that can still be valuable. Fractadactyl does not need one universal trick. It can become a system that recognizes what kind of region it is looking at and chooses the cheapest valid strategy.
 
+How we pursue this matters as much as what we pursue. Rendering fractals is slow, so the research loop must not be rendering fractals. Every idea earns an expensive run only by first winning a probe that takes seconds, scored against frozen truth and against the best rival that could use the same trick without us. We kill ideas fast, write the answers down, and look for prior art before inventing. The working rules are in docs/spec/METHOD.md.
+
 The long-term dream is simple:
 
 **Going deeper should stop feeling expensive.**
