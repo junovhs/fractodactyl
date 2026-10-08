@@ -58,7 +58,7 @@ fn zoom(rest: &[String]) -> Result<String, String> {
 }
 
 /// `w` with 6 significant digits, trailing zeros dropped: `4.12e-30`, `4e0`.
-fn sig6(w: f64) -> String {
+pub(crate) fn sig6(w: f64) -> String {
     let s = format!("{w:.5e}");
     let (m, e) = s.split_once('e').expect("exponent form");
     let m = if m.contains('.') { m.trim_end_matches('0').trim_end_matches('.') } else { m };

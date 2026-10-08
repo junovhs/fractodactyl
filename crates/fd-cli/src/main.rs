@@ -10,6 +10,7 @@ mod control;
 mod lod;
 mod manifest;
 mod orbit;
+mod film;
 mod path;
 mod plan;
 mod play;
@@ -66,6 +67,10 @@ usage:
              [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd compare A_DIR B_DIR [--px P] [--frames A..B]
   fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]
+  fd film RE IM --to WIDTH --mp4 FILE [--from W0] [--fps F] [--seconds S | --rate DEC/S]
+          [--twist TURNS] [--ease on|off] [--size WxH] [--ss N] [--iter N] [--zone FILE]
+          [--look L] [--crf N] [--preset P] [--compare-every K] [--frames A..B]
+          [appearance flags as fd shade; film defaults --aa on --unresolved interior]
   fd compile PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
              [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
              [--fps F] [--lead S] [--workers N] [--policy slack|edf|first-use]
@@ -101,6 +106,7 @@ fn main() {
         Some("compare") => compare::run(&argv[1..]),
         Some("play") => play::run(&argv[1..]),
         Some("path") => path::run(&argv[1..]),
+        Some("film") => film::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         Some("explore") => explore::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
