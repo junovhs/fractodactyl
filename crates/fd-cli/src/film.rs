@@ -26,7 +26,7 @@ use std::time::Instant;
 const USAGE: &str = "usage: fd film RE IM --to WIDTH --mp4 FILE [--from W0 (4)] [--fps F (60)] \
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0)] [--ease on|off (off)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
-[--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--compare-every K (0)] \
+[--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior]";
 
 /// Which kernel rendered a frame.
@@ -40,7 +40,7 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "x264", "compare-every", "frames",
+        "x264", "chroma", "compare-every", "frames",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -95,6 +95,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     };
     let crf: u32 = a.num("crf", 16)?;
     let preset = a.str("x264").unwrap_or("slow");
+    // 4:2:0 halves colour resolution, which softens thin coloured lines (terrain lines
+    // lose ~7 levels on average); 4:4:4 keeps them exact but some players cannot play it.
+    let pix_fmt = match a.str("chroma").unwrap_or("420") {
+        "420" => "yuv420p",
+        "444" => "yuv444p",
+        v => return Err(format!("--chroma: expected 420 or 444, got {v:?}")),
+    };
 
     eprintln!(
         "fd film: {} frames ({:.1} s at {fps} fps), {w}x{h} ss {ss}, look {look_name}{}, zone {}",
@@ -105,7 +112,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     );
     let mut enc = Command::new("ffmpeg")
         .args(["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &format!("{w}x{h}"), "-r", &fps.to_string()])
-        .args(["-i", "-", "-c:v", "libx264", "-crf", &crf.to_string(), "-preset", preset, "-pix_fmt", "yuv420p", mp4])
+        .args(["-i", "-", "-c:v", "libx264", "-crf", &crf.to_string(), "-preset", preset, "-pix_fmt", pix_fmt, mp4])
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| format!("ffmpeg: {e} (fd film needs ffmpeg on PATH)"))?;

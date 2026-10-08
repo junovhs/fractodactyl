@@ -24,6 +24,23 @@
   #look input[type=range] { width: 120px; accent-color: var(--accent); }
   #look select { background: #222; color: var(--ink); border: 0; font: inherit; }
   #look .title { color: var(--accent); margin-bottom: 4px; }
+  #gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: none; cursor: default; }
+  #studio { position: fixed; right: 12px; top: 12px; bottom: 12px; width: 270px; padding: 8px 10px; background: var(--panel);
+    border-radius: 6px; overflow-y: auto; display: none; }
+  #studio .title { color: var(--accent); margin: 2px 0 6px; }
+  #studio .sec { color: var(--accent); margin: 10px 0 2px; font-size: 12px; }
+  #studio label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; color: var(--dim); gap: 6px; }
+  #studio input[type=range] { width: 120px; accent-color: var(--accent); }
+  #studio .v { width: 44px; text-align: right; color: var(--ink); }
+  #studio select, #studio input[type=text], #studio button { background: #222; color: var(--ink); border: 0; border-radius: 4px; font: inherit; padding: 3px 6px; }
+  #studio button { cursor: pointer; }
+  #studio button:hover { background: #333; }
+  #stops { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+  #stops .stop { display: flex; flex-direction: column; align-items: center; }
+  #stops input[type=color] { width: 30px; height: 26px; border: 0; padding: 0; background: none; cursor: pointer; }
+  #stops .x { font-size: 10px; color: var(--dim); cursor: pointer; }
+  #status { color: var(--dim); margin-top: 6px; white-space: pre-wrap; }
+  #tune { margin-top: 6px; width: 100%; background: #333; color: var(--ink); border: 0; border-radius: 4px; padding: 5px; font: inherit; cursor: pointer; }
   #err { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 10px; background: #5a1d1d; border-radius: 6px; display: none; }
 </style>
 </head>
@@ -31,7 +48,7 @@
 <canvas id="c"></canvas>
 <div id="hud"></div>
 <div id="presets"></div>
-<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets · space: pause flow · R: reset look · H: hide panels</div>
+<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets · L: tune studio look · space: pause flow · R: reset look · H: hide panels</div>
 <div id="look">
   <div class="title">look (live, no re-render)</div>
   <label>palette <select id="pal"></select></label>
@@ -43,6 +60,33 @@
   <label>relief <input id="relief" type="range" min="0" max="1" step="0.01"></label>
   <label>edge dark <input id="edge" type="range" min="0" max="1" step="0.01"></label>
   <label>edge glow <input id="glow" type="range" min="0" max="1.5" step="0.01"></label>
+  <button id="tune">tune studio look (L)</button>
+</div>
+<canvas id="gl"></canvas>
+<div id="studio">
+  <div class="title">studio look · frozen view (L or Esc: back)</div>
+  <label>preset <select id="spreset"></select></label>
+  <div class="sec">palette (click a swatch to edit)</div>
+  <div id="stops"></div>
+  <label>interior <input id="sinterior" type="color"></label>
+  <div class="sec">bands</div>
+  <label>density <input id="sdensity" type="range" min="-3" max="0" step="0.005"><span class="v" id="vdensity"></span></label>
+  <label>terrace <input id="sterrace" type="range" min="0" max="1" step="0.01"><span class="v" id="vterrace"></span></label>
+  <label>terrain lines <input id="slines" type="range" min="0" max="1" step="0.01"><span class="v" id="vlines"></span></label>
+  <label>line width <input id="sline_px" type="range" min="0.5" max="5" step="0.05"><span class="v" id="vline_px"></span></label>
+  <div class="sec">light</div>
+  <label>slope <input id="sslope" type="range" min="0" max="2" step="0.01"><span class="v" id="vslope"></span></label>
+  <label>angle <input id="slight" type="range" min="0" max="360" step="1"><span class="v" id="vlight"></span></label>
+  <div class="sec">motion (films use the same values)</div>
+  <label>flow <input id="sflow" type="range" min="-1" max="1" step="0.01"><span class="v" id="vflow"></span></label>
+  <label>breathe <input id="sbreathe" type="range" min="0" max="0.6" step="0.01"><span class="v" id="vbreathe"></span></label>
+  <label>breathe rate <input id="sbrate" type="range" min="0" max="1" step="0.01"><span class="v" id="vbrate"></span></label>
+  <div class="sec">render</div>
+  <label>anti-alias filaments <input id="saa" type="checkbox" checked></label>
+  <label>undecided as interior <input id="sunres" type="checkbox" checked></label>
+  <div class="sec">save</div>
+  <label><input id="sname" type="text" placeholder="name" style="width:150px"> <button id="ssave">save preset</button></label>
+  <div id="status"></div>
 </div>
 <div id="err"></div>
 <script>
@@ -276,7 +320,8 @@ function draw() {
   if (shadeDirty && now - lastShade >= 1000 / 30) {
     shadeDirty = false; lastShade = now; shade();
   }
-  if (dirty && view) {
+  // Look mode freezes the view: no navigation renders until it is left.
+  if (dirty && view && !studio.on) {
     dirty = false;
     gen = Math.max(gen + 1, Date.now());   // stays newer than any earlier tab or reload
     job = { gen, snap: snapshot(view), level: 0, row: 0 };
@@ -351,7 +396,9 @@ sel.onchange = () => { look.pal = sel.value; shadeDirty = true; sel.blur(); };
 for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
 syncControls();
 addEventListener("keydown", e => {
-  if (e.target.tagName === "SELECT") return;
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.key === "l" || e.key === "L" || (e.key === "Escape" && studio.on)) { toggleStudio(); return; }
+  if (studio.on) { if (e.key === " ") { studio.paused = !studio.paused; e.preventDefault(); } return; }
   const n = "1234567890".indexOf(e.key);
   if (n >= 0) jump(PRESETS[n]);
   if (e.key === " ") { paused = !paused; e.preventDefault(); }
@@ -360,10 +407,230 @@ addEventListener("keydown", e => {
     const el = document.getElementById(id); el.style.display = el.style.display === "none" ? "" : "none";
   }
 });
-addEventListener("resize", resize);
-resize();
-jump(PRESETS[0]);
+addEventListener("resize", () => { if (!studio.on) resize(); });
+document.getElementById("tune").onclick = () => toggleStudio();
+const TEST = new URLSearchParams(location.search);
+if (TEST.has("test")) {
+  // Test hook (EXPL-05 parity): fixed size and view, straight into look mode, then post
+  // the shaded pixels to /capture (fd explore --capture FILE).
+  W = +TEST.get("W"); H = +TEST.get("H"); canvas.width = W; canvas.height = H;
+  jump({ name: "test", re: TEST.get("re"), im: TEST.get("im"), w: TEST.get("w"), iter: +TEST.get("iter") });
+} else {
+  resize();
+  jump(PRESETS[0]);
+}
 requestAnimationFrame(draw);
+</script>
+<script>
+"use strict";
+// EXPL-05: the studio look on the GPU over a frozen, full-quality render. The maths is
+// fd-shade's studio.rs line for line (tested against it pixel for pixel), so a preset
+// saved here renders the same in `fd film --preset NAME`.
+const studio = { on: false, paused: false, clock: 0, last: 0, tex: null, ss: 2, sw: 0, sh: 0, base: 0, look: null, ready: false, dirty: true };
+const glc = document.getElementById("gl"), panel = document.getElementById("studio"), status = document.getElementById("status");
+const gl = glc.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false });
+const VS = `#version 300 es
+in vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
+const FS = `#version 300 es
+precision highp float; precision highp sampler2D;
+uniform sampler2D S; uniform int ss; uniform int outH;
+uniform vec3 stops[16]; uniform int n; uniform vec3 interior;
+uniform float dens, basePhase, terrace, slope, lx, ly, lines, linePx, aa, unresInterior;
+out vec4 o;
+const float LN2 = 0.6931471805599453, TAU = 6.283185307179586, PI = 3.141592653589793;
+vec3 shadeSample(vec4 d) {
+  if (d.a > 1.5) return unresInterior > 0.5 ? interior : vec3(0.25, 0.0, 0.25);
+  if (d.a > 0.5) return interior;
+  float t = basePhase + dens * d.r;          // palette cycles (fractional part is what matters)
+  float x = fract(t) * float(n);
+  int k = min(int(x), n - 1);
+  float fr = x - float(k);
+  float f = 0.5 - 0.5 * cos(PI * fr);
+  vec3 col = mix(stops[k], stops[(k + 1) % n], f);
+  if (terrace > 0.0) col *= 1.0 - terrace * pow(1.0 - fr, 1.5);
+  float de = max(d.g, 0.0);
+  float a = d.b * (TAU / 65536.0);
+  float facing = -(cos(a) * lx + sin(a) * ly);
+  float cycles = dens * 2.0 / (max(de, 1e-30) * LN2);
+  float steep = tanh(min(0.6 * log(1.0 + cycles / 0.02), 10.0));
+  // GLSL tanh may be (e^x - e^-x)/(e^x + e^-x): NaN once e^x overflows. tanh(10) is
+  // already 1 in f32, so clamping changes nothing else.
+  float fade = aa > 0.5 ? tanh(clamp(de * float(ss) / 0.7, 0.0, 10.0)) : 1.0;
+  float v = (1.0 + slope * facing * steep * fade) * (1.0 - 0.6 * exp(-de * float(ss) * 1.5));
+  if (lines > 0.0) {
+    float c = fract(t * float(n));
+    float perPx = max(cycles * float(n), 1e-30);
+    float dpx = min(c, 1.0 - c) / perPx;
+    float line = clamp(linePx / 2.0 + 0.5 - dpx, 0.0, 1.0);
+    float vis = clamp((1.0 / perPx - 3.0) / 3.0, 0.0, 1.0);
+    v *= 1.0 - lines * line * vis;
+  }
+  return col * v;
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy); p.y = outH - 1 - p.y;
+  vec3 acc = vec3(0.0);
+  for (int sy = 0; sy < ss; sy++) for (int sx = 0; sx < ss; sx++)
+    acc += shadeSample(texelFetch(S, ivec2(p.x * ss + sx, p.y * ss + sy), 0));
+  o = vec4(pow(clamp(acc / float(ss * ss), 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+}`;
+let prog = null;
+function compile() {
+  const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+  prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+}
+
+// .look text <-> object (fd-shade studio.rs Look::parse / to_text).
+const KEYS = ["density", "terrace", "slope", "light", "lines", "line_px", "flow", "breathe", "brate", "drift"];
+function parseLook(text) {
+  const l = { stops: [], interior: "#05070d", density: 0.05, terrace: 0, slope: 1, light: 135, lines: 0, line_px: 2.2, flow: 0, breathe: 0, brate: 0, drift: 0 };
+  for (const line of text.split("\n")) {
+    if (line.trim().startsWith("#") || !line.trim()) continue;
+    const [k, ...v] = line.trim().split(/\s+/);
+    if (k === "stops") l.stops = v; else if (k === "interior") l.interior = v[0]; else if (KEYS.includes(k)) l[k] = +v[0];
+  }
+  return l;
+}
+function lookText(l) {
+  return "# fractadactyl look (saved by fd explore)\nstops " + l.stops.join(" ") + "\ninterior " + l.interior + "\n" +
+    KEYS.map(k => `${k} ${l[k]}`).join("\n") + "\n";
+}
+const lin = h => [1, 3, 5].map(i => { const c = parseInt(h.substr(i, 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+
+const SLIDERS = { density: v => 10 ** v, terrace: v => v, lines: v => v, line_px: v => v, slope: v => v, light: v => v, flow: v => v, breathe: v => v, brate: v => v };
+function syncStudio() {
+  const l = studio.look;
+  for (const k in SLIDERS) {
+    const el = document.getElementById("s" + k);
+    el.value = k === "density" ? Math.log10(l.density) : l[k];
+    document.getElementById("v" + k).textContent = k === "density" ? l.density.toPrecision(3) : (+l[k]).toFixed(2);
+  }
+  document.getElementById("sinterior").value = l.interior;
+  const box = document.getElementById("stops"); box.innerHTML = "";
+  l.stops.forEach((c, i) => {
+    const d = document.createElement("div"); d.className = "stop";
+    const inp = document.createElement("input"); inp.type = "color"; inp.value = c;
+    inp.oninput = () => { l.stops[i] = inp.value; studio.dirty = true; };
+    const x = document.createElement("span"); x.className = "x"; x.textContent = l.stops.length > 2 ? "×" : "";
+    x.title = "remove"; x.onclick = () => { if (l.stops.length > 2) { l.stops.splice(i, 1); syncStudio(); studio.dirty = true; } };
+    d.append(inp, x); box.append(d);
+  });
+  if (l.stops.length < 16) {
+    const add = document.createElement("button"); add.textContent = "+"; add.title = "add a colour";
+    add.onclick = () => { l.stops.push(l.stops[l.stops.length - 1]); syncStudio(); studio.dirty = true; };
+    box.append(add);
+  }
+}
+for (const k in SLIDERS) document.getElementById("s" + k).oninput = e => {
+  studio.look[k] = SLIDERS[k](+e.target.value);
+  document.getElementById("v" + k).textContent = k === "density" ? studio.look.density.toPrecision(3) : (+studio.look[k]).toFixed(2);
+  studio.dirty = true;
+};
+document.getElementById("sinterior").oninput = e => { studio.look.interior = e.target.value; studio.dirty = true; };
+for (const id of ["saa", "sunres"]) document.getElementById(id).onchange = () => { studio.dirty = true; };
+async function loadLook(name) {
+  const r = await fetch("/look?name=" + encodeURIComponent(name));
+  if (!r.ok) throw new Error(await r.text());
+  studio.look = parseLook(await r.text());
+  document.getElementById("sname").value = name;
+  syncStudio(); studio.dirty = true;
+}
+async function listLooks(select) {
+  const names = (await (await fetch("/looks")).text()).split("\n").filter(Boolean);
+  const sel = document.getElementById("spreset"); sel.innerHTML = "";
+  for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.append(o); }
+  if (select) sel.value = select;
+}
+document.getElementById("spreset").onchange = e => { loadLook(e.target.value).catch(err => status.textContent = String(err)); e.target.blur(); };
+document.getElementById("ssave").onclick = async () => {
+  const name = document.getElementById("sname").value.trim();
+  const r = await fetch("/look?name=" + encodeURIComponent(name), { method: "POST", body: lookText(studio.look) });
+  status.textContent = (await r.text()) + (r.ok ? `\nrender it: fd film ... --preset ${name}` : "");
+  if (r.ok) listLooks(name);
+};
+
+async function toggleStudio(preset, iterOverride) {
+  if (studio.on) {
+    studio.on = false; glc.style.display = "none"; panel.style.display = "none";
+    for (const id of ["presets", "look"]) document.getElementById(id).style.display = "";
+    changed();                             // resume navigation refinement
+    return;
+  }
+  if (!gl) { errBox.textContent = "look mode needs WebGL2"; errBox.style.display = "block"; return; }
+  if (!prog) compile();
+  studio.on = true; studio.ready = false;
+  job = null;                              // pause navigation refinement
+  gen = Math.max(gen + 1, Date.now());     // and outrank any navigation request in flight
+  glc.width = W; glc.height = H; glc.style.display = "block"; panel.style.display = "block";
+  for (const id of ["presets", "look"]) document.getElementById(id).style.display = "none";
+  await listLooks();
+  await loadLook(preset || (studio.look ? document.getElementById("sname").value || "ice" : "ice")).catch(() => loadLook("ice"));
+  document.getElementById("spreset").value = document.getElementById("sname").value;
+  // One full-quality render of the frozen view: every sample, 2x2 supersampled.
+  const v = snapshot(view), ss = studio.ss;
+  const q = new URLSearchParams({ re: toDec(v.re, v.D), im: toDec(v.im, v.D), width: widthStr(v.l10w), w: W, h: H, ss,
+    iter: iterOverride || iterFor(v.l10w), gen, raw: 2 });
+  status.textContent = `rendering ${W}x${H} at ss ${ss}…`;
+  const t0 = performance.now();
+  const r = await fetch("/render?" + q);
+  if (r.status !== 200) { status.textContent = "render failed: " + await r.text(); return; }
+  const info = Object.fromEntries((r.headers.get("X-Info") || "").split(" ").map(kv => kv.split("=")));
+  const data = new Float32Array(await r.arrayBuffer());
+  studio.base = +info.nubase; studio.sw = W * ss; studio.sh = H * ss;
+  studio.tex = studio.tex || gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, studio.tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, studio.sw, studio.sh, 0, gl.RGBA, gl.FLOAT, data);
+  status.textContent = `${W}x${H} ss ${ss}: ${info.used} render ${(+info.seconds).toFixed(2)} s, total ${((performance.now() - t0) / 1000).toFixed(2)} s\nsliders re-colour on the GPU: no re-render`;
+  studio.ready = true; studio.dirty = true; studio.last = performance.now();
+  if (TEST.has("test")) {
+    studio.look.flow = 0; studio.look.breathe = 0;   // a still for the parity check
+    drawStudio();
+    const px = new Uint8Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    await fetch("/capture", { method: "POST", body: px });
+    document.title = "captured";
+  }
+}
+
+function drawStudio() {
+  const l = studio.look, n = l.stops.length;
+  const dens = l.density * (1 + l.breathe * Math.sin(2 * Math.PI * l.brate * studio.clock));
+  const phase = ((-l.flow * studio.clock) % 1 + 1) % 1;
+  const bp = ((dens * studio.base + phase) % 1 + 1) % 1;
+  const a = l.light * Math.PI / 180;
+  gl.viewport(0, 0, W, H);
+  gl.useProgram(prog);
+  const u = k => gl.getUniformLocation(prog, k);
+  gl.uniform1i(u("S"), 0); gl.uniform1i(u("ss"), studio.ss); gl.uniform1i(u("outH"), H);
+  const st = new Float32Array(48); l.stops.forEach((c, i) => st.set(lin(c), 3 * i));
+  gl.uniform3fv(u("stops"), st); gl.uniform1i(u("n"), n); gl.uniform3fv(u("interior"), lin(l.interior));
+  gl.uniform1f(u("dens"), dens); gl.uniform1f(u("basePhase"), bp); gl.uniform1f(u("terrace"), l.terrace);
+  gl.uniform1f(u("slope"), l.slope); gl.uniform1f(u("lx"), Math.cos(a)); gl.uniform1f(u("ly"), -Math.sin(a));
+  gl.uniform1f(u("lines"), l.lines); gl.uniform1f(u("linePx"), l.line_px);
+  gl.uniform1f(u("aa"), document.getElementById("saa").checked ? 1 : 0);
+  gl.uniform1f(u("unresInterior"), document.getElementById("sunres").checked ? 1 : 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, studio.tex);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+function studioLoop(now) {
+  if (studio.on && studio.ready) {
+    const moving = studio.look.flow !== 0 || studio.look.breathe !== 0;
+    if (moving && !studio.paused) { studio.clock += Math.min(0.1, (now - studio.last) / 1000); studio.dirty = true; }
+    if (studio.dirty) { studio.dirty = false; drawStudio(); }
+  }
+  studio.last = now;
+  requestAnimationFrame(studioLoop);
+}
+requestAnimationFrame(studioLoop);
+if (TEST.has("test")) toggleStudio(TEST.get("preset"), +TEST.get("iter"));
 </script>
 </body>
 </html>
