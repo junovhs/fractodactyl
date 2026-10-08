@@ -57,6 +57,16 @@ fn serves_page_and_renders() {
     assert!(cover.contains(&0.0) && cover.contains(&1.0), "expected interior and escaped pixels");
     assert!(f.chunks(4).filter(|p| p[3] > 0.0).all(|p| p[0] > 0.0 && (0.0..=1.0).contains(&p[1])));
 
+    // EXPL-07: studio inputs for every sample (2x2 per pixel) from the navigation kernel.
+    let (head, body) = get(port, "/render?re=-0.65&im=0&width=4.2&w=64&h=36&ss=2&iter=500&gen=5&raw=3");
+    assert!(head.starts_with("HTTP/1.1 200") && head.contains("kernel=pert-f64/1") && head.contains("nubase="), "{head}");
+    assert_eq!(body.len(), 128 * 72 * 16);
+    let f: Vec<f32> = body.chunks(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+    assert!(f.iter().all(|v| v.is_finite()));
+    let class: Vec<f32> = f.chunks(4).map(|p| p[3]).collect();
+    assert!(class.contains(&0.0) && class.contains(&1.0) && !class.contains(&2.0), "escaped and interior, unresolved shown as interior");
+    assert!(f.chunks(4).filter(|p| p[3] == 0.0).all(|p| p[0] >= 0.0 && p[1] >= 0.0), "nu re-based to the smallest escaped");
+
     // Deep: the scaled tier at 1e-300.
     let (head, body) = get(port, "/render?re=0&im=1&width=1e-300&w=32&h=18&ss=1&iter=2000&gen=6");
     assert!(head.starts_with("HTTP/1.1 200") && head.contains("pert-fx-scaled/1"), "{head}");

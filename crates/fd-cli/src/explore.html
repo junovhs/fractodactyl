@@ -53,6 +53,8 @@
 <div id="look">
   <div class="title">look (live, no re-render)</div>
   <label>palette <select id="pal"></select></label>
+  <div id="navinfo" style="display:none; color: var(--dim)">studio preset: the exact fd film look.<br>space pauses its motion · L tunes it</div>
+  <div id="cosine">
   <label>bands <input id="bands" type="range" min="-2.3" max="3.3" step="0.01"></label>
   <label>flow <input id="flow" type="range" min="-1.5" max="1.5" step="0.01"></label>
   <label>breathe <input id="breathe" type="range" min="0" max="0.6" step="0.01"></label>
@@ -61,6 +63,7 @@
   <label>relief <input id="relief" type="range" min="0" max="1" step="0.01"></label>
   <label>edge dark <input id="edge" type="range" min="0" max="1" step="0.01"></label>
   <label>edge glow <input id="glow" type="range" min="0" max="1.5" step="0.01"></label>
+  </div>
   <button id="tune">tune studio look (L)</button>
 </div>
 <canvas id="gl"></canvas>
@@ -131,6 +134,12 @@ let paused = false, phase = 0, hue = 0, clock = 0, lastT = performance.now();
 let raw = null, rawSnap = null;            // W x H x 4 floats: the best image so far
 let shaded = null, shadedSnap = null, shadeImg = null, shadeDirty = true;
 let lastShade = -Infinity;
+// EXPL-07: a studio preset as the navigation look. Refinement then fetches raw=3 (studio
+// inputs for every sample, same kernel as raw=1) into a 2x-supersampled texture that the
+// studio shader colours on the GPU every frame, so the view is exactly what fd film makes.
+let navLook = null;                        // { name, look } or null for the cosine palettes
+let samp = null, sampSnap = null, sampBase = 0, sampRows = null;   // 2W x 2H x 4 floats
+const NAV_SS = 2;
 const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
 const hud = document.getElementById("hud"), errBox = document.getElementById("err");
 let W = 0, H = 0;
@@ -197,7 +206,7 @@ function jump(p) {
   const l10w = log10Dec(p.w), D = needDigits(l10w);
   view = { re: parseDec(p.re, D), im: parseDec(p.im, D), D, l10w };
   baseIter = p.iter;
-  raw = null; rawSnap = null; shadedSnap = null;
+  raw = null; rawSnap = null; shadedSnap = null; samp = null; sampRows = null;
   changed();
 }
 function changed() { dirty = true; }
@@ -206,7 +215,7 @@ function resize() {
   W = Math.max(8, Math.floor(innerWidth / 8) * 8);
   H = Math.max(8, Math.floor(innerHeight / 8) * 8);
   canvas.width = W; canvas.height = H;
-  raw = null; rawSnap = null; shadedSnap = null;
+  raw = null; rawSnap = null; shadedSnap = null; samp = null; sampRows = null;
   if (view) changed();
 }
 
@@ -221,7 +230,7 @@ function nextRequest(j) {
   shift(v, 0, ((r0 + r1) / 2 - Hl / 2) * L.s);
   const q = new URLSearchParams({
     re: toDec(v.re, v.D), im: toDec(v.im, v.D), width: widthStr(v.l10w),
-    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen, raw: 1,
+    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen, raw: j.studio ? 3 : 1,
   });
   return { url: "/render?" + q, L, Wl, Hl, r0, r1 };
 }
@@ -238,7 +247,8 @@ async function kick() {
       const rgb = new Float32Array(await r.arrayBuffer());
       secPerSample = Math.max(1e-9, +info.seconds / (w * h * req.L.ss * req.L.ss));
       if (j.level === 0 || j.gen === gen) {
-        paint(j, req, rgb, w, h);
+        if (j.studio) paintSamples(j, req, rgb, w, h, +info.nubase);
+        else paint(j, req, rgb, w, h);
         last = { info, level: j.level + 1 };
       }
       errBox.style.display = "none";
@@ -285,8 +295,39 @@ function paint(j, req, f, w, h) {
   shadeDirty = true;
 }
 
+// raw=3 strip: (w*ss) x (h*ss) samples, each covering NAV_SS*s/ss texels. Escaped nu is
+// re-based from the strip's base to the frame's, and de scaled from the strip's pixels to
+// screen pixels, so coarse previews light like the final image.
+function paintSamples(j, req, f, w, h, base) {
+  const TW = W * NAV_SS, TH = H * NAV_SS;
+  if (j.level === 0 || !samp) {
+    samp = new Float32Array(TW * TH * 4);
+    sampSnap = j.snap; sampBase = base;
+  }
+  const s = req.L.s, ss = req.L.ss, k = NAV_SS * s / ss, sw = w * ss, sh = h * ss;
+  const y0 = req.r0 * s * NAV_SS, off = base - sampBase;
+  for (let y = 0; y < sh; y++) {
+    for (let x = 0; x < sw; x++) {
+      const i = 4 * (y * sw + x), esc = f[i + 3] === 0;
+      const nu = esc ? f[i] + off : 0, de = f[i + 1] * s, a = f[i + 2], c = f[i + 3];
+      for (let dy = 0; dy < k; dy++) {
+        const row = y0 + y * k + dy;
+        if (row >= TH) break;
+        let o = 4 * (row * TW + x * k);
+        for (let dx = 0; dx < k && x * k + dx < TW; dx++, o += 4) {
+          samp[o] = nu; samp[o + 1] = de; samp[o + 2] = a; samp[o + 3] = c;
+        }
+      }
+    }
+  }
+  const r1 = Math.min(TH, y0 + sh * k);
+  sampRows = j.level === 0 ? [0, TH] : sampRows ? [Math.min(sampRows[0], y0), Math.max(sampRows[1], r1)] : [y0, r1];
+  shadeDirty = true;
+}
+
 // Colour the raw buffer with the current look and time into the `shaded` canvas.
 function shade() {
+  if (navLook) { shadeStudio(); return; }
   if (!raw) return;
   if (!shaded || shaded.width !== W || shaded.height !== H) {
     shaded = new OffscreenCanvas(W, H); shadeImg = new ImageData(W, H);
@@ -314,18 +355,20 @@ function shade() {
 
 function draw() {
   const now = performance.now(), dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
-  if (!paused && (look.flow !== 0 || look.breathe !== 0 || look.drift !== 0)) {
+  const moving = navLook ? navLook.look.flow !== 0 || navLook.look.breathe !== 0 : look.flow !== 0 || look.breathe !== 0 || look.drift !== 0;
+  if (!paused && moving) {
     clock += dt; phase -= look.flow * dt; hue += look.drift * dt; shadeDirty = true;
   }
-  // Leave time for refinement responses and input between full-image recolours.
-  if (shadeDirty && now - lastShade >= 1000 / 30) {
+  // Leave time for refinement responses and input between full-image recolours (the
+  // GPU studio path is cheap enough for every frame).
+  if (shadeDirty && (navLook || now - lastShade >= 1000 / 30)) {
     shadeDirty = false; lastShade = now; shade();
   }
   // Look mode freezes the view: no navigation renders until it is left.
   if (dirty && view && !studio.on) {
     dirty = false;
     gen = Math.max(gen + 1, Date.now());   // stays newer than any earlier tab or reload
-    job = { gen, snap: snapshot(view), level: 0, row: 0 };
+    job = { gen, snap: snapshot(view), level: 0, row: 0, studio: !!navLook };
     kick();
   }
   ctx.fillStyle = "#000";
@@ -390,13 +433,24 @@ PRESETS.forEach((p, n) => {
 const sel = document.getElementById("pal");
 Object.keys(PALETTES).forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
 function syncControls() {
-  sel.value = look.pal;
+  sel.value = navLook ? "studio:" + navLook.name : look.pal;
+  document.getElementById("cosine").style.display = navLook ? "none" : "";
+  document.getElementById("navinfo").style.display = navLook ? "" : "none";
   for (const id of KNOBS) document.getElementById(id).value = look[id];
 }
+// Switch the navigation look; the current picture stays up until the new data lands.
+function setNavLook(nl) {
+  const was = !!navLook;
+  navLook = nl;
+  try { localStorage.setItem("fd.navLook", nl ? nl.name : look.pal); } catch (e) {}
+  if (was !== !!nl) { raw = null; samp = null; sampRows = null; changed(); }
+  syncControls(); shadeDirty = true;
+}
 sel.onchange = () => {
-  // "studio:NAME" entries are saved studio presets (looks/*.look): open the studio look.
-  if (sel.value.startsWith("studio:")) { const n = sel.value.slice(7); sel.value = look.pal; sel.blur(); toggleStudio(n); return; }
-  look.pal = sel.value; shadeDirty = true; sel.blur();
+  const v = sel.value; sel.blur();
+  // "studio:NAME" entries are studio presets (built-ins and looks/*.look).
+  if (v.startsWith("studio:")) fetchLook(v.slice(7)).then(l => setNavLook({ name: v.slice(7), look: l })).catch(e => { errBox.textContent = String(e); errBox.style.display = "block"; });
+  else { look.pal = v; setNavLook(null); }
 };
 for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
 syncControls();
@@ -540,10 +594,13 @@ for (const k in SLIDERS) document.getElementById("s" + k).oninput = e => {
 };
 document.getElementById("sinterior").oninput = e => { studio.look.interior = e.target.value; studio.dirty = true; };
 for (const id of ["saa", "sunres"]) document.getElementById(id).onchange = () => { studio.dirty = true; };
-async function loadLook(name) {
+async function fetchLook(name) {
   const r = await fetch("/look?name=" + encodeURIComponent(name));
   if (!r.ok) throw new Error(await r.text());
-  studio.look = parseLook(await r.text());
+  return parseLook(await r.text());
+}
+async function loadLook(name) {
+  studio.look = await fetchLook(name);
   document.getElementById("sname").value = name;
   syncStudio(); studio.dirty = true;
 }
@@ -554,7 +611,7 @@ async function listLooks(select) {
   pal.querySelector("optgroup")?.remove();
   const g = document.createElement("optgroup"); g.label = "studio presets (opens L)";
   for (const n of names) { const o = document.createElement("option"); o.value = "studio:" + n; o.textContent = n; g.append(o); }
-  pal.append(g); pal.value = look.pal;
+  pal.append(g); syncControls();
   const sel = document.getElementById("spreset"); sel.innerHTML = "";
   for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.append(o); }
   if (select) sel.value = select;
@@ -571,6 +628,8 @@ async function toggleStudio(preset, iterOverride) {
   if (studio.on) {
     studio.on = false; glc.style.display = "none"; panel.style.display = "none";
     for (const id of ["presets", "look"]) document.getElementById(id).style.display = "";
+    // Navigating with a studio preset: carry on with the look as tuned (saved or not).
+    if (navLook && studio.look) setNavLook({ name: document.getElementById("sname").value || navLook.name, look: structuredClone(studio.look) });
     changed();                             // resume navigation refinement
     return;
   }
@@ -582,7 +641,8 @@ async function toggleStudio(preset, iterOverride) {
   glc.width = W; glc.height = H; glc.style.display = "block"; panel.style.display = "block";
   for (const id of ["presets", "look"]) document.getElementById(id).style.display = "none";
   await listLooks();
-  await loadLook(preset || (studio.look ? document.getElementById("sname").value || "ice" : "ice")).catch(() => loadLook("ice"));
+  if (!preset && navLook) { studio.look = structuredClone(navLook.look); document.getElementById("sname").value = navLook.name; syncStudio(); }
+  else await loadLook(preset || (studio.look ? document.getElementById("sname").value || "ice" : "ice")).catch(() => loadLook("ice"));
   document.getElementById("spreset").value = document.getElementById("sname").value;
   // One full-quality render of the frozen view: every sample, 2x2 supersampled.
   const v = snapshot(view), ss = studio.ss;
@@ -612,24 +672,55 @@ async function toggleStudio(preset, iterOverride) {
 }
 
 function drawStudio() {
-  const l = studio.look, n = l.stops.length;
-  const dens = l.density * (1 + l.breathe * Math.sin(2 * Math.PI * l.brate * studio.clock));
-  const phase = ((-l.flow * studio.clock) % 1 + 1) % 1;
-  const bp = ((dens * studio.base + phase) % 1 + 1) % 1;
+  drawLook(studio.look, studio.tex, studio.ss, studio.base, studio.clock,
+    document.getElementById("saa").checked, document.getElementById("sunres").checked);
+}
+// The studio shader over sample texture `tex` (ss x ss samples per pixel) into glc.
+function drawLook(l, tex, ss, base, clock, aa, unres) {
+  const n = l.stops.length;
+  const dens = l.density * (1 + l.breathe * Math.sin(2 * Math.PI * l.brate * clock));
+  const phase = ((-l.flow * clock) % 1 + 1) % 1;
+  const bp = ((dens * base + phase) % 1 + 1) % 1;
   const a = l.light * Math.PI / 180;
   gl.viewport(0, 0, W, H);
   gl.useProgram(prog);
   const u = k => gl.getUniformLocation(prog, k);
-  gl.uniform1i(u("S"), 0); gl.uniform1i(u("ss"), studio.ss); gl.uniform1i(u("outH"), H);
+  gl.uniform1i(u("S"), 0); gl.uniform1i(u("ss"), ss); gl.uniform1i(u("outH"), H);
   const st = new Float32Array(48); l.stops.forEach((c, i) => st.set(lin(c), 3 * i));
   gl.uniform3fv(u("stops"), st); gl.uniform1i(u("n"), n); gl.uniform3fv(u("interior"), lin(l.interior));
   gl.uniform1f(u("dens"), dens); gl.uniform1f(u("basePhase"), bp); gl.uniform1f(u("terrace"), l.terrace);
   gl.uniform1f(u("slope"), l.slope); gl.uniform1f(u("lx"), Math.cos(a)); gl.uniform1f(u("ly"), -Math.sin(a));
   gl.uniform1f(u("lines"), l.lines); gl.uniform1f(u("linePx"), l.line_px);
-  gl.uniform1f(u("aa"), document.getElementById("saa").checked ? 1 : 0);
-  gl.uniform1f(u("unresInterior"), document.getElementById("sunres").checked ? 1 : 0);
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, studio.tex);
+  gl.uniform1f(u("aa"), aa ? 1 : 0);
+  gl.uniform1f(u("unresInterior"), unres ? 1 : 0);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+// EXPL-07: shade the navigation sample texture with navLook into the `shaded` canvas,
+// uploading only the rows refinement changed since the last frame.
+let navTex = null, navTexSize = "";
+function shadeStudio() {
+  if (!samp || studio.on || !gl) return;
+  if (!prog) compile();
+  const TW = W * NAV_SS, TH = H * NAV_SS;
+  if (glc.width !== W || glc.height !== H) { glc.width = W; glc.height = H; }
+  navTex = navTex || gl.createTexture();
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, navTex);
+  if (navTexSize !== TW + "x" + TH) {
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, TW, TH, 0, gl.RGBA, gl.FLOAT, samp);
+    navTexSize = TW + "x" + TH; sampRows = null;
+  } else if (sampRows) {
+    const [r0, r1] = sampRows;
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r0, TW, r1 - r0, gl.RGBA, gl.FLOAT, samp, r0 * TW * 4);
+    sampRows = null;
+  }
+  drawLook(navLook.look, navTex, NAV_SS, sampBase, clock, true, true);
+  if (!shaded || shaded.width !== W || shaded.height !== H) { shaded = new OffscreenCanvas(W, H); shadeImg = new ImageData(W, H); }
+  const c = shaded.getContext("2d");
+  c.clearRect(0, 0, W, H); c.drawImage(glc, 0, 0);
+  shadedSnap = sampSnap;
 }
 function studioLoop(now) {
   if (studio.on && studio.ready) {
@@ -642,7 +733,14 @@ function studioLoop(now) {
 }
 requestAnimationFrame(studioLoop);
 if (TEST.has("test")) toggleStudio(TEST.get("preset"), +TEST.get("iter"));
-else listLooks().catch(() => {});
+else listLooks().then(async () => {
+  // The navigation look this browser used last (a studio preset or a cosine palette).
+  let last = null;
+  try { last = localStorage.getItem("fd.navLook"); } catch (e) {}
+  if (!last) return;
+  if (PALETTES[last]) { look.pal = last; syncControls(); shadeDirty = true; }
+  else setNavLook({ name: last, look: await fetchLook(last) });
+}).catch(() => {});
 </script>
 </body>
 </html>

@@ -12,6 +12,8 @@
 //! look on the GPU exactly as fd-shade does. `GET /looks` lists the presets (built-ins
 //! and `looks/*.look`), `GET /look?name=` returns one, `POST /look?name=` saves one
 //! (validated by `fd_shade::Look::parse`), so `fd film --preset NAME` renders it.
+//! `raw=3` (EXPL-07) is the same per-sample data from the fast navigation kernel, for a
+//! studio preset as the live look while navigating.
 //! `--capture FILE` (tests): the page in `?test` mode posts its look-mode pixels to
 //! `POST /capture`, written to FILE, and the served samples go to FILE.fds.
 use crate::args::Args;
@@ -137,6 +139,9 @@ fn render(query: &str, server: &Server) -> Result<Option<Image>, String> {
     let (w, h, ss) = (n("w")? as u32, n("h")? as u32, n("ss")? as u32);
     let raw = q("raw").is_ok_and(|v| v == "1");
     let samples_mode = q("raw").is_ok_and(|v| v == "2");
+    // raw=3: studio inputs for every sample (as raw=2) from the fast navigation kernel
+    // (as raw=1), so a studio preset can be the live look while exploring.
+    let nav_samples = q("raw").is_ok_and(|v| v == "3");
     if w == 0 || h == 0 || !(1..=4).contains(&ss) || w as u64 * h as u64 > 16_000_000 {
         return Err("bad size".into());
     }
@@ -147,7 +152,7 @@ fn render(query: &str, server: &Server) -> Result<Option<Image>, String> {
         ss,
         max_iter: n("iter")?.clamp(100, 2_000_000),
         escape_radius: 1e10,
-        columns: if raw || samples_mode {
+        columns: if raw || samples_mode || nav_samples {
             ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal])
         } else {
             ColumnSet::of(&[Column::Class, Column::De, Column::Normal])
@@ -182,6 +187,17 @@ fn render(query: &str, server: &Server) -> Result<Option<Image>, String> {
             unresolved += 1;
             *c = Class::new(Kind::Interior, Evidence::Heuristic);
         }
+    }
+    if nav_samples {
+        let (base, data) = sample_data(&samples);
+        let (w, h) = header.pixels();
+        let info = format!(
+            "kernel={} seconds={seconds:.4} iterations={} unresolved={:.6} ss={ss} nubase={base:?}",
+            header.kernel,
+            stats.iterations,
+            unresolved as f64 / samples.class.len().max(1) as f64
+        );
+        return Ok(Some((w, h, info, data)));
     }
     let (iw, ih, data) = if raw {
         let (w, h) = header.pixels();
