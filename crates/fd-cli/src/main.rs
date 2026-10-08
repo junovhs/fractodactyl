@@ -29,6 +29,8 @@ usage:
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
   fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
+           [--time T] [--fps F] [--flow C/S] [--breathe A] [--brate HZ] [--drift C/S]
+           [--aa on|off] [--unresolved mark|interior]
   fd shade <umber|palette|relief> in.fds out.png
   fd info in.fds
   fd addr locate --re X --im Y --level L
@@ -69,7 +71,7 @@ usage:
              [--fps F] [--lead S] [--workers N] [--policy slack|edf|first-use]
              [--slab N] [--target BYTES] [--cap BYTES] [--on-miss fail|report]
   fd play COMPILE_LOG --store DIR [--frames A..B] [--threads N] [-o DIR]
-          [--look L[,L...]] [--mp4 FILE]
+          [--look L[,L...]] [--mp4 FILE] [appearance flags as fd shade]
           [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]
   fd explore [--port 8737] [--threads N]   (local browser explorer)

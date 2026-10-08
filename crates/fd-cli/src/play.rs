@@ -21,7 +21,7 @@ use std::fmt::Write as _;
 use std::process::Command;
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd play COMPILE_LOG --store DIR [--frames A..B] [--threads N] [-o DIR] [--look L[,L...]]
+const USAGE: &str = "usage: fd play COMPILE_LOG --store DIR [--frames A..B] [--threads N] [-o DIR] [--look L[,L...]] [appearance flags of fd shade]
                [--mp4 FILE] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
 /// Escape radius of every `fd render`/`fd compile` (`render::params`); not stored in the
@@ -30,8 +30,10 @@ const ESCAPE_RADIUS: f64 = 1e10;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let wall = Instant::now();
-    let known = ["store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python"];
+    let known: Vec<&str> =
+        ["store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python"].into_iter().chain(crate::shade::APPEARANCE_FLAGS).collect();
     let a = Args::parse(argv, &known)?;
+    let base = crate::shade::appearance(&a)?;
     let [log] = a.positional.as_slice() else { return Err(USAGE.into()) };
     let store = crate::chunk::store(&a)?;
     let record = CompileLog::read(log)?;
@@ -70,7 +72,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut error = None;
     for f in from..to {
         let check = oracle.filter(|_| (f - from).is_multiple_of(every));
-        if let Err(e) = frame(&a, &store, &mut cache, &record.frames[f], f, threads, dir.as_deref(), &looks, check, &mut t) {
+        // Film time of frame f: animation is tied to the frame, not to render speed.
+        let look_at = fd_shade::Appearance { time: f as f64 / record.fps, ..base };
+        if let Err(e) = frame(&a, &store, &mut cache, &record.frames[f], f, threads, dir.as_deref(), &looks, &look_at, check, &mut t) {
             error = Some(format!("frame {f}: {e}"));
             break;
         }
@@ -241,6 +245,7 @@ fn frame(
     threads: usize,
     dir: Option<&str>,
     looks: &[(String, Box<dyn fd_shade::Pass>)],
+    look_at: &fd_shade::Appearance,
     oracle: Option<&str>,
     t: &mut Totals,
 ) -> Result<(), String> {
@@ -377,7 +382,7 @@ fn frame(
     let shade = Instant::now();
     for (name, pass) in looks {
         let png = format!("{}/frame-{f:05}.{name}.png", dir.expect("checked"));
-        std::fs::write(&png, fd_shade::png(&pass.shade(&h, &s))).map_err(|e| format!("{png}: {e}"))?;
+        std::fs::write(&png, fd_shade::png(&pass.shade_with(&h, &s, look_at))).map_err(|e| format!("{png}: {e}"))?;
         t.pngs += 1;
     }
     let shade_seconds = shade.elapsed().as_secs_f64();

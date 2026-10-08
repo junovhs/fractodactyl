@@ -1,18 +1,31 @@
 //! `fd shade` / `fd info`: consume `.fds` files. `fd shade` reads each input once (the
 //! union of the columns its looks need) and applies every look to that one result.
+//!
+//! Appearance flags (FX-01, shared with `fd play`): `--flow`, `--breathe`, `--brate`,
+//! `--drift` animate the bands (the explorer's knobs and maths), `--aa on` fades bands
+//! finer than a sample, `--unresolved interior` draws unresolved samples as interior.
+//! Time is `--time T` plus, over a directory, frame index / `--fps F`; with every flag
+//! at its default the looks are exactly the still looks.
 use crate::args::Args;
 use fd_atlas::Sha256;
 use fd_samples::{Column, ColumnSet, Kind, Reader};
+use fd_shade::Appearance;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["look", "o"])?;
+    let known: Vec<&str> = ["look", "o", "time", "fps"].into_iter().chain(APPEARANCE_FLAGS).collect();
+    let a = Args::parse(argv, &known)?;
+    let base = appearance(&a)?;
+    let (t0, fps): (f64, f64) = (a.num("time", 0.0)?, a.num("fps", 0.0)?);
+    if !t0.is_finite() || !fps.is_finite() || fps < 0.0 {
+        return Err("--time must be finite and --fps non-negative".into());
+    }
     if a.str("look").is_none() && a.str("o").is_none() && a.positional.len() == 3 {
         return single(&a.positional);
     }
     let ([input], Some(out)) = (a.positional.as_slice(), a.str("o")) else {
-        return Err("usage: fd shade IN.fds|DIR [--look L[,L...]] -o OUTDIR".into());
+        return Err(format!("usage: fd shade IN.fds|DIR [--look L[,L...]] -o OUTDIR [--time T] [--fps F] {APPEARANCE_USAGE}"));
     };
     let names: Vec<&str> = a.str("look").unwrap_or(fd_shade::NAMES[0]).split(',').collect();
     let looks = names
@@ -23,7 +36,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     std::fs::create_dir_all(out).map_err(|e| format!("{out}: {e}"))?;
     let want = looks.iter().fold(ColumnSet::default(), |m, l| ColumnSet(m.0 | l.columns().0));
     let (mut read_s, mut shade_s, mut write_s, mut images) = (0.0, 0.0, 0.0, 0);
-    for f in &frames {
+    for (k, f) in frames.iter().enumerate() {
+        let time = t0 + if fps > 0.0 { k as f64 / fps } else { 0.0 };
+        let look_at = Appearance { time, ..base };
         let name = f.display();
         let bytes = std::fs::read(f).map_err(|e| format!("{name}: {e}"))?;
         let sha = hex(&Sha256::digest(&bytes));
@@ -47,7 +62,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or("frame");
         for (look, pass) in names.iter().zip(&looks) {
             let t = Instant::now();
-            let img = pass.shade(h, &samples);
+            let img = pass.shade_with(h, &samples, &look_at);
             let shade = t.elapsed().as_secs_f64();
             let t = Instant::now();
             let png = format!("{}/{stem}.{look}.png", out.trim_end_matches('/'));
@@ -69,6 +84,42 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         looks.len()
     );
     Ok(())
+}
+
+/// Flags of [`appearance`].
+pub(crate) const APPEARANCE_FLAGS: [&str; 6] = ["flow", "breathe", "brate", "drift", "aa", "unresolved"];
+pub(crate) const APPEARANCE_USAGE: &str =
+    "[--flow C/S] [--breathe A] [--brate HZ] [--drift C/S] [--aa on|off] [--unresolved mark|interior]";
+
+/// The appearance named by the flags, at time 0 (callers set the time per frame).
+pub(crate) fn appearance(a: &Args) -> Result<Appearance, String> {
+    let num = |k: &str| -> Result<f64, String> {
+        let v: f64 = a.num(k, 0.0)?;
+        if v.is_finite() {
+            Ok(v)
+        } else {
+            Err(format!("--{k} must be finite"))
+        }
+    };
+    let aa = match a.str("aa").unwrap_or("off") {
+        "on" => true,
+        "off" => false,
+        v => return Err(format!("--aa: expected on or off, got {v:?}")),
+    };
+    let unresolved_interior = match a.str("unresolved").unwrap_or("mark") {
+        "interior" => true,
+        "mark" => false,
+        v => return Err(format!("--unresolved: expected mark or interior, got {v:?}")),
+    };
+    Ok(Appearance {
+        time: 0.0,
+        flow: num("flow")?,
+        breathe: num("breathe")?,
+        brate: num("brate")?,
+        drift: num("drift")?,
+        aa,
+        unresolved_interior,
+    })
 }
 
 /// Legacy form `fd shade <look> in.fds out.png`: one look, one image.
