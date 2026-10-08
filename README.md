@@ -15,4 +15,4 @@ The previous twin-minibrot swap prototype is intentionally absent from this bran
 4. Read the research reports under `docs/research/` (one folder per date).
 5. Read `docs/spec/METHOD.md` (how we work).
 
-`fd` (crates/fd-cli) renders, compiles and plays genuine deep zooms; `viewer/explore.cmd` opens a local browser explorer.
+`fd` (crates/fd-cli) renders, compiles and plays genuine deep zooms; `viewer/explore.cmd` (Windows) or `viewer/explore.sh` (Linux; `--install` adds a desktop icon, `--stop` stops the renderer) opens a local browser explorer.
