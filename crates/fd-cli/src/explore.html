@@ -562,7 +562,7 @@ in vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D;
 uniform sampler2D S; uniform int ss; uniform int outH;
-uniform vec3 stops[16]; uniform int n; uniform vec3 interior;
+uniform vec3 stops[16]; uniform int n; uniform vec3 interior, stopMean;
 uniform float dens, basePhase, terrace, slope, lx, ly, lines, linePx, aa, unresInterior;
 out vec4 o;
 const float LN2 = 0.6931471805599453, TAU = 6.283185307179586, PI = 3.141592653589793;
@@ -580,6 +580,12 @@ vec3 shadeSample(vec4 d) {
   float a = d.b * (TAU / 65536.0);
   float facing = -(cos(a) * lx + sin(a) * ly);
   float cycles = dens * 2.0 / (max(de, 1e-30) * LN2);
+  // FX-03: band-limit the palette (Gaussian, sigma 0.5 sample) toward its cycle mean.
+  if (aa > 0.5) {
+    float s = cycles / float(ss);
+    float g = exp(max(-2.0 * PI * PI * 0.25 * s * s, -80.0));
+    col = mix(stopMean * (terrace > 0.0 ? 1.0 - terrace * 0.4 : 1.0), col, g);
+  }
   float steep = tanh(min(0.6 * log(1.0 + cycles / 0.02), 10.0));
   // GLSL tanh may be (e^x - e^-x)/(e^x + e^-x): NaN once e^x overflows. tanh(10) is
   // already 1 in f32, so clamping changes nothing else.
@@ -757,6 +763,7 @@ function drawLook(l, tex, ss, base, clock, aa, unres) {
   gl.uniform1i(u("S"), 0); gl.uniform1i(u("ss"), ss); gl.uniform1i(u("outH"), H);
   const st = new Float32Array(48); l.stops.forEach((c, i) => st.set(lin(c), 3 * i));
   gl.uniform3fv(u("stops"), st); gl.uniform1i(u("n"), n); gl.uniform3fv(u("interior"), lin(l.interior));
+  gl.uniform3fv(u("stopMean"), [0, 1, 2].map(j => l.stops.reduce((m, c) => m + lin(c)[j], 0) / n));
   gl.uniform1f(u("dens"), dens); gl.uniform1f(u("basePhase"), bp); gl.uniform1f(u("terrace"), l.terrace);
   gl.uniform1f(u("slope"), l.slope); gl.uniform1f(u("lx"), Math.cos(a)); gl.uniform1f(u("ly"), -Math.sin(a));
   gl.uniform1f(u("lines"), l.lines); gl.uniform1f(u("linePx"), l.line_px);

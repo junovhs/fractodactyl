@@ -17,6 +17,10 @@
 //!   fading where edges crowd closer than a few pixels.
 //! - Dark seams next to the set from `de`; `aa` fades the slope light within a sample of
 //!   sub-sample filaments (their normals are noise).
+//! - `aa` also band-limits the palette (FX-03): where bands are finer than a sample, the
+//!   colour (and terrace ramp) fades toward its cycle mean with the Gaussian response
+//!   `exp(-2 pi² σ² s²)` (`s` = cycles per sample, σ = [`BAND_SIGMA`] samples), so dense
+//!   regions settle to a steady average instead of jumping to a random stop every frame.
 //!
 //! A look is data: [`Look`] reads and writes the `.look` text format (one `key values`
 //! line each, `#` comments), so presets saved by the explorer render identically here.
@@ -26,6 +30,8 @@ use fd_samples::{Column, ColumnSet, Header, Kind, Samples};
 
 /// Steepness (palette cycles per pixel) at which the slope light is about half on.
 const S0: f32 = 0.02;
+/// Width (in samples) of the Gaussian that band-limits the palette under `aa`.
+pub const BAND_SIGMA: f32 = 0.5;
 /// Contour lines fade out where band edges are closer than this many pixels.
 const LINE_SPACE: f32 = 3.0;
 /// Dark-seam depth next to the set.
@@ -247,6 +253,11 @@ impl Pass for Studio {
         let (ls, lc) = l.light.to_radians().sin_cos();
         let (lx, ly) = (lc, -ls); // screen y points down
         let ss = h.ss as f32;
+        // Cycle means: the cosine-eased palette averages to the mean stop, the terrace
+        // ramp 1 - terrace (1 - fr)^1.5 to 1 - terrace / 2.5.
+        let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
+        let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
+        let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
         resolve(h, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 let t = density * nu[i] + phase;
@@ -264,6 +275,12 @@ impl Pass for Studio {
                 let (ux, uy) = Samples::unit(nm[i]);
                 let facing = -(ux * lx + uy * ly); // uphill (increasing nu) is -normal
                 let cycles = density as f32 * 2.0 / (d.max(1e-30) * std::f32::consts::LN_2);
+                if a.aa {
+                    let s = cycles / ss;
+                    let g = (band_k * s * s).exp();
+                    let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
+                    col = [0, 1, 2].map(|j| g * col[j] + (1.0 - g) * mean[j] * m);
+                }
                 let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
                 let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
                 let mut v = (1.0 + l.slope * facing * steep * fade) * (1.0 - CREVICE * (-d * ss * 1.5).exp());
@@ -311,5 +328,29 @@ mod tests {
         ] {
             assert!(Look::parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn aa_fades_sub_sample_bands_to_the_palette_mean_and_keeps_coarse_ones() {
+        use fd_samples::{Class, Evidence, View, MINOR};
+        let cols = ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]);
+        let mut s = Samples::alloc(2, cols);
+        for i in 0..2 {
+            s.class[i] = Class::new(Kind::Escaped, Evidence::Heuristic);
+            s.nu.as_mut().unwrap()[i] = 3.3;
+            s.normal.as_mut().unwrap()[i] = Samples::angle(1.0, 0.0);
+        }
+        // Sample 0: bands ~1e5 per sample (noise); sample 1: far below one per sample.
+        s.de.as_mut().unwrap().copy_from_slice(&[1e-6, 1e6]);
+        let view = View { center_re: "0".into(), center_im: "0".into(), width: "1".into(), rotation: 0.0 };
+        let h = Header { minor: MINOR, columns: cols, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+        let look = Look::parse("stops #ff0000 #00ff00 #0000ff\nslope 0\n").unwrap();
+        let shade = |aa| Studio(look.clone()).shade_with(&h, &s, &Appearance { aa, ..Appearance::STILL }).data;
+        let (on, off) = (shade(true), shade(false));
+        assert_eq!(on[3..], off[3..], "coarse bands are untouched");
+        // Mean of pure R, G, B is 1/3 each in linear light, times the crevice darkening.
+        let want = ((1.0f32 / 3.0 * (1.0 - CREVICE * (-1.5e-6f32).exp())).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+        assert_eq!(on[..3], [want; 3]);
+        assert_ne!(off[..3], [want; 3]);
     }
 }
