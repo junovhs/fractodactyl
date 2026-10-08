@@ -31,9 +31,9 @@ const ESCAPE_RADIUS: f64 = 1e10;
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let wall = Instant::now();
     let known: Vec<&str> =
-        ["store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python"].into_iter().chain(crate::shade::APPEARANCE_FLAGS).collect();
+        ["store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python"].into_iter().chain(crate::shade::APPEARANCE_FLAGS).chain(crate::shade::LOOK_FLAGS).collect();
     let a = Args::parse(argv, &known)?;
-    let base = crate::shade::appearance(&a)?;
+    let mut base = crate::shade::appearance(&a)?;
     let [log] = a.positional.as_slice() else { return Err(USAGE.into()) };
     let store = crate::chunk::store(&a)?;
     let record = CompileLog::read(log)?;
@@ -46,10 +46,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let dir = a.str("o").map(|d| d.trim_end_matches('/').to_string());
     let looks: Vec<(String, Box<dyn fd_shade::Pass>)> = match a.str("look") {
         None => Vec::new(),
-        Some(names) => names
-            .split(',')
-            .map(|l| fd_shade::by_name(l).map(|p| (l.to_string(), p)).ok_or_else(|| format!("unknown look {l:?}; known: {}", fd_shade::NAMES.join(", "))))
-            .collect::<Result<_, _>>()?,
+        Some(names) => crate::shade::passes(names, &a, &mut base)?,
     };
     let oracle = a.str("oracle");
     let every: usize = a.num("every", 1)?;

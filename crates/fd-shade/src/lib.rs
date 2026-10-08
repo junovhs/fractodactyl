@@ -6,10 +6,12 @@ mod palette;
 mod png;
 mod relief;
 mod resolve;
+mod studio;
 mod umber;
 
 pub use png::encode as png;
 pub use resolve::Rgb8;
+pub use studio::{Look, Studio, BUILTIN};
 
 use fd_samples::{ColumnSet, Header, Samples};
 
@@ -98,12 +100,14 @@ pub fn by_name(name: &str) -> Option<Box<dyn Pass>> {
         "umber" => Some(Box::new(umber::Umber)),
         "palette" => Some(Box::new(palette::Palette)),
         "relief" => Some(Box::new(relief::Relief)),
+        "studio" => Some(Box::new(Studio(Look::builtin("ice").expect("ice is built in")))),
         _ => None,
     }
 }
 
-/// Names accepted by `by_name`; the first is the default look.
-pub const NAMES: [&str; 3] = ["umber", "palette", "relief"];
+/// Names accepted by `by_name`; the first is the default look of `fd shade`. `studio` is
+/// the ice preset; other presets and knobs come from [`Look`].
+pub const NAMES: [&str; 4] = ["umber", "palette", "relief", "studio"];
 
 #[cfg(test)]
 mod tests {
@@ -196,6 +200,21 @@ mod tests {
             let changed = fnv(&p.shade_with(&h, &s, &a).data) != want;
             assert_eq!(changed, name != "palette", "{name}");
         }
+    }
+
+    #[test]
+    fn studio_lines_and_terraces_change_the_image_and_presets_differ() {
+        let (h, s) = fixture();
+        use crate::Pass as _;
+        let shade = |l: crate::Look| fnv(&crate::Studio(l).shade(&h, &s).data);
+        let ice = crate::Look::builtin("ice").unwrap();
+        let base = shade(ice.clone());
+        assert_ne!(base, shade(crate::Look { lines: 0.0, ..ice.clone() }), "terrain lines draw");
+        assert_ne!(base, shade(crate::Look { terrace: 0.0, ..ice.clone() }), "terraces draw");
+        assert_ne!(base, shade(crate::Look { light: 315.0, ..ice.clone() }), "light direction matters");
+        assert_ne!(base, shade(crate::Look::builtin("coral").unwrap()));
+        // `by_name("studio")` is the ice preset.
+        assert_eq!(fnv(&super::by_name("studio").unwrap().shade(&h, &s).data), base);
     }
 
     #[test]

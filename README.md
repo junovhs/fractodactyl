@@ -31,5 +31,11 @@ fd film -0.743291890852430202931624158508904039462544013087723088341335644672284
 
 `fd film` renders each frame with the cheapest valid kernel: the zone fast path where
 `--zone` covers it (about 20x faster), fd's per-frame BLA elsewhere. It shades in memory and
-pipes the frames to ffmpeg. Film defaults: 0.15 decades/s, 60 fps, 1920x1080, `--ss 2`,
-`--aa on`, `--unresolved interior`. `fd film` with no arguments lists every flag.
+pipes the frames to ffmpeg. Film defaults: the `studio` look with the `ice` preset, 0.15
+decades/s, 60 fps, 1920x1080, `--ss 2`, `--aa on`, `--unresolved interior`.
+
+Looks: `--preset NAME` picks `looks/NAME.look` or a built-in (`ice`, `coral`, `steel`,
+`zebra`, `smoke`); `--density`, `--terrace`, `--slope`, `--light`, `--lines` and `--line-px`
+tweak it, and `--flow`/`--breathe`/`--drift` animate the bands. A `.look` file is a few
+`key value` lines (`stops #rrggbb ...`, `density 0.05`, ...). `fd film` with no arguments
+lists every flag.

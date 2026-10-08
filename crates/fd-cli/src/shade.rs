@@ -6,6 +6,11 @@
 //! finer than a sample, `--unresolved interior` draws unresolved samples as interior.
 //! Time is `--time T` plus, over a directory, frame index / `--fps F`; with every flag
 //! at its default the looks are exactly the still looks.
+//!
+//! Studio looks (FX-02): `--preset NAME|FILE` picks a `.look` (a file path, else
+//! `looks/NAME.look`, else a built-in: ice, coral, steel, zebra, smoke) and implies
+//! `--look studio`; `--density`, `--terrace`, `--slope`, `--light`, `--lines`, `--line-px`
+//! override its knobs, and its animation defaults apply where the flags are absent.
 use crate::args::Args;
 use fd_atlas::Sha256;
 use fd_samples::{Column, ColumnSet, Kind, Reader};
@@ -14,9 +19,9 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = ["look", "o", "time", "fps"].into_iter().chain(APPEARANCE_FLAGS).collect();
+    let known: Vec<&str> = ["look", "o", "time", "fps"].into_iter().chain(APPEARANCE_FLAGS).chain(LOOK_FLAGS).collect();
     let a = Args::parse(argv, &known)?;
-    let base = appearance(&a)?;
+    let mut base = appearance(&a)?;
     let (t0, fps): (f64, f64) = (a.num("time", 0.0)?, a.num("fps", 0.0)?);
     if !t0.is_finite() || !fps.is_finite() || fps < 0.0 {
         return Err("--time must be finite and --fps non-negative".into());
@@ -25,13 +30,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         return single(&a.positional);
     }
     let ([input], Some(out)) = (a.positional.as_slice(), a.str("o")) else {
-        return Err(format!("usage: fd shade IN.fds|DIR [--look L[,L...]] -o OUTDIR [--time T] [--fps F] {APPEARANCE_USAGE}"));
+        return Err(format!("usage: fd shade IN.fds|DIR [--look L[,L...]] [--preset NAME|FILE] [--density D] [--terrace T] [--slope S] [--light DEG] [--lines L] [--line-px W] -o OUTDIR [--time T] [--fps F] {APPEARANCE_USAGE}"));
     };
-    let names: Vec<&str> = a.str("look").unwrap_or(fd_shade::NAMES[0]).split(',').collect();
-    let looks = names
-        .iter()
-        .map(|n| fd_shade::by_name(n).ok_or_else(|| format!("unknown look {n:?}; known: {}", fd_shade::NAMES.join(", "))))
-        .collect::<Result<Vec<_>, _>>()?;
+    let default = if a.str("preset").is_some() { "studio" } else { fd_shade::NAMES[0] };
+    let (names, looks): (Vec<String>, Vec<_>) = passes(a.str("look").unwrap_or(default), &a, &mut base)?.into_iter().unzip();
     let frames = inputs(Path::new(input))?;
     std::fs::create_dir_all(out).map_err(|e| format!("{out}: {e}"))?;
     let want = looks.iter().fold(ColumnSet::default(), |m, l| ColumnSet(m.0 | l.columns().0));
@@ -120,6 +122,64 @@ pub(crate) fn appearance(a: &Args) -> Result<Appearance, String> {
         aa,
         unresolved_interior,
     })
+}
+
+/// A look's name and its pass.
+pub(crate) type NamedPass = (String, Box<dyn fd_shade::Pass>);
+
+/// Flags of [`studio_look`].
+pub(crate) const LOOK_FLAGS: [&str; 7] = ["preset", "density", "terrace", "slope", "light", "lines", "line-px"];
+
+/// The studio look named by `--preset` (default the built-in `ice`), with knob flags
+/// applied. `NAME` is a file path if one exists, else `looks/NAME.look`, else built-in.
+pub(crate) fn studio_look(a: &Args) -> Result<fd_shade::Look, String> {
+    let name = a.str("preset").unwrap_or("ice");
+    let file = [std::path::PathBuf::from(name), Path::new("looks").join(format!("{name}.look"))].into_iter().find(|p| p.is_file());
+    let mut l = match file {
+        Some(p) => {
+            let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;
+            fd_shade::Look::parse(&text).map_err(|e| format!("{}: {e}", p.display()))?
+        }
+        None => fd_shade::Look::builtin(name).ok_or_else(|| {
+            let b: Vec<&str> = fd_shade::BUILTIN.iter().map(|(n, _)| *n).collect();
+            format!("--preset {name:?}: no such file, no looks/{name}.look, and not a built-in ({})", b.join(", "))
+        })?,
+    };
+    let num = |k: &str| -> Result<Option<f64>, String> {
+        a.str(k).map(|v| v.parse::<f64>().ok().filter(|x| x.is_finite()).ok_or_else(|| format!("--{k}: bad number {v:?}"))).transpose()
+    };
+    if let Some(v) = num("density")? {
+        l.density = v;
+    }
+    for (k, slot) in [("terrace", &mut l.terrace), ("slope", &mut l.slope), ("light", &mut l.light), ("lines", &mut l.lines), ("line-px", &mut l.line_px)] {
+        if let Some(v) = num(k)? {
+            *slot = v as f32;
+        }
+    }
+    // Re-validate the overridden knobs through the parser.
+    fd_shade::Look::parse(&l.to_text())
+}
+
+/// Passes for a comma-separated look list; `studio` is built from [`studio_look`], whose
+/// animation defaults fill in `base` where the animation flags are absent.
+pub(crate) fn passes(names: &str, a: &Args, base: &mut Appearance) -> Result<Vec<NamedPass>, String> {
+    names
+        .split(',')
+        .map(|n| {
+            let pass: Box<dyn fd_shade::Pass> = if n == "studio" {
+                let l = studio_look(a)?;
+                for (k, slot, v) in [("flow", &mut base.flow, l.flow), ("breathe", &mut base.breathe, l.breathe), ("brate", &mut base.brate, l.brate), ("drift", &mut base.drift, l.drift)] {
+                    if a.str(k).is_none() {
+                        *slot = v;
+                    }
+                }
+                Box::new(fd_shade::Studio(l))
+            } else {
+                fd_shade::by_name(n).ok_or_else(|| format!("unknown look {n:?}; known: {}", fd_shade::NAMES.join(", ")))?
+            };
+            Ok((n.to_string(), pass))
+        })
+        .collect()
 }
 
 /// Legacy form `fd shade <look> in.fds out.png`: one look, one image.

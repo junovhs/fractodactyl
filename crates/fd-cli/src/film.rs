@@ -5,8 +5,9 @@
 //! shades it in memory with the chosen look at film time `frame / fps`, and pipes raw
 //! RGB straight into ffmpeg: no `.fds` or PNG files touch the disk.
 //!
-//! Film defaults differ from `fd shade`'s on purpose: `--ss 2`, `--aa on` and
-//! `--unresolved interior`, because a film should not shimmer or show magenta.
+//! Film defaults differ from `fd shade`'s on purpose: `--look studio --preset ice`,
+//! `--ss 2`, `--aa on` and `--unresolved interior`, because a film should look its best,
+//! not shimmer and not show magenta.
 //! Progress (with an ETA) goes to stderr; one fd-film/1 JSON report goes to stdout at
 //! the end. `--compare-every K` also times fd's per-frame BLA render on every K-th
 //! zone frame, so the report can state the speed-up against it.
@@ -14,7 +15,7 @@ use crate::args::Args;
 use crate::orbit::EPS;
 use crate::path::sig6;
 use crate::render::{columns, size};
-use crate::shade::{appearance, APPEARANCE_FLAGS};
+use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
 use fd_kernel::{bla_dc_max, render_bla, render_with, render_zone, zone_covers, Bla, Params, Zone};
 use fd_samples::{Header, Samples, View};
 use fd_shade::Appearance;
@@ -25,7 +26,7 @@ use std::time::Instant;
 const USAGE: &str = "usage: fd film RE IM --to WIDTH --mp4 FILE [--from W0 (4)] [--fps F (60)] \
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0)] [--ease on|off (off)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
-[--look L (umber)] [--crf N (16)] [--preset P (slow)] [--compare-every K (0)] \
+[--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--compare-every K (0)] \
 [--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior]";
 
 /// Which kernel rendered a frame.
@@ -39,9 +40,10 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "preset", "compare-every", "frames",
+        "x264", "compare-every", "frames",
     ];
     known.extend(APPEARANCE_FLAGS);
+    known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
     let [re, im] = a.positional.as_slice() else { return Err(USAGE.into()) };
     let mp4 = a.need("mp4")?;
@@ -69,9 +71,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         threads: a.num("threads", std::thread::available_parallelism().map_or(1, |n| n.get()))?,
         tier: None,
     };
-    let look_name = a.str("look").unwrap_or("umber");
-    let look = fd_shade::by_name(look_name).ok_or_else(|| format!("unknown look {look_name:?}; known: {}", fd_shade::NAMES.join(", ")))?;
+    let look_name = a.str("look").unwrap_or("studio");
     let mut base = appearance(&a)?;
+    let look = match passes(look_name, &a, &mut base)?.pop() {
+        Some((_, p)) if !look_name.contains(',') => p,
+        _ => return Err("fd film takes one --look".into()),
+    };
     base.aa = a.str("aa").is_none_or(|v| v == "on");
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     let zone = a.str("zone").map(Zone::load).transpose()?;
@@ -89,12 +94,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
     };
     let crf: u32 = a.num("crf", 16)?;
-    let preset = a.str("preset").unwrap_or("slow");
+    let preset = a.str("x264").unwrap_or("slow");
 
     eprintln!(
-        "fd film: {} frames ({:.1} s at {fps} fps), {w}x{h} ss {ss}, look {look_name}, zone {}",
+        "fd film: {} frames ({:.1} s at {fps} fps), {w}x{h} ss {ss}, look {look_name}{}, zone {}",
         to - from,
         (to - from) as f64 / fps,
+        if look_name == "studio" { format!(" preset {}", a.str("preset").unwrap_or("ice")) } else { String::new() },
         zone.as_ref().map_or("none".to_string(), |z| format!("P={} within {:e}", z.period, z.max_dc))
     );
     let mut enc = Command::new("ffmpeg")
@@ -283,7 +289,7 @@ mod tests {
         };
         let deep = View { center_re: RE.into(), center_im: IM.into(), width: "1e-40".into(), rotation: 0.4 };
         let shallow = View { width: "1e-20".into(), ..deep.clone() };
-        let look = fd_shade::by_name("umber").unwrap();
+        let look = fd_shade::by_name("studio").unwrap();
         let film = Appearance { time: 1.5, flow: 0.1, aa: true, unresolved_interior: true, ..Appearance::STILL };
         for (v, want) in [(&deep, Used::Zone), (&shallow, Used::Bla)] {
             let (h, s, used) = render_frame(v, &p, Some(&zone)).unwrap();

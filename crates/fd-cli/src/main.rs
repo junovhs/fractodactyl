@@ -29,9 +29,11 @@ usage:
             [--zone FILE]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
-  fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
+  fd shade IN.fds|DIR [--look umber,palette,relief,studio] -o OUTDIR
            [--time T] [--fps F] [--flow C/S] [--breathe A] [--brate HZ] [--drift C/S]
            [--aa on|off] [--unresolved mark|interior]
+           [--preset NAME|FILE] [--density D] [--terrace T] [--slope S] [--light DEG]
+           [--lines L] [--line-px W]   (studio look: looks/NAME.look or a built-in)
   fd shade <umber|palette|relief> in.fds out.png
   fd info in.fds
   fd addr locate --re X --im Y --level L
@@ -69,7 +71,7 @@ usage:
   fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]
   fd film RE IM --to WIDTH --mp4 FILE [--from W0] [--fps F] [--seconds S | --rate DEC/S]
           [--twist TURNS] [--ease on|off] [--size WxH] [--ss N] [--iter N] [--zone FILE]
-          [--look L] [--crf N] [--preset P] [--compare-every K] [--frames A..B]
+          [--look L] [--preset LOOK] [look knobs] [--crf N] [--x264 P] [--compare-every K] [--frames A..B]
           [appearance flags as fd shade; film defaults --aa on --unresolved interior]
   fd compile PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
              [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
