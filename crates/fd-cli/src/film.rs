@@ -23,7 +23,7 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd film RE IM --to WIDTH --mp4 FILE [--from W0 (4)] [--fps F (60)] \
+const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0)] [--ease on|off (off)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
@@ -40,15 +40,21 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "x264", "chroma", "compare-every", "frames",
+        "x264", "chroma", "compare-every", "frames", "place",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
-    let [re, im] = a.positional.as_slice() else { return Err(USAGE.into()) };
+    // `--place NAME` (EXPL-08): a place saved by fd explore gives RE IM and the default --to.
+    let place = a.str("place").map(crate::place::load).transpose()?;
+    let (re, im, to) = match (&place, a.positional.as_slice()) {
+        (Some(p), []) => (&p.re, &p.im, a.str("to").unwrap_or(&p.width)),
+        (None, [re, im]) => (re, im, a.need("to")?),
+        _ => return Err(USAGE.into()),
+    };
     let mp4 = a.need("mp4")?;
     let fps: f64 = a.num("fps", 60.0)?;
-    let (w0, w1): (f64, f64) = (a.num("from", 4.0)?, a.need("to")?.parse().map_err(|_| "--to: bad number")?);
+    let (w0, w1): (f64, f64) = (a.num("from", 4.0)?, to.parse().ok().filter(|w: &f64| *w > 0.0).ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?);
     let seconds = match a.str("seconds") {
         Some(_) => a.num("seconds", 0.0)?,
         None => (w0 / w1).log10().abs() / a.num("rate", 0.15)?,

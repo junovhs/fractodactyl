@@ -14,6 +14,8 @@
 //! (validated by `fd_shade::Look::parse`), so `fd film --preset NAME` renders it.
 //! `raw=3` (EXPL-07) is the same per-sample data from the fast navigation kernel, for a
 //! studio preset as the live look while navigating.
+//! Places (EXPL-08): `GET /places` lists `places/*.place` as tab-separated
+//! `name re im width iter` lines, `POST /place?name=` saves one, for `fd film --place NAME`.
 //! `--capture FILE` (tests): the page in `?test` mode posts its look-mode pixels to
 //! `POST /capture`, written to FILE, and the served samples go to FILE.fds.
 use crate::args::Args;
@@ -88,6 +90,7 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
         std::io::Read::read_exact(&mut reader, &mut body)?;
         let r = match path {
             "/look" => save_look(query, &body),
+            "/place" => save_place(query, &body),
             "/capture" => capture(server, &body),
             _ => Err("not found".into()),
         };
@@ -102,6 +105,10 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
             Ok(text) => respond(&mut stream, "200 OK", "text/plain; charset=utf-8", &[], text.as_bytes()),
             Err(e) => respond(&mut stream, "404 Not Found", "text/plain", &[], e.as_bytes()),
         },
+        "/places" => {
+            let rows: Vec<String> = crate::place::list().into_iter().map(|(n, p)| format!("{n}\t{}\t{}\t{}\t{}", p.re, p.im, p.width, p.iter)).collect();
+            respond(&mut stream, "200 OK", "text/plain; charset=utf-8", &[], rows.join("\n").as_bytes())
+        }
         "/" => respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], PAGE.as_bytes()),
         "/render" => match render(query, server) {
             Ok(Some((w, h, info, rgb))) => {
@@ -291,6 +298,13 @@ fn save_look(query: &str, body: &[u8]) -> Result<String, String> {
     let path = dir.join(format!("{n}.look"));
     std::fs::write(&path, look.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(format!("saved {}", path.canonicalize().unwrap_or(path).display()))
+}
+
+/// Validate and write `places/NAME.place` (EXPL-08).
+fn save_place(query: &str, body: &[u8]) -> Result<String, String> {
+    let n = name_of(query)?;
+    let place = crate::place::Place::parse(std::str::from_utf8(body).map_err(|_| "place is not UTF-8")?)?;
+    Ok(format!("saved {}", crate::place::save(n, &place)?))
 }
 
 /// Test hook: write the page's look-mode pixels (RGBA8, bottom-up rows) to `--capture`.

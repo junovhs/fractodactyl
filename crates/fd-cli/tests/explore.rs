@@ -22,11 +22,22 @@ fn get(port: u16, path: &str) -> (String, Vec<u8>) {
     (String::from_utf8_lossy(&all[..at]).into_owned(), all[at..].to_vec())
 }
 
+fn post(port: u16, path: &str, body: &str) -> String {
+    let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    write!(s, "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut all = String::new();
+    s.read_to_string(&mut all).unwrap();
+    all
+}
+
 #[test]
 fn serves_page_and_renders() {
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let places = std::env::temp_dir().join(format!("fd-explore-places-{port}"));
+    let _ = std::fs::remove_dir_all(&places);
     let child = Command::new(env!("CARGO_BIN_EXE_fd"))
         .args(["explore", "--port", &port.to_string(), "--threads", "2"])
+        .env("FD_PLACES", &places)
         .stdout(Stdio::null())
         .spawn()
         .unwrap();
@@ -79,4 +90,14 @@ fn serves_page_and_renders() {
 
     let (head, _) = get(port, "/render?re=x&im=0&width=1&w=8&h=8&ss=1&iter=100&gen=7");
     assert!(head.starts_with("HTTP/1.1 400"), "{head}");
+
+    // EXPL-08: save a place (into $FD_PLACES), list it, refuse a bad one.
+    let place = "re -0.75\nim 0.1\nwidth 1.5e-40\niter 30000\n";
+    let head = post(port, "/place?name=spot-1", place);
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    let (head, body) = get(port, "/places");
+    assert!(head.starts_with("HTTP/1.1 200"), "{head}");
+    assert_eq!(String::from_utf8_lossy(&body), "spot-1\t-0.75\t0.1\t1.5e-40\t30000");
+    assert!(post(port, "/place?name=spot-2", "re 1x\nim 0\nwidth 1").starts_with("HTTP/1.1 400"));
+    assert!(post(port, "/place?name=../evil", place).starts_with("HTTP/1.1 400"));
 }

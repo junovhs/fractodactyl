@@ -13,12 +13,21 @@
   #hud { position: fixed; left: 12px; top: 12px; padding: 8px 10px; background: var(--panel); border-radius: 6px;
     pointer-events: none; white-space: pre; }
   #hud b { color: var(--accent); font-weight: normal; }
-  #presets { position: fixed; right: 12px; top: 12px; width: 230px; padding: 6px; background: var(--panel); border-radius: 6px; }
-  #presets button { display: flex; justify-content: space-between; width: 100%; margin: 2px 0; padding: 5px 8px; border: 0;
+  #presets { position: fixed; right: 12px; top: 12px; width: 250px; padding: 6px; background: var(--panel); border-radius: 6px;
+    max-height: calc(100vh - 330px); overflow-y: auto; }
+  #presets button { display: flex; justify-content: space-between; width: 100%; margin: 1px 0; padding: 4px 8px; border: 0;
     border-radius: 4px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   #presets button:hover { background: rgba(255, 255, 255, 0.1); }
   #presets button span { color: var(--dim); }
   #presets .title { color: var(--accent); margin: 2px 8px 4px; }
+  #presets .sec { color: var(--accent); margin: 8px 8px 2px; font-size: 12px; }
+  #goto { padding: 0 8px 4px; }
+  #goto label { display: flex; align-items: center; gap: 6px; margin: 3px 0; color: var(--dim); }
+  #goto input { flex: 1; min-width: 0; background: #222; color: var(--ink); border: 0; border-radius: 4px; font: inherit; padding: 3px 6px; }
+  #goto .row { display: flex; gap: 6px; margin: 4px 0; }
+  #goto .row button { width: auto; flex: 1; justify-content: center; background: #333; margin: 0; }
+  #goto .row button:hover { background: #444; }
+  #pstatus { color: var(--dim); white-space: pre-wrap; word-break: break-all; font-size: 12px; }
   #help { position: fixed; left: 12px; bottom: 12px; padding: 6px 10px; background: var(--panel); border-radius: 6px; color: var(--dim); }
   #look { position: fixed; right: 12px; bottom: 12px; width: 240px; padding: 8px 10px; background: var(--panel); border-radius: 6px; }
   #look label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; color: var(--dim); gap: 8px; }
@@ -48,7 +57,19 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"></div>
-<div id="presets"><div class="title">places</div></div>
+<div id="presets"><div class="title">places</div>
+  <div id="placelist"></div>
+  <div id="savedlist"></div>
+  <div class="sec">go to coordinates</div>
+  <div id="goto">
+    <label>re <input id="pre" placeholder="-0.743643887" spellcheck="false"></label>
+    <label>im <input id="pim" placeholder="0.131825904" spellcheck="false"></label>
+    <label>width <input id="pw" placeholder="1e-12" spellcheck="false"></label>
+    <div class="row"><button id="pcur" title="fill with the current view">current</button><button id="pgo">go</button></div>
+    <label><input id="pname" placeholder="name" spellcheck="false"><button id="psave" style="width:auto; background:#333">save place</button></label>
+    <div id="pstatus"></div>
+  </div>
+</div>
 <div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: places · L: tune studio look · space: pause flow · R: reset look · H: hide panels</div>
 <div id="look">
   <div class="title">look (live, no re-render)</div>
@@ -423,13 +444,60 @@ canvas.addEventListener("pointermove", e => {
 });
 canvas.addEventListener("pointerup", () => { drag = null; canvas.classList.remove("drag"); });
 
-const list = document.getElementById("presets");
+const list = document.getElementById("placelist");
 PRESETS.forEach((p, n) => {
   const b = document.createElement("button");
   b.innerHTML = `${(n + 1) % 10}  ${p.name} <span>${p.w}</span>`;
   b.onclick = () => jump(p);
   list.appendChild(b);
 });
+
+// EXPL-08: saved places (places/*.place via /places), typed coordinates, and saving the
+// current view so `fd film --place NAME` can zoom to it.
+const pre = document.getElementById("pre"), pim = document.getElementById("pim"), pw = document.getElementById("pw");
+const pstatus = document.getElementById("pstatus");
+const DEC = /^[+-]?\d+(\.\d+)?$/, WID = /^\d+(\.\d+)?([eE][+-]?\d+)?$/;
+const normDec = v => v.trim().replace(/^([+-]?)\./, "$10.").replace(/\.$/, "");
+const shortWidth = l10w => widthStr(l10w).replace(/\.?0+e/, "e");
+async function listPlaces() {
+  const box = document.getElementById("savedlist"); box.innerHTML = "";
+  const rows = (await (await fetch("/places")).text()).split("\n").filter(Boolean).map(r => r.split("\t"));
+  if (!rows.length) return;
+  const t = document.createElement("div"); t.className = "sec"; t.textContent = "saved"; box.append(t);
+  for (const [name, re, im, w, iter] of rows) {
+    const b = document.createElement("button");
+    b.innerHTML = `${name} <span>${w}</span>`;
+    b.title = `fd film --place ${name}`;
+    b.onclick = () => { jump({ name, re, im, w, iter: +iter }); document.getElementById("pname").value = name; };
+    box.append(b);
+  }
+}
+function goTo() {
+  const re = normDec(pre.value), im = normDec(pim.value), w = pw.value.trim();
+  if (!DEC.test(re) || !DEC.test(im)) { pstatus.textContent = "re and im must be decimals, e.g. -0.7436438870371587"; return; }
+  if (!WID.test(w) || !(log10Dec(w) > -1e9)) { pstatus.textContent = "width must be a positive number, e.g. 1.5e-12"; return; }
+  pstatus.textContent = "";
+  jump({ name: "typed", re, im, w, iter: 5000 });
+}
+function fillCurrent() {
+  pre.value = toDec(view.re, view.D); pim.value = toDec(view.im, view.D); pw.value = shortWidth(view.l10w);
+}
+document.getElementById("pgo").onclick = goTo;
+document.getElementById("pcur").onclick = fillCurrent;
+for (const el of [pre, pim, pw]) el.addEventListener("keydown", e => { if (e.key === "Enter") goTo(); });
+// Pasting "RE IM WIDTH" (spaces, commas or newlines) into any field fills all three.
+for (const el of [pre, pim, pw]) el.addEventListener("paste", e => {
+  const parts = (e.clipboardData.getData("text") || "").trim().split(/[\s,]+/);
+  if (parts.length >= 3) { e.preventDefault(); [pre.value, pim.value, pw.value] = parts; }
+});
+document.getElementById("psave").onclick = async () => {
+  const name = document.getElementById("pname").value.trim();
+  const text = `# fractadactyl place (saved by fd explore)\nre ${toDec(view.re, view.D)}\nim ${toDec(view.im, view.D)}\n` +
+    `width ${shortWidth(view.l10w)}\niter ${iterFor(view.l10w)}\n`;
+  const r = await fetch("/place?name=" + encodeURIComponent(name), { method: "POST", body: text });
+  pstatus.textContent = (await r.text()).replace(/ \S*\/places\//, " places/") + (r.ok ? `\nfilm it: fd film --place ${name} --mp4 ${name}.mp4` : "");
+  if (r.ok) listPlaces();
+};
 const sel = document.getElementById("pal");
 Object.keys(PALETTES).forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); });
 function syncControls() {
@@ -455,7 +523,7 @@ sel.onchange = () => {
 for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
 syncControls();
 addEventListener("keydown", e => {
-  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" || e.target.tagName === "BUTTON" && e.key === "Enter") return;
   if (e.key === "l" || e.key === "L" || (e.key === "Escape" && studio.on)) { toggleStudio(); return; }
   if (studio.on) { if (e.key === " ") { studio.paused = !studio.paused; e.preventDefault(); } return; }
   const n = "1234567890".indexOf(e.key);
@@ -477,6 +545,7 @@ if (TEST.has("test")) {
 } else {
   resize();
   jump(PRESETS[0]);
+  listPlaces().catch(() => {});
 }
 requestAnimationFrame(draw);
 </script>

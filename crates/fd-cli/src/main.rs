@@ -12,6 +12,7 @@ mod manifest;
 mod orbit;
 mod film;
 mod path;
+mod place;
 mod plan;
 mod play;
 mod render;
