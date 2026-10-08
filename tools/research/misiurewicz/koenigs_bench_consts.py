@@ -23,6 +23,7 @@ Z = [kt.C]
 for _ in range(23): Z.append(Z[-1]**2 + kt.C)
 c = lambda z: f"{float(mp.re(z))!r} {float(mp.im(z))!r}"
 lines = [f"# koenigs_bench constants: degree {deg} guard {guard} terms {terms} r0 {r0}",
+         f"c_exact {mp.nstr(mp.re(kt.C), kt.DPS - 2)} {mp.nstr(mp.im(kt.C), kt.DPS - 2)}",
          f"c {c(kt.C)}", f"period {kt.P}", f"scale {float(rt.SCALE)!r}", f"guard {float(guard)!r}",
          f"r0 {float(r0)!r}", f"bias {c(rt.decode(bias))}", f"alpha {c(A)}", f"rho {c(RHO)}",
          f"z24_minus_alpha {c(Z[23] - A)}"]

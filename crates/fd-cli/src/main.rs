@@ -25,6 +25,7 @@ usage:
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID] -o out.fds
             [--store DIR --bla ID]
             [--refine BLOCK_PX [--max-px E]]
+            [--zone FILE]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
   fd shade IN.fds|DIR [--look umber,palette,relief] -o OUTDIR
@@ -59,7 +60,7 @@ usage:
               [--policy slack|edf|first-use] [--bla frame|group|none] [--slab N]
               [--on-miss fail|report]
   fd control PATH [--size WxH] [--ss N] [--iter N] [--columns C] [--threads N]
-             [--kernel K] [--bla none|per-frame] [--runs N] [-o DIR]
+             [--kernel K] [--bla none|per-frame] [--zone FILE] [--runs N] [-o DIR]
              [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd compare A_DIR B_DIR [--px P] [--frames A..B]
   fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]

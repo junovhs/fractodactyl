@@ -12,22 +12,28 @@
 //! level up to the first with no valid block), inside the frame's clock, then renders
 //! with it; a table with no valid block is skipped as `fd play` skips one. Nothing is
 //! kept for the next frame.
+//!
+//! `--zone FILE` (KERN-01): frames the zone covers (every sample within its `max_dc` of
+//! the nucleus) render with the minibrot-band fast path (`fd_kernel::render_zone`),
+//! inside the frame's clock; every other frame renders as without it (with `--bla
+//! per-frame` if given). Each frame's record says which (`"zone"`), the totals count
+//! the zone frames and their seconds.
 use crate::args::Args;
 use crate::bench::{measure, peak_rss, q, reset_peak_rss, run_oracle, sample_bytes, Frame};
 use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
-use fd_kernel::{bla_dc_max, reference_bits, render_bla, render_with, Bla, BlaStats, Params};
+use fd_kernel::{bla_dc_max, reference_bits, render_bla, render_with, render_zone, zone_covers, Bla, BlaStats, Params, Zone, ZoneStats};
 use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
+const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--zone FILE] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation"];
     let known: Vec<&str> =
-        FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["runs", "oracle", "every", "k", "python", "bla"]).collect();
+        FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["runs", "oracle", "every", "k", "python", "bla", "zone"]).collect();
     let a = Args::parse(argv, &known)?;
     let [file] = a.positional.as_slice() else { return Err(USAGE.into()) };
     let p = params(&a)?;
@@ -52,6 +58,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let Some(d) = dir {
         std::fs::create_dir_all(d).map_err(|e| format!("{d}: {e}"))?;
     }
+    let zone = a.str("zone").map(Zone::load).transpose()?;
     let frames = read_path(file)?;
 
     // From here on a failure is a runtime one (exit 1), reported with the totals so far.
@@ -59,7 +66,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut error = None;
     for (f, (line, view)) in frames.iter().enumerate() {
         let check = oracle.filter(|_| f.is_multiple_of(every));
-        if let Err(e) = frame(&a, &p, runs, per_frame, dir, check, f, *line, view, &mut t) {
+        if let Err(e) = frame(&a, &p, runs, per_frame, zone.as_ref(), dir, check, f, *line, view, &mut t) {
             error = Some(format!("frame {f} (line {line}): {e}"));
             break;
         }
@@ -81,6 +88,7 @@ fn frame(
     p: &Params,
     runs: usize,
     per_frame: bool,
+    zone: Option<&Zone>,
     dir: Option<&str>,
     oracle: Option<&str>,
     f: usize,
@@ -88,11 +96,20 @@ fn frame(
     view: &View,
     t: &mut Totals,
 ) -> Result<(), String> {
-    let (frame, own) = if per_frame {
-        let (fr, own) = measure_per_frame_bla(view, p, runs)?;
-        (fr, Some(own))
-    } else {
-        (measure(view, p, runs)?, None)
+    let covered = match zone {
+        Some(z) => zone_covers(view, p, z)?,
+        None => false,
+    };
+    let (frame, own, zst) = match zone {
+        Some(z) if covered => {
+            let (fr, st) = measure_zone(view, p, runs, z)?;
+            (fr, None, Some(st))
+        }
+        _ if per_frame => {
+            let (fr, own) = measure_per_frame_bla(view, p, runs)?;
+            (fr, Some(own), None)
+        }
+        _ => (measure(view, p, runs)?, None, None),
     };
     let out = dir.map(|d| format!("{}/frame-{f:05}.fds", d.trim_end_matches('/')));
     if let Some(out) = &out {
@@ -107,6 +124,13 @@ fn frame(
     let _ = write!(j, ",\"deterministic\":{det},\"fds\":{}", out.as_deref().map_or("null".into(), q));
     if let Some(o) = &own {
         o.record(&mut j, frame.stats.iterations);
+    }
+    if zone.is_some() {
+        let _ = write!(j, ",\"zone\":{{\"used\":{covered}");
+        if let Some(z) = zst {
+            let _ = write!(j, ",\"returns\":{},\"jumps\":{},\"patches\":{},\"plain_steps\":{}", z.returns, z.jumps, z.patches, z.plain);
+        }
+        j.push('}');
     }
     let mut ok = !checked || frame.deterministic;
     match (oracle, &out) {
@@ -126,6 +150,10 @@ fn frame(
 
     t.ok &= ok;
     t.frames += 1;
+    if covered {
+        t.zone_frames += 1;
+        t.zone_seconds += frame.times[0].0;
+    }
     t.cold += frame.times[0].0;
     t.reference += frame.times[0].1;
     t.iterations += frame.stats.iterations;
@@ -299,6 +327,48 @@ fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Resu
     Ok((frame, own))
 }
 
+/// [`measure`] for a frame the zone covers: each run renders it with the zone fast
+/// path inside the run's clock (the zone's constants are loaded once, before the clock,
+/// as `--bla ID` tables are).
+fn measure_zone<'a>(view: &'a View, p: &'a Params, runs: usize, zone: &Zone) -> Result<(Frame<'a>, ZoneStats), String> {
+    let mut first: Option<(Frame, ZoneStats)> = None;
+    let mut times = Vec::with_capacity(runs);
+    for _ in 0..runs {
+        let reset = reset_peak_rss();
+        let t = Instant::now();
+        let (h, s, st, zst) = render_zone(view, p, zone)?;
+        times.push((t.elapsed().as_secs_f64(), 0.0));
+        let mut bytes = Vec::new();
+        write(&mut bytes, &h, &s).map_err(|e| e.to_string())?;
+        match &mut first {
+            None => {
+                let count = |k: Kind| s.class.iter().filter(|c| c.kind() == Some(k)).count();
+                let fr = Frame {
+                    view,
+                    p,
+                    kernel: h.kernel,
+                    stats: st,
+                    bytes,
+                    times: Vec::new(),
+                    deterministic: true,
+                    samples: s.class.len(),
+                    sample_bytes: sample_bytes(&s),
+                    classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
+                    peak_rss: peak_rss(),
+                    peak_rss_scope: if reset { "run" } else { "process" },
+                    atlas: None,
+                    own_bla: None,
+                };
+                first = Some((fr, zst));
+            }
+            Some((f, _)) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
+        }
+    }
+    let (mut frame, zst) = first.expect("runs >= 1");
+    frame.times = times;
+    Ok((frame, zst))
+}
+
 /// The totals record; quantities over zero frames are `null`.
 fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&str>) -> String {
     let n = t.frames;
@@ -358,6 +428,7 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
             t.shift_px_max
         );
     }
+    let _ = write!(j, ",\"zone\":{{\"frames\":{},\"seconds\":{}}}", t.zone_frames, t.zone_seconds);
     let _ = write!(
         j,
         ",\"memory\":{{\"peak_rss_bytes\":{},\"sample_bytes\":{},\"device\":\"cpu\",\"peak_vram_bytes\":0}}",
@@ -414,6 +485,9 @@ struct Totals {
     skipped: u64,
     fallback_samples: u64,
     shift_px_max: f64,
+    /// `--zone` only: frames rendered by the zone fast path and their run-1 seconds.
+    zone_frames: usize,
+    zone_seconds: f64,
 }
 
 impl Default for Totals {
@@ -445,6 +519,8 @@ impl Default for Totals {
             skipped: 0,
             fallback_samples: 0,
             shift_px_max: 0.0,
+            zone_frames: 0,
+            zone_seconds: 0.0,
         }
     }
 }

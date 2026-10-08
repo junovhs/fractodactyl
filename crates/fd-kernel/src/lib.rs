@@ -14,7 +14,8 @@
 //! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). `render_bla` skips runs
 //! of steps with a stored BLA table (ACC-01, f64/fx tiers, `bla.rs`). `render_refined`
 //! skips supersamples in blocks the screen-space error rule accepts from one sample per
-//! pixel (LOD-02).
+//! pixel (LOD-02). `render_zone` is the minibrot-band fast path for views inside a
+//! zone (KERN-01, `zone.rs`).
 mod bla;
 mod grid;
 mod interior;
@@ -24,9 +25,11 @@ mod sample;
 mod scaled;
 mod store;
 mod view;
+mod zone;
 
 pub use bla::{Bla, Block, EPS_MAX as BLA_EPS_MAX};
 pub use grid::{bla_dc_max, reference, reference_bits, render, render_bla, render_stats, render_with, BlaStats, Params, Stats};
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};
+pub use zone::{render_zone, zone_covers, Zone, ZoneStats};

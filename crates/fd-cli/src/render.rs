@@ -1,6 +1,6 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render_bla, render_refined, render_with, BlaStats, Params, Refinement, Stats, Tier, FINAL};
+use fd_kernel::{render_bla, render_refined, render_with, render_zone, zone_covers, BlaStats, Params, Refinement, Stats, Tier, Zone, FINAL};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
@@ -9,7 +9,7 @@ use std::time::Instant;
 pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "bla", "refine", "max-px"]).collect();
+    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "bla", "refine", "max-px", "zone"]).collect();
     let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
@@ -32,12 +32,30 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         None => None,
     };
+    // `--zone FILE` (KERN-01): the minibrot-band fast path when the zone covers the view,
+    // otherwise the perturbation kernel as without it.
+    let zone = match a.str("zone") {
+        Some(_) if a.str("bla").is_some() || a.str("orbit").is_some() || a.str("refine").is_some() => {
+            return Err("--zone does not take --bla, --orbit or --refine".into())
+        }
+        Some(f) => {
+            let z = Zone::load(f)?;
+            if zone_covers(&view, &p, &z)? {
+                Some(z)
+            } else {
+                eprintln!("fd: the zone does not cover this view; rendering with the perturbation kernel");
+                None
+            }
+        }
+        None => None,
+    };
     let load_seconds = load.elapsed().as_secs_f64();
     let threads = p.threads;
     let t = Instant::now();
     let mut bla = None;
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
     let (header, samples, refined) = match (a.str("refine"), table) {
+        _ if zone.is_some() => render_zone(&view, &p, zone.as_ref().unwrap()).map(|(h, s, _, _)| (h, s, None))?,
         (None, Some((orbit, table))) => {
             let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;
             bla = Some((st, b));

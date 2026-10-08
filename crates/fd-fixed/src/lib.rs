@@ -55,6 +55,14 @@ impl Fixed {
     pub fn to_f64(&self) -> f64 {
         to_f64(self.neg, &self.mag)
     }
+
+    /// `self - o`, exact; both must have the same limb count.
+    pub fn sub(&self, o: &Fixed) -> Fixed {
+        assert_eq!(self.mag.len(), o.mag.len(), "Fixed::sub: limb counts differ");
+        let mut mag = vec![0; self.mag.len()];
+        let neg = limbs::add_signed(self.neg, &self.mag, !o.neg, &o.mag, &mut mag);
+        Fixed { neg, mag }
+    }
 }
 
 /// `frexp` on raw sign and limbs (lets hot loops convert without building a `Fixed`).
