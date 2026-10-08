@@ -89,9 +89,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 }
 
 /// Flags of [`appearance`].
-pub(crate) const APPEARANCE_FLAGS: [&str; 6] = ["flow", "breathe", "brate", "drift", "aa", "unresolved"];
+pub(crate) const APPEARANCE_FLAGS: [&str; 7] = ["flow", "breathe", "brate", "drift", "aa", "unresolved", "dither"];
 pub(crate) const APPEARANCE_USAGE: &str =
-    "[--flow C/S] [--breathe A] [--brate HZ] [--drift C/S] [--aa on|off] [--unresolved mark|interior]";
+    "[--flow C/S] [--breathe A] [--brate HZ] [--drift C/S] [--aa on|off] [--unresolved mark|interior] [--dither on|off]";
 
 /// The appearance named by the flags, at time 0 (callers set the time per frame).
 pub(crate) fn appearance(a: &Args) -> Result<Appearance, String> {
@@ -121,6 +121,11 @@ pub(crate) fn appearance(a: &Args) -> Result<Appearance, String> {
         drift: num("drift")?,
         aa,
         unresolved_interior,
+        dither: match a.str("dither").unwrap_or("off") {
+            "on" => true,
+            "off" => false,
+            v => return Err(format!("--dither: expected on or off, got {v:?}")),
+        },
     })
 }
 

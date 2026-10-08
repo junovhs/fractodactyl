@@ -27,7 +27,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior]";
+[--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,6 +121,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     };
     base.aa = a.str("aa").is_none_or(|v| v == "on");
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
+    base.dither = a.str("dither").is_none_or(|v| v == "on");
     let zone = a.str("zone").map(Zone::load).transpose()?;
     let compare_every: usize = a.num("compare-every", 0)?;
     let (from, to) = match a.str("frames") {
@@ -154,7 +155,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     );
     let mut enc = Command::new("ffmpeg")
         .args(["-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &format!("{w}x{h}"), "-r", &fps.to_string()])
-        .args(["-i", "-", "-c:v", "libx264", "-crf", &crf.to_string(), "-preset", preset, "-pix_fmt", pix_fmt, mp4])
+        .args(["-i", "-", "-c:v", "libx264", "-crf", &crf.to_string(), "-preset", preset, "-pix_fmt", pix_fmt])
+        // With dither on, keep it through the encode: grain tuning and dark-biased
+        // adaptive quantisation stop x264 smoothing slow gradients back into rings (FX-04).
+        .args(if base.dither { &["-tune", "grain", "-aq-mode", "3"][..] } else { &[][..] })
+        .arg(mp4)
         .stdin(Stdio::piped())
         .spawn()
         .map_err(|e| format!("ffmpeg: {e} (fd film needs ffmpeg on PATH)"))?;

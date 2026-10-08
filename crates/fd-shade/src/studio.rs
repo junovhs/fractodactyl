@@ -258,7 +258,7 @@ impl Pass for Studio {
         let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
         let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
         let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
-        resolve(h, |i| match s.class[i].kind() {
+        resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 let t = density * nu[i] + phase;
                 let x = (t.rem_euclid(1.0) * n as f64) as f32;

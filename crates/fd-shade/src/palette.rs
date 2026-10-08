@@ -13,7 +13,7 @@ impl Pass for Palette {
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
         let nu = s.nu.as_deref().expect("palette pass needs the Nu column");
         let (bands, phase, hue) = (0.35 * a.density(), a.phase(), a.hue());
-        resolve(h, |i| match s.class[i].kind() {
+        resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 // Cyclic cosine palette over ln(nu): scale-free banding density.
                 let t = bands * nu[i].max(1.0).ln() as f32 + phase;

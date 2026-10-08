@@ -48,12 +48,14 @@ pub struct Appearance {
     pub aa: bool,
     /// Draw unresolved samples as interior instead of marking them.
     pub unresolved_interior: bool,
+    /// Dither the 8-bit output (FX-04) so slow gradients do not band into rings.
+    pub dither: bool,
 }
 
 impl Appearance {
     /// No animation, no anti-aliasing, unresolved samples marked.
     pub const STILL: Appearance =
-        Appearance { time: 0.0, flow: 0.0, breathe: 0.0, brate: 0.0, drift: 0.0, aa: false, unresolved_interior: false };
+        Appearance { time: 0.0, flow: 0.0, breathe: 0.0, brate: 0.0, drift: 0.0, aa: false, unresolved_interior: false, dither: false };
 
     /// Band phase offset at this time, in cycles.
     pub fn phase(&self) -> f32 {

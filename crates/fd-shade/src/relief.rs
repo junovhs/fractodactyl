@@ -20,7 +20,7 @@ impl Pass for Relief {
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
         let de = s.de.as_deref().expect("relief pass needs the De column");
         let nm = s.normal.as_deref().expect("relief pass needs the Normal column");
-        resolve(h, |i| match s.class[i].kind() {
+        resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 let (x, y) = Samples::unit(nm[i]);
                 let k = 1.0 / (1.0 + HEIGHT * HEIGHT).sqrt();
