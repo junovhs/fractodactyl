@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-07, evening)
+# Where We Are (updated 2026-10-08)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -30,46 +30,55 @@ interpolated exit table (PROB-04) stays rejected; the Koenigs jump replaced it. 
 write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`. Conversation context:
 `PHILO-HANDOFF.md`.
 
+## Assessment (2026-10-08): when do films get faster?
+
+- **The fast path is real, but it isn't usable yet.**
+  - It runs 20-54x faster than fd at 1080p and 22-28x faster than fraktaler-3, with
+    0 wrong pixels.
+  - It lives only in `tools/research/.../koenigs_bench`, with per-zone constants from
+    Python, for one hand-found zone, on frames narrower than about 1e-29.
+- **Amdahl.** On the BENC-01 timings (960x540), frames at 1e-29 and deeper are 59% of
+  v0 render time (284 s of 478 s). 20-50x on that band gives **about 2.3x on the whole
+  v0 film**.
+- **It only helps paths aimed at a spiral centre.** v0 skips 89% of the orbit. Random
+  minibrots get almost nothing, and "Eye of the Universe" about 24% (PROB-12 seed tests).
+  Shallow films such as the owner's 4e-3 → 2.5e-5 seahorse zoom get nothing.
+- **Bigger levers:**
+  - **Mid bands (PROB-14):** if the co-moving chart works from about 1e-9 down, the
+    estimate is about 8x on the whole v0 film.
+  - **GPU (BENC-09 → GPU-01):** the only lever that speeds up every frame. The laptop
+    GPU kernel ran about 35x faster than fd.
+- **Parameter-transfer report**
+  (`docs/research/10-8-26/parameter-dependant-transfer-maps-rendering.md`), read
+  2026-10-08:
+  - Keep its parameter-dependent Poincaré chart (λ(c) = 4(c+1) for the 2-cycle;
+    F_c^m(L_c(w)) = L_c(λ(c)^m w)) → PROB-14.
+  - Its Taylor-model remainder r' ≤ 2Br + r² + τ → PROB-13.
+  - Its "direct bivariate transfer patches" amount to higher-order BLA → ACC-03, with
+    modest gains expected.
+
 ## Do next, in order
 
-1. **Done: the cheap loop shortcut works.** PROB-03 killed a fixed map over the
-   too-wide exit schedule. PROB-07 (aead5b7) kept a degree-4 biseries used only within
-   1e-26 of C, followed by a tail at the fixed parameter C: 0 wrong pixels, max
-   2.24e-4 px, 1e-35 to 2e-48. Projected cost: 240-1,080 ops plus one lookup per deep
-   pixel, against about 10,000 with BLA. That is only a projection, on 8 points per
-   depth.
-2. **Done: PROB-04 rejects uniform log-polar nu interpolation.** Tables with
-   11,328 / 180,480 nodes (135,936 / 2,165,760 payload bytes) fail the existing
-   48-point kill gate: max errors 154.7 / 27.0 px, zero class mismatches.
-   Replacing all used nodes with 110-dps truth leaves the failure intact.
-   Warm map+lookup and matched-point BLA timings are recorded in METHOD.md;
-   both correctness-gated scores are 0. No 1,000-point/depth promotion or
-   full-v0 sharing claim. This rejects these configurations, not adaptive tables,
-   resume-state representations or the return decomposition itself.
-3. **Done: PROB-08 timed it for real.** All-double deep pixel vs per-frame BLA, whole
-   480x270 frames, 1e-35 to 2e-48, on GitHub Actions (`gh workflow run
-   koenigs-bench.yml`): **8.1-25x faster, 0 wrong pixels out of 777,600** (max 3.2e-4
-   px), repeated on 4 threads and 1 thread. Valid for frames centred at the zone nucleus
-   with every pixel within 1e-28 of it.
-4. **Next, in this order (all filed):**
-   - **Done: PROB-09.** The tail is not an α dwell. ψ as a series plus a per-zone tail
-     patch atlas: **20-54x vs fd at 1920x1080, 0 wrong of 12.4M pixels** (was 8-25x).
-     Details: `docs/research/10-8-26/misiurewicz-frame-transfer.md` (PROB-09 section).
-   - **PROB-10:** every v0-path frame in the band, at full resolution, every pixel
-     scored, total time, plus the fraction of the whole film.
-   - **KERN-01:** the fast path inside fd render/control/play, so videos benefit.
-     Depends on PROB-10.
-   - **PROB-11** (mid; the owner rates this low): off-centre and shallower frames via a
-     c ≠ C tail correction.
-   - **DEC-17** (proposed, the owner decides): whole-frame every-pixel validation before
-     "keep".
-5. **PROB-05.** Misiurewicz-zone frame transfer prototype: one ring, similarity
-   transforms, spot-check error contract.
-6. **PROB-06.** Nested minibrot chains (real deep zooms) and automatic zone/c0
-   detection.
-7. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
+Earlier steps (PROB-03/04/07/08/09, BENC-04) are done; see the METHOD.md results log.
+
+1. **PROB-10.** Every v0-path frame in the band at full resolution, every pixel scored,
+   total time, and the fraction of the whole film. Runs on GitHub Actions.
+2. **KERN-01.** The PROB-09 pipeline inside `fd render/control/play`. The de/normal
+   columns are required (the owner's relief look needs them). This is the first point
+   where films actually get faster.
+3. **PROB-14.** Co-moving Koenigs chart probe at 1e-9 / 1e-15 / 1e-24: can the fast
+   path cover the mid bands?
+4. **PROB-12.** Structural miner: find zones automatically along any path.
+5. **BENC-09.** Desktop RX 5700 XT run of the float64 GPU kernel. If it wins big,
+   promote GPU-01.
+6. Later: PROB-11 (Rust follow-up of PROB-14 if it keeps), PROB-13 (certification),
+   PROB-06 (nested chains), PROB-05 (frame transfer; demoted to mid, not on the path to
+   usable speed).
+7. Head-to-heads (BENC-05/06/07/08) moved to the plan "Credibility: head-to-heads
+   against rival renderers". They build credibility, not speed.
+8. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
    (deep interior detection), FIX-09 (BLA slower than plain at 1e-14 to 1e-29).
-8. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
+9. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
    (exponential-map strips, prior art: 2-11x) is still worth measuring. RESE-02 is the
    Imagina/NanoMB source read (lower-degree or LA/AT returns).
 
