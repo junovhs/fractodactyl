@@ -130,11 +130,18 @@ pub(crate) type NamedPass = (String, Box<dyn fd_shade::Pass>);
 /// Flags of [`studio_look`].
 pub(crate) const LOOK_FLAGS: [&str; 7] = ["preset", "density", "terrace", "slope", "light", "lines", "line-px"];
 
+/// Saved studio presets: `$FD_LOOKS` if set, else the repo's `looks/` (not the cwd), so
+/// `fd explore` saves and `fd film --preset` finds the same files from anywhere.
+pub(crate) fn looks_dir() -> PathBuf {
+    std::env::var_os("FD_LOOKS").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../looks"))
+}
+
 /// The studio look named by `--preset` (default the built-in `ice`), with knob flags
-/// applied. `NAME` is a file path if one exists, else `looks/NAME.look`, else built-in.
+/// applied. `NAME` is a file path if one exists, else `looks/NAME.look` (see
+/// [`looks_dir`]), else built-in.
 pub(crate) fn studio_look(a: &Args) -> Result<fd_shade::Look, String> {
     let name = a.str("preset").unwrap_or("ice");
-    let file = [std::path::PathBuf::from(name), Path::new("looks").join(format!("{name}.look"))].into_iter().find(|p| p.is_file());
+    let file = [std::path::PathBuf::from(name), looks_dir().join(format!("{name}.look"))].into_iter().find(|p| p.is_file());
     let mut l = match file {
         Some(p) => {
             let text = std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?;

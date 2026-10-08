@@ -1,0 +1,13 @@
+# fractadactyl look
+stops #08152e #0b3d91 #1e7fe0 #7cc4ff #eef6fc #c9c3bc #7d7a78 #2a3140
+interior #05070d
+density 0.0446683592150963
+terrace 0.81
+slope 1.37
+light 318
+lines 0
+line_px 0.5
+flow 0.11
+breathe 0
+brate 0
+drift 0

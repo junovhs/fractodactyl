@@ -225,7 +225,7 @@ fn sample_data(s: &Samples) -> (f64, Vec<u8>) {
 /// Preset names: the built-ins, then `looks/*.look` (sorted).
 fn list_looks() -> Vec<String> {
     let mut names: Vec<String> = fd_shade::BUILTIN.iter().map(|(n, _)| n.to_string()).collect();
-    let mut own: Vec<String> = std::fs::read_dir("looks")
+    let mut own: Vec<String> = std::fs::read_dir(crate::shade::looks_dir())
         .map(|rd| {
             rd.filter_map(|e| e.ok())
                 .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".look")).map(String::from))
@@ -259,7 +259,7 @@ fn name_of(query: &str) -> Result<&str, String> {
 /// `looks/NAME.look` if it exists, else the built-in.
 fn load_look(query: &str) -> Result<String, String> {
     let n = name_of(query)?;
-    match std::fs::read_to_string(format!("looks/{n}.look")) {
+    match std::fs::read_to_string(crate::shade::looks_dir().join(format!("{n}.look"))) {
         Ok(t) => Ok(t),
         Err(_) => fd_shade::BUILTIN.iter().find(|(b, _)| *b == n).map(|(_, t)| t.to_string()).ok_or_else(|| format!("no preset {n:?}")),
     }
@@ -270,10 +270,11 @@ fn save_look(query: &str, body: &[u8]) -> Result<String, String> {
     let n = name_of(query)?;
     let text = std::str::from_utf8(body).map_err(|_| "preset is not UTF-8")?;
     let look = fd_shade::Look::parse(text)?;
-    std::fs::create_dir_all("looks").map_err(|e| format!("looks/: {e}"))?;
-    let path = format!("looks/{n}.look");
-    std::fs::write(&path, look.to_text()).map_err(|e| format!("{path}: {e}"))?;
-    Ok(format!("saved {path}"))
+    let dir = crate::shade::looks_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(format!("{n}.look"));
+    std::fs::write(&path, look.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(format!("saved {}", path.canonicalize().unwrap_or(path).display()))
 }
 
 /// Test hook: write the page's look-mode pixels (RGBA8, bottom-up rows) to `--capture`.

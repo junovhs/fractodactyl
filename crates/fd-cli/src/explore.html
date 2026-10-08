@@ -18,6 +18,7 @@
     border-radius: 4px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
   #presets button:hover { background: rgba(255, 255, 255, 0.1); }
   #presets button span { color: var(--dim); }
+  #presets .title { color: var(--accent); margin: 2px 8px 4px; }
   #help { position: fixed; left: 12px; bottom: 12px; padding: 6px 10px; background: var(--panel); border-radius: 6px; color: var(--dim); }
   #look { position: fixed; right: 12px; bottom: 12px; width: 240px; padding: 8px 10px; background: var(--panel); border-radius: 6px; }
   #look label { display: flex; justify-content: space-between; align-items: center; margin: 3px 0; color: var(--dim); gap: 8px; }
@@ -47,8 +48,8 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"></div>
-<div id="presets"></div>
-<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: presets · L: tune studio look · space: pause flow · R: reset look · H: hide panels</div>
+<div id="presets"><div class="title">places</div></div>
+<div id="help">wheel: zoom at cursor · drag: pan · 1-9, 0: places · L: tune studio look · space: pause flow · R: reset look · H: hide panels</div>
 <div id="look">
   <div class="title">look (live, no re-render)</div>
   <label>palette <select id="pal"></select></label>
@@ -392,7 +393,11 @@ function syncControls() {
   sel.value = look.pal;
   for (const id of KNOBS) document.getElementById(id).value = look[id];
 }
-sel.onchange = () => { look.pal = sel.value; shadeDirty = true; sel.blur(); };
+sel.onchange = () => {
+  // "studio:NAME" entries are saved studio presets (looks/*.look): open the studio look.
+  if (sel.value.startsWith("studio:")) { const n = sel.value.slice(7); sel.value = look.pal; sel.blur(); toggleStudio(n); return; }
+  look.pal = sel.value; shadeDirty = true; sel.blur();
+};
 for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
 syncControls();
 addEventListener("keydown", e => {
@@ -544,6 +549,12 @@ async function loadLook(name) {
 }
 async function listLooks(select) {
   const names = (await (await fetch("/looks")).text()).split("\n").filter(Boolean);
+  // Also offer them in the navigation look panel's palette menu.
+  const pal = document.getElementById("pal");
+  pal.querySelector("optgroup")?.remove();
+  const g = document.createElement("optgroup"); g.label = "studio presets (opens L)";
+  for (const n of names) { const o = document.createElement("option"); o.value = "studio:" + n; o.textContent = n; g.append(o); }
+  pal.append(g); pal.value = look.pal;
   const sel = document.getElementById("spreset"); sel.innerHTML = "";
   for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.append(o); }
   if (select) sel.value = select;
@@ -631,6 +642,7 @@ function studioLoop(now) {
 }
 requestAnimationFrame(studioLoop);
 if (TEST.has("test")) toggleStudio(TEST.get("preset"), +TEST.get("iter"));
+else listLooks().catch(() => {});
 </script>
 </body>
 </html>
