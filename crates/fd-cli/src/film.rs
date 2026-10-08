@@ -24,7 +24,7 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
-[--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0)] [--ease on|off (off)] \
+[--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0)] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior]";
@@ -40,7 +40,7 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "x264", "chroma", "compare-every", "frames", "place",
+        "x264", "chroma", "compare-every", "frames", "place", "ease-in",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -54,17 +54,38 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     };
     let mp4 = a.need("mp4")?;
     let fps: f64 = a.num("fps", 60.0)?;
-    let (w0, w1): (f64, f64) = (a.num("from", 4.0)?, to.parse().ok().filter(|w: &f64| *w > 0.0).ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?);
-    let seconds = match a.str("seconds") {
-        Some(_) => a.num("seconds", 0.0)?,
-        None => (w0 / w1).log10().abs() / a.num("rate", 0.15)?,
-    };
+    let (w0, mut w1): (f64, f64) = (a.num("from", 4.0)?, to.parse().ok().filter(|w: &f64| *w > 0.0).ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?);
     let ease = match a.str("ease").unwrap_or("off") {
         "on" => true,
         "off" => false,
         v => return Err(format!("--ease: expected on or off, got {v:?}")),
     };
-    let views = path(re, im, w0, w1, seconds, fps, a.num("twist", 0.0)?, ease)?;
+    // `--ease-in S` (FILM-02): the zoom speed ramps from zero to --rate over S seconds,
+    // then holds. With --seconds the film stops wherever that leaves it, short of --to.
+    let ease_in: f64 = a.num("ease-in", 0.0)?;
+    if !(ease_in.is_finite() && ease_in >= 0.0) || (ease_in > 0.0 && ease) {
+        return Err("--ease-in: expected seconds >= 0, and not with --ease on".into());
+    }
+    let rate: f64 = a.num("rate", 0.15)?;
+    let seconds = match a.str("seconds") {
+        Some(_) => a.num("seconds", 0.0)?,
+        None if ease_in > 0.0 => {
+            let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
+            if t < ease_in {
+                return Err(format!("--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"));
+            }
+            t
+        }
+        None => (w0 / w1).log10().abs() / rate,
+    };
+    if ease_in > 0.0 && a.str("seconds").is_some() {
+        let end = w0 / 10f64.powf(rate * eased_depth(seconds, ease_in));
+        if end < w1 {
+            return Err(format!("--ease-in: {seconds} s at --rate {rate} would pass --to ({end:e} < {w1:e})"));
+        }
+        w1 = end;
+    }
+    let views = path(re, im, w0, w1, seconds, fps, a.num("twist", 0.0)?, ease, ease_in)?;
     let (w, h) = size(a.str("size").unwrap_or("1920x1080"))?;
     let ss: u32 = a.num("ss", 2)?;
     let p = Params {
@@ -168,10 +189,22 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Decades zoomed by time `t` at unit full speed when the speed follows smoothstep(t/s)
+/// for `t < s` and holds at 1 after (zero speed and acceleration at the start).
+pub(crate) fn eased_depth(t: f64, s: f64) -> f64 {
+    if t >= s {
+        t - s / 2.0
+    } else {
+        let u = t / s;
+        s * (u * u * u - u * u * u * u / 2.0)
+    }
+}
+
 /// The camera path: `n = round(seconds * fps)` frames from width `w0` to `w1`, evenly
-/// spaced in log width (or smoothstep-eased), rotating `twist` full turns over the film.
+/// spaced in log width (or smoothstep-eased, or eased in over `ease_in` seconds and then
+/// constant), rotating `twist` full turns over the film.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64, twist: f64, ease: bool) -> Result<Vec<View>, String> {
+pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64, twist: f64, ease: bool, ease_in: f64) -> Result<Vec<View>, String> {
     fd_fixed::Decimal::parse(re)?;
     fd_fixed::Decimal::parse(im)?;
     if !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0 && twist.is_finite()) {
@@ -186,7 +219,13 @@ pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64,
     Ok((0..n)
         .map(|f| {
             let s = f as f64 / (n - 1) as f64;
-            let e = if ease { s * s * (3.0 - 2.0 * s) } else { s };
+            let e = if ease_in > 0.0 {
+                eased_depth(s * seconds, ease_in) / eased_depth(seconds, ease_in)
+            } else if ease {
+                s * s * (3.0 - 2.0 * s)
+            } else {
+                s
+            };
             View {
                 center_re: re.to_string(),
                 center_im: im.to_string(),
@@ -271,7 +310,7 @@ mod tests {
 
     #[test]
     fn path_runs_from_w0_to_w1_with_twist_and_ease() {
-        let v = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.5, false).unwrap();
+        let v = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.5, false, 0.0).unwrap();
         assert_eq!(v.len(), 60);
         assert_eq!((v[0].width.as_str(), v[59].width.as_str()), ("4e0", "1e-40"));
         assert!((v[59].rotation - std::f64::consts::PI).abs() < 1e-12);
@@ -279,10 +318,28 @@ mod tests {
         let lw = |i: usize| v[i].width.parse::<f64>().unwrap().log10();
         assert!(((lw(1) - lw(0)) - (lw(31) - lw(30))).abs() < 1e-4);
         // Eased: slow start, so the first step is smaller than a middle one.
-        let e = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.0, true).unwrap();
+        let e = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.0, true, 0.0).unwrap();
         let le = |i: usize| e[i].width.parse::<f64>().unwrap().log10();
         assert!((le(1) - le(0)).abs() < 0.2 * (le(31) - le(30)).abs());
-        assert!(path(RE, IM, 4.0, 1e-40, 0.01, 30.0, 0.0, false).is_err());
+        assert!(path(RE, IM, 4.0, 1e-40, 0.01, 30.0, 0.0, false, 0.0).is_err());
+    }
+
+    #[test]
+    fn ease_in_ramps_from_zero_then_holds_full_speed() {
+        // 30 s at 60 fps, 15 s ramp: depth = R * 22.5 decades.
+        let r = 1.25f64.log10();
+        let w1 = 4.0 / 10f64.powf(r * eased_depth(30.0, 15.0));
+        let v = path(RE, IM, 4.0, w1, 30.0, 60.0, 0.0, false, 15.0).unwrap();
+        assert_eq!(v.len(), 1800);
+        let lw = |i: usize| v[i].width.parse::<f64>().unwrap().log10();
+        let step = |i: usize| lw(i) - lw(i + 1);
+        assert!(step(0) < 1e-6, "starts from rest");
+        assert!((1..1799).all(|i| step(i) >= 0.0), "monotone");
+        // Full speed after the ramp: 1.25x per second = r/60 decades per frame (path uses
+        // n-1 intervals over the film, so allow that 1/1800 stretch).
+        assert!((step(1200) / (r / 60.0) - 1.0).abs() < 2e-3);
+        assert!((lw(1799) - w1.log10()).abs() < 1e-5);
+        assert!((eased_depth(15.0, 15.0) - 7.5).abs() < 1e-12);
     }
 
     #[test]
