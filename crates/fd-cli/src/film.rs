@@ -27,7 +27,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+[--frames A..B] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,7 +40,7 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "x264", "chroma", "compare-every", "frames", "place", "ease-in", "spin",
+        "x264", "chroma", "compare-every", "frames", "place", "ease-in", "spin", "keyframes",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -123,6 +123,17 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     base.dither = a.str("dither").is_none_or(|v| v == "on");
     let zone = a.str("zone").map(Zone::load).transpose()?;
+    // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
+    let mut keys = match a.str("keyframes") {
+        None => None,
+        Some(_) => {
+            let m: u32 = a.num("keyframes", 2)?;
+            if !(1..=4).contains(&m) || a.str("ss").is_some() || a.str("twist").is_some() || spin.is_some() {
+                return Err("--keyframes M takes M in 1..=4 and no --ss, --twist or --spin".into());
+            }
+            Some(crate::keyframe::Keyframes::new(re, im, w0, (w, h), m, &p, zone.as_ref()))
+        }
+    };
     let compare_every: usize = a.num("compare-every", 0)?;
     let (from, to) = match a.str("frames") {
         None => (0, views.len()),
@@ -168,6 +179,27 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let wall = Instant::now();
     let mut r = Report::default();
     for (f, view) in views.iter().enumerate().take(to).skip(from) {
+        if let Some(k) = keys.as_mut() {
+            let t = Instant::now();
+            let before = k.rendered.len();
+            let width: f64 = view.width.parse().map_err(|_| "bad width".to_string())?;
+            let img = k.frame(width, look.as_ref(), &Appearance { time: f as f64 / fps, ..base })?;
+            let kf: f64 = k.rendered[before..].iter().map(|x| x.1).sum();
+            for &(_, secs, used) in &k.rendered[before..] {
+                r.add(used, secs);
+            }
+            r.shade += t.elapsed().as_secs_f64() - kf;
+            let t = Instant::now();
+            pipe.write_all(&img.data).map_err(|e| format!("ffmpeg pipe: {e}"))?;
+            r.encode_wait += t.elapsed().as_secs_f64();
+            let done = f + 1 - from;
+            if done == 1 || done % 60 == 0 || done == to - from {
+                let el = wall.elapsed().as_secs_f64();
+                let left = el / done as f64 * (to - from - done) as f64;
+                eprintln!("  frame {done}/{} width {} (keyframes {}) {el:.0} s elapsed, ~{left:.0} s left", to - from, view.width, k.rendered.len());
+            }
+            continue;
+        }
         let t = Instant::now();
         let (hd, s, used) = render_frame(view, &p, zone.as_ref())?;
         let secs = t.elapsed().as_secs_f64();

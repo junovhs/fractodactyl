@@ -11,6 +11,7 @@ mod lod;
 mod manifest;
 mod orbit;
 mod film;
+mod keyframe;
 mod path;
 mod place;
 mod plan;
