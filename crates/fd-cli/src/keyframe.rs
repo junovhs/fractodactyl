@@ -79,9 +79,11 @@ impl<'a> Keyframes<'a> {
         k
     }
 
-    /// The frame at width `w`, shaded by `look` at appearance `a`.
-    pub fn frame(&mut self, w: f64, look: &dyn Pass, a: &Appearance) -> Result<Rgb8, String> {
-        let k = self.octave(w);
+    /// The frame at width `w`, centred `off` (complex, re/im) from the keyframe centre,
+    /// shaded by `look` at appearance `a`.
+    pub fn frame(&mut self, w: f64, off: (f64, f64), look: &dyn Pass, a: &Appearance) -> Result<Rgb8, String> {
+        let req = coverage(w, off, (self.out.0 as u32, self.out.1 as u32));
+        let k = self.octave(req);
         self.ensure(k, k)?;
         self.ensure(k + 1, k)?;
         let get = |j: usize| self.cache.iter().find(|c| c.0 == j).expect("ensured");
@@ -90,10 +92,14 @@ impl<'a> Keyframes<'a> {
         let (so, si) = (look.shade_with(&outer.2, &outer.3, &sa), look.shade_with(&inner.2, &inner.3, &sa));
         let lut: Vec<f32> = (0..256).map(|v| (v as f32 / 255.0).powf(2.2)).collect();
         let (ow, oh) = self.out;
-        let u = (outer.1 / w).log2().clamp(0.0, 1.0) as f32;
+        let u = (outer.1 / req).log2().clamp(0.0, 1.0) as f32;
         let ramp = (u / 0.25).min(1.0);
         let margin = 0.1 * (1.0 - u) + 1e-3;
         let (zo, zi) = ((w / outer.1) as f32, (w / inner.1) as f32);
+        // The frame centre in each keyframe, in its widths (x) and heights (y, down).
+        let aspect = ow as f64 / oh as f64;
+        let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect) as f32);
+        let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
         let mut data = vec![0u8; ow * oh * 3];
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, oh);
         let rows_per = oh.div_ceil(threads);
@@ -106,15 +112,16 @@ impl<'a> Keyframes<'a> {
                         let yn = (py as f32 + 0.5) / oh as f32 - 0.5;
                         for px in 0..ow {
                             let xn = (px as f32 + 0.5) / ow as f32 - 0.5;
-                            let d = (2.0 * xn.abs() * zi).max(2.0 * yn.abs() * zi);
+                            let (xi, yi) = (xn * zi + oxi, yn * zi + oyi);
+                            let d = (2.0 * xi.abs()).max(2.0 * yi.abs());
                             let wi = ramp * ((1.0 - d) / margin).clamp(0.0, 1.0);
                             let mut col = [0f32; 3];
                             if wi < 1.0 {
-                                let o = gather(so, lut, xn * zo, yn * zo, TENT * zo * so.w as f32 / ow as f32);
+                                let o = gather(so, lut, xn * zo + oxo, yn * zo + oyo, TENT * zo * so.w as f32 / ow as f32);
                                 col = o.map(|v| v * (1.0 - wi));
                             }
                             if wi > 0.0 {
-                                let i = gather(si, lut, xn * zi, yn * zi, TENT * zi * si.w as f32 / ow as f32);
+                                let i = gather(si, lut, xi, yi, TENT * zi * si.w as f32 / ow as f32);
                                 col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
                             }
                             for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
@@ -127,6 +134,12 @@ impl<'a> Keyframes<'a> {
         });
         Ok(Rgb8 { w: ow, h: oh, data })
     }
+}
+
+/// The keyframe width needed to hold a frame of width `w` centred `off` (complex) from
+/// the keyframe centre, for output size `out` (same aspect as the keyframes).
+pub(crate) fn coverage(w: f64, off: (f64, f64), out: (u32, u32)) -> f64 {
+    (w + 2.0 * off.0.abs()).max(w + 2.0 * off.1.abs() * out.0 as f64 / out.1 as f64)
 }
 
 /// Tent-filtered linear colour of image `img` around the point `x` image widths and `y`
@@ -196,5 +209,10 @@ mod tests {
         assert_eq!(k.octave(1e-80), (4e80f64).log2().floor() as usize);
         let j = k.octave(3e-50);
         assert!(k.width(j) >= 3e-50 && k.width(j + 1) < 3e-50);
+        // Off-centre frames need wider keyframes: a frame 1 wide, 0.3 right of centre,
+        // needs 1.6; 0.1 above centre in a 2:1 output needs 1 + 0.4.
+        assert!((coverage(1.0, (0.3, 0.0), (2, 1)) - 1.6).abs() < 1e-12);
+        assert!((coverage(1.0, (0.0, 0.1), (2, 1)) - 1.4).abs() < 1e-12);
+        assert_eq!(coverage(2.0, (0.0, 0.0), (16, 9)), 2.0);
     }
 }

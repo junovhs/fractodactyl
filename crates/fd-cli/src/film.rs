@@ -27,7 +27,8 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+[--frames A..B] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] \
+[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,7 +41,7 @@ pub(crate) enum Used {
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to", "mp4", "from", "fps", "seconds", "rate", "twist", "ease", "size", "ss", "iter", "threads", "zone", "look", "crf",
-        "x264", "chroma", "compare-every", "frames", "place", "ease-in", "spin", "keyframes",
+        "x264", "chroma", "compare-every", "frames", "place", "ease-in", "spin", "keyframes", "ease-out", "offset", "t0",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -66,9 +67,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if !(ease_in.is_finite() && ease_in >= 0.0) || (ease_in > 0.0 && ease) {
         return Err("--ease-in: expected seconds >= 0, and not with --ease on".into());
     }
+    // `--ease-out S` (FILM-05): the speed holds --rate, then eases to rest over the last
+    // S seconds (an ending; the mirror of --ease-in).
+    let ease_out: f64 = a.num("ease-out", 0.0)?;
+    if !(ease_out.is_finite() && ease_out >= 0.0) || (ease_out > 0.0 && (ease || ease_in > 0.0)) {
+        return Err("--ease-out: expected seconds >= 0, and not with --ease on or --ease-in".into());
+    }
     let rate: f64 = a.num("rate", 0.15)?;
     let seconds = match a.str("seconds") {
         Some(_) => a.num("seconds", 0.0)?,
+        None if ease_out > 0.0 => (w0 / w1).log10().abs() / rate + ease_out / 2.0,
         None if ease_in > 0.0 => {
             let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
             if t < ease_in {
@@ -85,6 +93,26 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         w1 = end;
     }
+    if ease_out > 0.0 && a.str("seconds").is_some() {
+        if seconds < ease_out {
+            return Err(format!("--ease-out {ease_out} is longer than --seconds {seconds}"));
+        }
+        let end = w0 / 10f64.powf(rate * out_depth(seconds, seconds, ease_out));
+        if end < w1 {
+            return Err(format!("--ease-out: {seconds} s at --rate {rate} would pass --to ({end:e} < {w1:e})"));
+        }
+        w1 = end;
+    }
+    // `--offset DRE,DIM` (FILM-05): the camera centre starts at the target plus this
+    // complex offset and drifts onto the target (smoothstep over the film).
+    let offset = match a.str("offset") {
+        None => (0.0, 0.0),
+        Some(v) => match v.split_once(',').map(|(x, y)| (x.trim().parse::<f64>(), y.trim().parse::<f64>())) {
+            Some((Ok(x), Ok(y))) if x.is_finite() && y.is_finite() => (x, y),
+            _ => return Err(format!("--offset: expected DRE,DIM, got {v:?}")),
+        },
+    };
+    let t0: f64 = a.num("t0", 0.0)?;
     // `--spin PEAK,ON,OFF` (FILM-03): occasional spins in place of a constant --twist.
     let spin = match a.str("spin") {
         None => None,
@@ -100,7 +128,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if spin.is_some() && a.str("twist").is_some() {
         return Err("--spin and --twist are exclusive".into());
     }
-    let views = path(re, im, w0, w1, seconds, fps, a.num("twist", 0.0)?, ease, ease_in, spin)?;
+    let views = path(re, im, w0, w1, seconds, fps, a.num("twist", 0.0)?, ease, ease_in, spin, ease_out)?;
     let (w, h) = size(a.str("size").unwrap_or("1920x1080"))?;
     let ss: u32 = a.num("ss", 2)?;
     let p = Params {
@@ -131,9 +159,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             if !(1..=4).contains(&m) || a.str("ss").is_some() || a.str("twist").is_some() || spin.is_some() {
                 return Err("--keyframes M takes M in 1..=4 and no --ss, --twist or --spin".into());
             }
-            Some(crate::keyframe::Keyframes::new(re, im, w0, (w, h), m, &p, zone.as_ref()))
+            // Keyframe 0 must hold frame 0 including its offset from the target.
+            let base = crate::keyframe::coverage(w0, offset, (w, h));
+            Some(crate::keyframe::Keyframes::new(re, im, base, (w, h), m, &p, zone.as_ref()))
         }
     };
+    if keys.is_none() && offset != (0.0, 0.0) {
+        return Err("--offset needs --keyframes".into());
+    }
     let compare_every: usize = a.num("compare-every", 0)?;
     let (from, to) = match a.str("frames") {
         None => (0, views.len()),
@@ -183,7 +216,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let t = Instant::now();
             let before = k.rendered.len();
             let width: f64 = view.width.parse().map_err(|_| "bad width".to_string())?;
-            let img = k.frame(width, look.as_ref(), &Appearance { time: f as f64 / fps, ..base })?;
+            let u = f as f64 / (views.len() - 1) as f64;
+            let drift = 1.0 - u * u * (3.0 - 2.0 * u);
+            let off = (offset.0 * drift, offset.1 * drift);
+            let img = k.frame(width, off, look.as_ref(), &Appearance { time: t0 + f as f64 / fps, ..base })?;
             let kf: f64 = k.rendered[before..].iter().map(|x| x.1).sum();
             for &(_, secs, used) in &k.rendered[before..] {
                 r.add(used, secs);
@@ -210,7 +246,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             r.compared.push((secs, t.elapsed().as_secs_f64()));
         }
         let t = Instant::now();
-        let img = look.shade_with(&hd, &s, &Appearance { time: f as f64 / fps, ..base });
+        let img = look.shade_with(&hd, &s, &Appearance { time: t0 + f as f64 / fps, ..base });
         r.shade += t.elapsed().as_secs_f64();
         let t = Instant::now();
         pipe.write_all(&img.data).map_err(|e| format!("ffmpeg pipe: {e}"))?;
@@ -266,11 +302,23 @@ pub(crate) fn spin_turns(t: f64, (peak, on, off): (f64, f64, f64)) -> f64 {
     peak * (k * on / 2.0 + partial)
 }
 
+/// Decades zoomed by time `t` at unit full speed in a `total`-second film whose speed
+/// holds 1, then eases to rest over the last `s` seconds (1 - smoothstep).
+pub(crate) fn out_depth(t: f64, total: f64, s: f64) -> f64 {
+    let start = total - s;
+    if t <= start {
+        t
+    } else {
+        let tau = (t - start).min(s);
+        start + tau - eased_depth(tau, s)
+    }
+}
+
 /// The camera path: `n = round(seconds * fps)` frames from width `w0` to `w1`, evenly
 /// spaced in log width (or smoothstep-eased, or eased in over `ease_in` seconds and then
 /// constant), rotating `twist` full turns over the film or by `spin` (see spin_turns).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64, twist: f64, ease: bool, ease_in: f64, spin: Option<(f64, f64, f64)>) -> Result<Vec<View>, String> {
+pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64, twist: f64, ease: bool, ease_in: f64, spin: Option<(f64, f64, f64)>, ease_out: f64) -> Result<Vec<View>, String> {
     fd_fixed::Decimal::parse(re)?;
     fd_fixed::Decimal::parse(im)?;
     if !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0 && twist.is_finite()) {
@@ -285,7 +333,9 @@ pub(crate) fn path(re: &str, im: &str, w0: f64, w1: f64, seconds: f64, fps: f64,
     Ok((0..n)
         .map(|f| {
             let s = f as f64 / (n - 1) as f64;
-            let e = if ease_in > 0.0 {
+            let e = if ease_out > 0.0 {
+                out_depth(s * seconds, seconds, ease_out) / out_depth(seconds, seconds, ease_out)
+            } else if ease_in > 0.0 {
                 eased_depth(s * seconds, ease_in) / eased_depth(seconds, ease_in)
             } else if ease {
                 s * s * (3.0 - 2.0 * s)
@@ -376,7 +426,7 @@ mod tests {
 
     #[test]
     fn path_runs_from_w0_to_w1_with_twist_and_ease() {
-        let v = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.5, false, 0.0, None).unwrap();
+        let v = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.5, false, 0.0, None, 0.0).unwrap();
         assert_eq!(v.len(), 60);
         assert_eq!((v[0].width.as_str(), v[59].width.as_str()), ("4e0", "1e-40"));
         assert!((v[59].rotation - std::f64::consts::PI).abs() < 1e-12);
@@ -384,10 +434,10 @@ mod tests {
         let lw = |i: usize| v[i].width.parse::<f64>().unwrap().log10();
         assert!(((lw(1) - lw(0)) - (lw(31) - lw(30))).abs() < 1e-4);
         // Eased: slow start, so the first step is smaller than a middle one.
-        let e = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.0, true, 0.0, None).unwrap();
+        let e = path(RE, IM, 4.0, 1e-40, 2.0, 30.0, 0.0, true, 0.0, None, 0.0).unwrap();
         let le = |i: usize| e[i].width.parse::<f64>().unwrap().log10();
         assert!((le(1) - le(0)).abs() < 0.2 * (le(31) - le(30)).abs());
-        assert!(path(RE, IM, 4.0, 1e-40, 0.01, 30.0, 0.0, false, 0.0, None).is_err());
+        assert!(path(RE, IM, 4.0, 1e-40, 0.01, 30.0, 0.0, false, 0.0, None, 0.0).is_err());
     }
 
     #[test]
@@ -395,7 +445,7 @@ mod tests {
         // 30 s at 60 fps, 15 s ramp: depth = R * 22.5 decades.
         let r = 1.25f64.log10();
         let w1 = 4.0 / 10f64.powf(r * eased_depth(30.0, 15.0));
-        let v = path(RE, IM, 4.0, w1, 30.0, 60.0, 0.0, false, 15.0, None).unwrap();
+        let v = path(RE, IM, 4.0, w1, 30.0, 60.0, 0.0, false, 15.0, None, 0.0).unwrap();
         assert_eq!(v.len(), 1800);
         let lw = |i: usize| v[i].width.parse::<f64>().unwrap().log10();
         let step = |i: usize| lw(i) - lw(i + 1);
@@ -409,6 +459,20 @@ mod tests {
     }
 
     #[test]
+    fn ease_out_holds_speed_then_comes_to_rest() {
+        assert_eq!(out_depth(5.0, 30.0, 30.0), 5.0 - eased_depth(5.0, 30.0));
+        assert!((out_depth(30.0, 30.0, 30.0) - 15.0).abs() < 1e-12);
+        assert_eq!(out_depth(10.0, 60.0, 30.0), 10.0);
+        let w1 = 1e-20 / 10f64.powf(0.1 * 15.0);
+        let v = path(RE, IM, 1e-20, w1, 30.0, 60.0, 0.0, false, 0.0, None, 30.0).unwrap();
+        let lw = |i: usize| v[i].width.parse::<f64>().unwrap().log10();
+        let step = |i: usize| lw(i) - lw(i + 1);
+        assert!((step(0) / (0.1 / 60.0) - 1.0).abs() < 2e-3, "starts at full speed");
+        assert!(step(1798) < 1e-6, "ends at rest");
+        assert!((1..1799).all(|i| step(i) >= 0.0));
+    }
+
+    #[test]
     fn spins_ease_in_and_out_between_still_stretches() {
         let sp = (0.25, 5.0, 10.0);
         let still = |a: f64, b: f64| (spin_turns(a, sp) - spin_turns(b, sp)).abs() < 1e-12;
@@ -417,7 +481,7 @@ mod tests {
         assert!((spin_turns(10.0, sp) - 0.625).abs() < 1e-12 && (spin_turns(30.0, sp) - 1.25).abs() < 1e-12);
         let speed = |t: f64| (spin_turns(t + 1e-4, sp) - spin_turns(t, sp)) / 1e-4;
         assert!(speed(5.0) < 1e-6 && speed(9.9999) < 1e-6 && (speed(7.5) - 0.25).abs() < 1e-6);
-        let v = path(RE, IM, 4.0, 1e-3, 30.0, 60.0, 0.0, false, 15.0, Some(sp)).unwrap();
+        let v = path(RE, IM, 4.0, 1e-3, 30.0, 60.0, 0.0, false, 15.0, Some(sp), 0.0).unwrap();
         assert!((v[1799].rotation - std::f64::consts::TAU * 1.25).abs() < 1e-9);
     }
 
