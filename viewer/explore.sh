@@ -2,7 +2,7 @@
 # Mandelbrot explorer (EXPL-01), Linux twin of explore.cmd: builds fd if needed,
 # starts `fd explore` in the background (unless it is already running) and opens
 # it in Chrome. Options:
-#   --install  add a "Fractadactyl Explorer" icon to the app menu and ~/Desktop
+#   --install  add a "Fractodactyl Explorer" icon to the app menu and ~/Desktop
 #   --stop     stop the background renderer
 # Server log: ${XDG_RUNTIME_DIR:-/tmp}/fd-explore.log
 set -u
@@ -15,7 +15,7 @@ LOG="${XDG_RUNTIME_DIR:-/tmp}/fd-explore.log"
 
 fail() {
   echo "$1" >&2
-  command -v notify-send >/dev/null && notify-send "Fractadactyl Explorer" "$1"
+  command -v notify-send >/dev/null && notify-send "Fractodactyl Explorer" "$1"
   exit 1
 }
 
@@ -25,7 +25,7 @@ case "${1:-}" in
   --install)
     entry="[Desktop Entry]
 Type=Application
-Name=Fractadactyl Explorer
+Name=Fractodactyl Explorer
 Comment=Explore the Mandelbrot set with fd explore
 Exec=\"$SELF\"
 Icon=applications-graphics
@@ -33,11 +33,11 @@ Terminal=false
 Categories=Graphics;"
     apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     mkdir -p "$apps"
-    printf '%s\n' "$entry" > "$apps/fractadactyl-explorer.desktop"
-    echo "installed $apps/fractadactyl-explorer.desktop"
+    printf '%s\n' "$entry" > "$apps/fractodactyl-explorer.desktop"
+    echo "installed $apps/fractodactyl-explorer.desktop"
     desk="$(xdg-user-dir DESKTOP 2>/dev/null || echo "$HOME/Desktop")"
     if [ -d "$desk" ]; then
-      f="$desk/fractadactyl-explorer.desktop"
+      f="$desk/fractodactyl-explorer.desktop"
       printf '%s\n' "$entry" > "$f"
       chmod +x "$f"
       # GNOME only launches desktop icons marked trusted.

@@ -142,5 +142,5 @@ Earlier steps (PROB-03/04/07/08/09, BENC-04) are done; see the METHOD.md results
 - The plan "Atlas Gate C" still lists LOD-04/05/06, REF-04/05; they are not the priority
   now (see DEC-15).
 - Pushes occasionally fail an LFS lock check; it cleared on retry. If it persists:
-  `git config lfs.https://github.com/junovhs/fractadactyl.git/info/lfs.locksverify false`
+  `git config lfs.https://github.com/junovhs/fractodactyl.git/info/lfs.locksverify false`
   (needs the owner's OK).
