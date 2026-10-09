@@ -50,7 +50,7 @@ impl Place {
     }
 
     pub(crate) fn to_text(&self) -> String {
-        format!("# fractadactyl place\nre {}\nim {}\nwidth {}\niter {}\n", self.re, self.im, self.width, self.iter)
+        format!("# fractodactyl place\nre {}\nim {}\nwidth {}\niter {}\n", self.re, self.im, self.width, self.iter)
     }
 }
 

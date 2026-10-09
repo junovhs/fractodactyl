@@ -84,7 +84,7 @@ impl Header {
     pub fn decode(buf: &[u8]) -> Result<(Header, usize)> {
         let mut i = In::new(buf);
         if i.take(8)? != MAGIC {
-            return Err(bad("not a Fractadactyl sample file"));
+            return Err(bad("not a Fractodactyl sample file"));
         }
         if i.u16()? != MAJOR {
             return Err(bad("unsupported sample format major version"));

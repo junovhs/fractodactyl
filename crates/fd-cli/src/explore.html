@@ -492,7 +492,7 @@ for (const el of [pre, pim, pw]) el.addEventListener("paste", e => {
 });
 document.getElementById("psave").onclick = async () => {
   const name = document.getElementById("pname").value.trim();
-  const text = `# fractadactyl place (saved by fd explore)\nre ${toDec(view.re, view.D)}\nim ${toDec(view.im, view.D)}\n` +
+  const text = `# fractodactyl place (saved by fd explore)\nre ${toDec(view.re, view.D)}\nim ${toDec(view.im, view.D)}\n` +
     `width ${shortWidth(view.l10w)}\niter ${iterFor(view.l10w)}\n`;
   const r = await fetch("/place?name=" + encodeURIComponent(name), { method: "POST", body: text });
   pstatus.textContent = (await r.text()).replace(/ \S*\/places\//, " places/") + (r.ok ? `\nfilm it: fd film --place ${name} --mp4 ${name}.mp4` : "");
@@ -633,7 +633,7 @@ function parseLook(text) {
   return l;
 }
 function lookText(l) {
-  return "# fractadactyl look (saved by fd explore)\nstops " + l.stops.join(" ") + "\ninterior " + l.interior + "\n" +
+  return "# fractodactyl look (saved by fd explore)\nstops " + l.stops.join(" ") + "\ninterior " + l.interior + "\n" +
     KEYS.map(k => `${k} ${l[k]}`).join("\n") + "\n";
 }
 const lin = h => [1, 3, 5].map(i => { const c = parseInt(h.substr(i, 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });

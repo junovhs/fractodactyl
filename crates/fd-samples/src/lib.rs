@@ -19,7 +19,7 @@ pub use read::Reader;
 pub use samples::Samples;
 pub use write::write;
 
-/// File magic: identifies a Fractadactyl sample file.
+/// File magic: identifies a Fractodactyl sample file.
 pub const MAGIC: [u8; 8] = *b"FDSAMPLE";
 /// Bumped for any change in the meaning or layout of existing fields.
 pub const MAJOR: u16 = 1;

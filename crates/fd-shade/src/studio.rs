@@ -199,7 +199,7 @@ impl Look {
         let c = |x: u32| format!("#{x:06x}");
         let stops: Vec<String> = self.stops.iter().map(|&s| c(s)).collect();
         format!(
-            "# fractadactyl look\nstops {}\ninterior {}\ndensity {}\nterrace {}\nslope {}\nlight {}\nlines {}\nline_px {}\nflow {}\nbreathe {}\nbrate {}\ndrift {}\n",
+            "# fractodactyl look\nstops {}\ninterior {}\ndensity {}\nterrace {}\nslope {}\nlight {}\nlines {}\nline_px {}\nflow {}\nbreathe {}\nbrate {}\ndrift {}\n",
             stops.join(" "),
             c(self.interior),
             self.density,
