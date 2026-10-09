@@ -8,7 +8,7 @@ Compile only the path corridor the camera can see, only to the detail the screen
 
 ## Screen-space refinement
 
-The core idea is that a feature can contain unlimited hidden structure while occupying only a few output pixels. Fractadactyl should know when the current representation is still sufficient for the requested raster.
+The core idea is that a feature can contain unlimited hidden structure while occupying only a few output pixels. Fractodactyl should know when the current representation is still sufficient for the requested raster.
 
 Suggested tile states:
 

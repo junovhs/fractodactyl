@@ -1,4 +1,4 @@
-# Fractadactyl Atlas — Authoritative Reset Spec
+# Fractodactyl Atlas — Authoritative Reset Spec
 
 **Status:** authoritative project reset  
 **Date:** 2026-10-06  
@@ -8,7 +8,7 @@
 
 Render the **genuine Mandelbrot set at genuine extreme depth** while making warm per-frame cost grow as little as possible with absolute depth.
 
-Fractadactyl should behave more like a mathematical Google Maps engine than a conventional independent-frame renderer: compile the known camera corridor ahead of time, cache reusable mathematical work, refine detail before it becomes visible, and render later frames from a bounded atlas.
+Fractodactyl should behave more like a mathematical Google Maps engine than a conventional independent-frame renderer: compile the known camera corridor ahead of time, cache reusable mathematical work, refine detail before it becomes visible, and render later frames from a bounded atlas.
 
 ## Why the old architecture is retired
 

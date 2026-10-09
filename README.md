@@ -1,6 +1,6 @@
-# Fractadactyl
+# Fractodactyl
 
-Fractadactyl is reset around one goal:
+Fractodactyl is reset around one goal:
 
 **Make genuine deep Mandelbrot rendering dramatically cheaper by compiling a known zoom path into a bounded, reusable mathematical atlas.**
 

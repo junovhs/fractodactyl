@@ -1,6 +1,6 @@
 # How We Work (research method)
 
-NORTH-STAR.md says **what** Fractadactyl is for. This document says **how** we go after
+NORTH-STAR.md says **what** Fractodactyl is for. This document says **how** we go after
 it. It binds every contributor, human or agent. DEC-14 records its core rule.
 
 The reason it exists: the first decisive experiment (BENC-01) took a day to build and
@@ -189,7 +189,7 @@ failures. This corrects the overly wide 1.7e-15 exit schedule tested in PROB-03.
 Command (Python environment needs mpmath and NumPy):
 
 ```text
-.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --tight-probe --jobs 18 --report C:/Users/SpencerNunamakerTrav/fractadactyl/target/PROB-07.json --bla-exe C:/Users/SpencerNunamakerTrav/fractadactyl/target/release/fd.exe
+.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --tight-probe --jobs 18 --report C:/Users/SpencerNunamakerTrav/fractodactyl/target/PROB-07.json --bla-exe C:/Users/SpencerNunamakerTrav/fractodactyl/target/release/fd.exe
 ```
 
 Exit 0, 2.494 s including the BLA control. The original 48-point,
@@ -334,7 +334,7 @@ needed domain/horizon fallback and all escaped in both truth and tables.
 Reproduce from the PROB-04 worktree using its .venv (mpmath 1.4.1, numpy 2.5.3):
 
 ```powershell
-.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --table-probe --jobs 18 --report C:/Users/SpencerNunamakerTrav/fractadactyl/target/prob04/table.json --bla-exe C:/Users/SpencerNunamakerTrav/fractadactyl/target/release/fd.exe
+.venv/Scripts/python.exe tools/research/misiurewicz/returns_exit_tail.py --table-probe --jobs 18 --report C:/Users/SpencerNunamakerTrav/fractodactyl/target/prob04/table.json --bla-exe C:/Users/SpencerNunamakerTrav/fractodactyl/target/release/fd.exe
 ```
 
 The unchanged committed `return_map_truth.json` has SHA-256
