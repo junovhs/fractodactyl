@@ -104,7 +104,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         w1 = end;
     }
     // `--offset DRE,DIM` (FILM-05): the camera centre starts at the target plus this
-    // complex offset and drifts onto the target (smoothstep over the film).
+    // complex offset; the target then eases to the middle of the screen (see veer).
     let offset = match a.str("offset") {
         None => (0.0, 0.0),
         Some(v) => match v.split_once(',').map(|(x, y)| (x.trim().parse::<f64>(), y.trim().parse::<f64>())) {
@@ -216,9 +216,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let t = Instant::now();
             let before = k.rendered.len();
             let width: f64 = view.width.parse().map_err(|_| "bad width".to_string())?;
-            let u = f as f64 / (views.len() - 1) as f64;
-            let drift = 1.0 - u * u * (3.0 - 2.0 * u);
-            let off = (offset.0 * drift, offset.1 * drift);
+            let off = veer(offset, f as f64 / (views.len() - 1) as f64, width / w0);
             let img = k.frame(width, off, look.as_ref(), &Appearance { time: t0 + f as f64 / fps, ..base })?;
             let kf: f64 = k.rendered[before..].iter().map(|x| x.1).sum();
             for &(_, secs, used) in &k.rendered[before..] {
@@ -300,6 +298,15 @@ pub(crate) fn spin_turns(t: f64, (peak, on, off): (f64, f64, f64)) -> f64 {
     let r = t - k * (on + off);
     let partial = if r < on { r / 2.0 - on / (4.0 * std::f64::consts::PI) * (std::f64::consts::TAU * r / on).sin() } else { on / 2.0 };
     peak * (k * on / 2.0 + partial)
+}
+
+/// The frame centre's offset from the target at film fraction `u` when the frame is
+/// `zoom` times the starting width (FILM-06): the target's position on screen, as a
+/// fraction of the frame, eases from `offset / w0` to the middle. An offset fixed in the
+/// plane instead would swing the target off-screen as the frame shrinks.
+pub(crate) fn veer(offset: (f64, f64), u: f64, zoom: f64) -> (f64, f64) {
+    let k = (1.0 - u * u * (3.0 - 2.0 * u)) * zoom;
+    (offset.0 * k, offset.1 * k)
 }
 
 /// Decades zoomed by time `t` at unit full speed in a `total`-second film whose speed
@@ -456,6 +463,21 @@ mod tests {
         assert!((step(1200) / (r / 60.0) - 1.0).abs() < 2e-3);
         assert!((lw(1799) - w1.log10()).abs() < 1e-5);
         assert!((eased_depth(15.0, 15.0) - 7.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn veer_moves_the_target_monotonically_to_the_middle_of_the_screen() {
+        let (o, w0) = ((0.2, -0.1), 1.0);
+        // The frame shrinks 28x while the screen fraction of the offset falls to 0.
+        let at = |i: usize| {
+            let u = i as f64 / 100.0;
+            let w = w0 / 28f64.powf(u);
+            let (x, y) = veer(o, u, w / w0);
+            (x / w, y / w)
+        };
+        assert_eq!(at(0), (0.2, -0.1));
+        assert_eq!(at(100), (0.0, 0.0));
+        assert!((1..=100).all(|i| at(i).0.abs() <= at(i - 1).0.abs() && at(i).1.abs() <= at(i - 1).1.abs()));
     }
 
     #[test]
