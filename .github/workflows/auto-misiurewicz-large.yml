@@ -4,6 +4,8 @@ on:
     branches: [research/auto-misiurewicz-discovery]
     paths:
       - ".github/workflows/auto-misiurewicz-large.yml"
+      - "tools/research/misiurewicz/auto_discover.py"
+      - "tools/research/misiurewicz/auto_cycle_bench/src/main.rs"
   workflow_dispatch:
 jobs:
   larger-frame:
