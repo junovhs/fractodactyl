@@ -680,3 +680,86 @@ PROB-05; another exit-table representation needs its own winning cheap probe.
 | 2026-10-10 | PROB-14 mid-band **width 1e-15**, v0, 1920x1080 (2,073,600 samples) | Same-runner default fd BLA 5.8930 s vs mid 0.6650 s (8.86x); mid full-perturbation fallbacks 0. Every-pixel `fd compare` against forced-fx per-frame BLA: max nu displacement 6.79e-10 px; max de relative difference 1.1917e-7; max normal angle difference 0.00549 degrees (de/normal scored above 1e-3 px reference de). | **Keep:** 0 class mismatches, 0 nu samples > 1e-3 px, 0 de/normal samples over BENC-04 tolerances, 0 nonfinite values. |
 | 2026-10-10 | PROB-14 mid-band **width 1e-18**, v0, 1920x1080 (2,073,600 samples) | Same-runner default fd BLA 5.4356 s vs mid 0.6431 s (8.45x); mid full-perturbation fallbacks 0. Every-pixel `fd compare` against forced-fx per-frame BLA: max nu displacement 2.00e-9 px; max de relative difference 1.1867e-7; max normal angle difference 0 degrees (de/normal scored above 1e-3 px reference de). | **Keep:** 0 class mismatches, 0 nu samples > 1e-3 px, 0 de/normal samples over BENC-04 tolerances, 0 nonfinite values. |
 | 2026-10-10 | PROB-14 mid-band **width 1e-24**, v0, 1920x1080 (2,073,600 samples) | Same-runner default fd BLA 6.0060 s vs mid 0.6028 s (9.96x); mid full-perturbation fallbacks 0. Every-pixel `fd compare` against forced-fx per-frame BLA: max nu displacement 9.07e-10 px; max de relative difference 1.1908e-7; max normal angle difference 0 degrees (de/normal scored above 1e-3 px reference de). | **Keep:** 0 class mismatches, 0 nu samples > 1e-3 px, 0 de/normal samples over BENC-04 tolerances, 0 nonfinite values. |
+
+### AUTO-01: guarded automatic finite-cycle compiler (2026-10-10)
+
+Scope: isolated research CLI, branched from main; not `fd --zone`. Base
+is `research/auto-misiurewicz-discovery`'s discoverer and native executor.
+The earlier 960x540 3-run medians (unguarded, original branch) were **1.4346x**
+(c=i) and **1.1677x** (q=3,p=2), with zero class or 1e-3 px failures;
+these are *not* evidence for the changed AUTO-01 operator.
+
+**Coordinates (DEC-21):** exact decimal camera centre and width are retained
+as strings. The compiler obtains a high-precision reference orbit and cycle
+at that exact centre; the native model stores a normalized complex
+`bias = z_q - s`, normalized pixel spacing `h_m * 2^h_e`, and the exact
+centre metadata. Both prefix and tail iterate reference/phase plus offsets;
+no `c0+dc` in f64. A Rust test checks a centre with 1e-400 magnitude and
+nonzero sub-f64 offset; another checks a 2^3500 jump multiplier.
+
+**Shortcut guards (DEC-10 and DEC-19):**
+
+| Guard | Rule, fallback | Justification |
+|---|---|---|
+| State (inverse Koenigs) | `|u|<r/4`, convergent Newton residual, `j>=2`, `|w_out|<=r/2`, finite values and room before max_iter; else phase-reference perturbation | Empirical conservative chart disk; not a certified remainder bound. |
+| Parameter | `|dc|<=r/[64(1+|dp|+r|dlam/rho|+sum(|dk_n|r^n))]`, `|dlam dc|<0.01|rho|`; else fallback | First-order parameter sensitivity estimate; empirical domain, not a rigorous error certificate. |
+| Derivative consistency | Directly evaluate **one local period** from the chart exit predecessor; compare state with `K(lambda*w)` (relative 1e-7) and `dz/dc` with the differentiated Koenigs identity (relative 2e-4); else fallback | Differentiated conjugacy is an exact mathematical identity; polynomial truncation, phase arithmetic and thresholds are empirical checks, not a proven remainder. |
+| Profitability | Before rendering, compare `T_discover+T_build+0.26 us*pixel_count` to `0.50 us*pixel_count` with 5% margin; if it loses, **decline**, no jump | Empirical cost model calibrated from an earlier 960x540 guarded run; machine-dependent, no BLA truth run consulted for a decision. |
+
+The PROB-20 zone first-return truncation gate is *not* used or assumed.
+`--force` is a research-only override of the profitability choice. The
+BLA control is only a retrospective acceptance check, now scored with
+`fd compare` (class, nu, de, normal). An unprofitable camera `c=i`,
+width `1e-4`, must log `"pre_render_decision":"decline"` and no jumps.
+
+The one added `.github/workflows/auto-misiurewicz.yml` runs 3 independent
+cold 960x540 trials each at `c=i`, q=3,p=2, and a 0.1-width real offset
+from each, saving `fd compare` records and reporting speedup median/range.
+Local Ryzen 9 3900X commands (24 threads):
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo test --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+cargo build --release -p fd-cli
+cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+python3 -m pip install mpmath numpy
+python3 tools/research/misiurewicz/auto_discover.py --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles --re 0 --im 1 --width 1e-95 --size 960x540 --iter 20000 --threads 24 --out out/auto01-i-run1
+python3 tools/research/misiurewicz/auto_discover.py --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles --re 0 --im 1 --width 1e-4 --size 960x540 --threads 24 --no-compare --out out/auto01-decline
+```
+
+Repeat each successful command independently three times with distinct `--out`
+paths for median and min/max. For all four exact target coordinates, see
+the workflow's `cameras.txt` generation; no performance measurements from
+this branch are claimed until its remote workflow finishes.
+
+**AUTO-01 guarded acceptance measurements** — GitHub Actions
+[run 38077355119](https://github.com/junovhs/fractodactyl/actions/runs/38077355119),
+Ubuntu hosted 4-vCPU runner, Python 3.12 with mpmath/numpy/gmpy2,
+native Rust release, 4 threads, 960x540, width 1e-95, max_iter 20,000,
+three independent cold invocations per camera. Each trial counted
+discovery + operator build/serialization + native process/render against
+same-runner `fd control --bla per-frame` cold seconds. `fd compare`
+was only run *after* the pre-render choice and did not influence it.
+Off-centre targets shift the real component by +1e-96 (0.1 frame width).
+The q=3,p=2 exact centre is written above in the research note.
+
+| Camera | Cold speedup median | 3-run min–max | Max equivalent nu displacement (px) | Largest scored de relative error | Largest scored normal error (deg) |
+|---|---:|---:|---:|---:|---:|
+| c=i | 1.4151x | 1.3237–1.4172x | 1.54e-11 | 6.06e-8 | 0 |
+| c=i, off-centre | 1.2875x | 1.2781–1.2989x | 1.56e-11 | 0 | 0 |
+| q=3,p=2 | 1.2745x | 1.2717–1.2775x | 3.73e-11 | 8.21e-8 | 0 |
+| q=3,p=2, off-centre | 1.2650x | 1.2603–1.2685x | 9.52e-11 | 0 | 0 |
+
+**Gate:** all 6,220,800 samples across 12 whole frames passed
+`fd compare`: 0 classification mismatches, 0 nu samples over 1e-3 px,
+0 de tolerance failures and 0 normal tolerance failures, 0 nonfinite.
+Native fast-chart table was enabled in all trials, with 518,400 jump
+samples each; these tested views had no fallback samples. For nonzero
+fallback counts, test a broader corpus under AUTO-02 before production.
+At c=i, width 1e-4, the compiler declined prior to any rendering
+(no cycle operator build); the separate 64x36 profitability-decline
+regression also passed: predicted 0.0767 s total auto vs 0.001152 s
+cold BLA, so no rendering occurred and 0 jumps were issued. An earlier, non-optimized guarded
+version correctly scored all pixels but lost to BLA (0.58–0.70x medians);
+the fast phase-offset finishing path is essential to the win.

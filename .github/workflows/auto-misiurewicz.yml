@@ -1,0 +1,100 @@
+name: auto-misiurewicz
+on:
+  push:
+    branches: [gpt/AUTO-01]
+  workflow_dispatch:
+
+jobs:
+  guard-and-frames:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy mpmath gmpy2
+      - name: Workspace and native regressions
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          cargo clippy --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Build cold opponent and executor
+        run: |
+          cargo build --release -p fd-cli
+          cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Decline without truth renderer
+        run: |
+          mkdir -p out/auto01
+          python tools/research/misiurewicz/auto_discover.py --fd target/release/fd \
+            --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+            --re 0 --im 1 --width 1e-4 --size 960x540 --threads 4 \
+            --no-compare --out out/auto01/decline | tee out/auto01/decline.jsonl
+          python - <<'PY'
+          import json
+          p=json.load(open("out/auto01/decline/report.json"))
+          assert p["decision"]=="decline" and p["pre_render_decision"]=="decline"
+          assert p.get("jumps",0)==0
+          PY
+          python tools/research/misiurewicz/auto_discover.py --fd target/release/fd \
+            --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+            --re 0 --im 1 --width 1e-95 --size 64x36 --threads 4 \
+            --no-compare --out out/auto01/cost-decline | tee out/auto01/cost-decline.jsonl
+          python - <<'PY'
+          import json
+          p=json.load(open("out/auto01/cost-decline/report.json"))
+          assert p["decision"]=="decline" and p["pre_render_decision"]=="decline"
+          assert p["predicted_profitable"] is False
+          assert p.get("jumps",0)==0
+          PY
+      - name: Four whole frames, three independent cold runs
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from decimal import Decimal, localcontext
+          qre="0.4196433776070805662759262823266433002120893730487961233893793197021016110409832128692177097141535071"
+          qim="0.606290729207199369259342197028023002949570668386421712214899686318868275281145662031327930379402341"
+          with localcontext() as c:
+              c.prec=150
+              qoff=str(Decimal(qre)+Decimal("1e-96"))
+          with open("out/auto01/cameras.txt","w") as f:
+              f.write(f"i 0 1\ni-off 1e-96 1\nq32 {qre} {qim}\nq32-off {qoff} {qim}\n")
+          PY
+          while read -r name re im; do
+            for rep in 1 2 3; do
+              folder="out/auto01/${name}-${rep}"
+              python tools/research/misiurewicz/auto_discover.py \
+                --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+                --re "$re" --im "$im" --width 1e-95 --size 960x540 \
+                --iter 20000 --threads 4 --out "$folder" | tee "out/auto01/${name}-${rep}.jsonl"
+            done
+          done < out/auto01/cameras.txt
+      - name: Whole-frame gate and median/range
+        run: |
+          python - <<'PY'
+          import json, statistics
+          from pathlib import Path
+          for name in ("i","i-off","q32","q32-off"):
+              reports=[json.loads(Path(f"out/auto01/{name}-{r}/report.json").read_text()) for r in (1,2,3)]
+              for p in reports:
+                  assert p["pre_render_decision"]=="accelerate", (name,p["reason"])
+                  assert p["fd_compare"]["ok"], (name,p["fd_compare"])
+                  assert p["fd_compare"]["class_mismatches"]==0
+                  assert p["fd_compare"]["nu"]["over_px"]==0
+                  assert p["fd_compare"]["de"]["over_tol"]==0
+                  assert p["fd_compare"]["normal"]["over_tol"]==0
+              times=[p["speedup_vs_fd_cold"] for p in reports]
+              print(f"{name}: speedup median {statistics.median(times):.4f}x, range {min(times):.4f}..{max(times):.4f}x")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto01-results
+          path: |
+            out/auto01/**/*.json
+            out/auto01/*.jsonl
+            out/auto01/cameras.txt
