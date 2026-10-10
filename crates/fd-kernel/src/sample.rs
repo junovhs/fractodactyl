@@ -12,9 +12,20 @@ pub(crate) enum Outcome {
     /// `z` and `dz/dc = (dr, di) * 2^dexp` at the first iterate outside the escape
     /// radius (`n` iterates), with error radii `ez >= |z - z_exact|` and
     /// `ed >= |(dr, di) - dz/dc_exact * 2^-dexp|` (infinite when not tracked).
-    Escaped { n: u64, zr: f64, zi: f64, dr: f64, di: f64, dexp: i64, ez: f64, ed: f64 },
+    Escaped {
+        n: u64,
+        zr: f64,
+        zi: f64,
+        dr: f64,
+        di: f64,
+        dexp: i64,
+        ez: f64,
+        ed: f64,
+    },
     /// Judged bounded after `n` iterates (0 for the closed-form main-component test).
-    Interior { n: u64 },
+    Interior {
+        n: u64,
+    },
     Unresolved,
 }
 
@@ -107,7 +118,8 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
                 let t = a_r * dr - a_i * di + b_r;
                 di = a_r * di + a_i * dr + b_i;
                 dr = t;
-                skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc) / (dr * dr + di * di).sqrt();
+                skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc)
+                    / (dr * dr + di * di).sqrt();
             }
             let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
             xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
@@ -122,10 +134,13 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
                 let af = (fr * fr + fi * fi).sqrt() * (1.0 + 4.0 * U) + 1e-150; // >= |f|, f = z as computed
                 let ef = e + q[m] + 2.0 * U * af; // >= |z_exact - f|
                 let ad = dr.abs() + di.abs();
-                ed = (2.0 * (af + ef) * ed + 2.0 * ef * ad + 8.0 * U * (2.0 * af * ad + 1.0)) * SAFE;
+                ed =
+                    (2.0 * (af + ef) * ed + 2.0 * ef * ad + 8.0 * U * (2.0 * af * ad + 1.0)) * SAFE;
                 let (aw, ax) = (zr[m].abs() + zi[m].abs(), xr.abs() + xi.abs());
                 // Defect of the delta step against 2 A delta + delta^2 + dc_exact.
-                let rho = 8.0 * U * (2.0 * aw * ax + ax * ax + ar.abs() + ai.abs()) + 2.0 * q[m] * ax + rc;
+                let rho = 8.0 * U * (2.0 * aw * ax + ax * ax + ar.abs() + ai.abs())
+                    + 2.0 * q[m] * ax
+                    + rc;
                 let w = af + q[m] + 2.0 * U * af; // >= |A_m + delta|
                 e = (e * (2.0 * w + e) + rho) * SAFE;
             }
@@ -144,8 +159,21 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
         let (fr, fi) = (zr[m] + xr, zi[m] + xi);
         let f2 = fr * fr + fi * fi;
         if f2 > r2 {
-            let (ez, ed) = if B { (e + q[m] + 4.0 * U * f2.sqrt(), ed) } else { (f64::INFINITY, f64::INFINITY) };
-            return Outcome::Escaped { n, zr: fr, zi: fi, dr, di, dexp: 0, ez, ed };
+            let (ez, ed) = if B {
+                (e + q[m] + 4.0 * U * f2.sqrt(), ed)
+            } else {
+                (f64::INFINITY, f64::INFINITY)
+            };
+            return Outcome::Escaped {
+                n,
+                zr: fr,
+                zi: fi,
+                dr,
+                di,
+                dexp: 0,
+                ez,
+                ed,
+            };
         }
         if f2 < xr * xr + xi * xi || m == last {
             if B {
@@ -219,9 +247,18 @@ mod tests {
 
     #[test]
     fn escape_count_matches_direct_iteration() {
-        for (cr, ci) in [(0.4, 0.3), (-0.75, 0.1), (-1.8, 0.01), (0.2501, 0.0), (-0.1, 0.9), (-0.7487, 0.0789)] {
+        for (cr, ci) in [
+            (0.4, 0.3),
+            (-0.75, 0.1),
+            (-1.8, 0.01),
+            (0.2501, 0.0),
+            (-0.1, 0.9),
+            (-0.7487, 0.0789),
+        ] {
             match run(cr, ci, 100_000) {
-                Outcome::Escaped { n, .. } => assert_eq!(Some(n), direct(cr, ci, 100_000), "{cr},{ci}"),
+                Outcome::Escaped { n, .. } => {
+                    assert_eq!(Some(n), direct(cr, ci, 100_000), "{cr},{ci}")
+                }
                 o => panic!("{cr},{ci}: {o:?}"),
             }
         }
@@ -231,7 +268,10 @@ mod tests {
     fn interior_outside_main_components_is_found() {
         // Period-3 bulb centre region (real axis) and a period-4 bulb.
         for (cr, ci) in [(-1.7548, 0.0), (-0.1565, 1.0322), (-1.3107, 0.0)] {
-            assert!(matches!(run(cr, ci, 1_000_000), Outcome::Interior { .. }), "{cr},{ci}");
+            assert!(
+                matches!(run(cr, ci, 1_000_000), Outcome::Interior { .. }),
+                "{cr},{ci}"
+            );
         }
     }
 
@@ -254,15 +294,39 @@ mod tests {
         for (ar, ai) in [(1e-17, 0.0), (-1e-17, 1e-17), (0.0, -1.4e-17)] {
             let plain = sample::<true, false>(&r, &[], None, ar, ai, 100_000, 1e20);
             let mut skip = Skip::default();
-            let fast = perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, None, ar, ai, 100_000, 1e20);
+            let fast = perturb::<true, false, true>(
+                &r,
+                &[],
+                Some(&bla),
+                &mut skip,
+                None,
+                ar,
+                ai,
+                100_000,
+                1e20,
+            );
             match (plain, fast) {
-                (Outcome::Escaped { n, zr, dr, .. }, Outcome::Escaped { n: n2, zr: z2, dr: d2, .. }) => {
+                (
+                    Outcome::Escaped { n, zr, dr, .. },
+                    Outcome::Escaped {
+                        n: n2,
+                        zr: z2,
+                        dr: d2,
+                        ..
+                    },
+                ) => {
                     assert_eq!(n, n2, "{ar},{ai}");
-                    assert!((zr - z2).abs() < 1e-6 * zr.abs() && (dr - d2).abs() < 1e-6 * dr.abs(), "{zr} {z2} {dr} {d2}");
+                    assert!(
+                        (zr - z2).abs() < 1e-6 * zr.abs() && (dr - d2).abs() < 1e-6 * dr.abs(),
+                        "{zr} {z2} {dr} {d2}"
+                    );
                 }
                 o => panic!("{o:?}"),
             }
-            assert!(skip.skipped > 10 * skip.blocks && skip.blocks > 0, "{skip:?}");
+            assert!(
+                skip.skipped > 10 * skip.blocks && skip.blocks > 0,
+                "{skip:?}"
+            );
         }
     }
 
@@ -277,9 +341,16 @@ mod tests {
     /// `(i, j)` of a 960x540 grid `width` wide.
     fn v0(bits: u64, iter: u64, width: f64, i: u32, j: u32) -> (Reference, f64, f64) {
         let l = fd_fixed::limbs_for(bits);
-        let (re, im) = (fd_fixed::Fixed::parse(V0.0, l).unwrap(), fd_fixed::Fixed::parse(V0.1, l).unwrap());
+        let (re, im) = (
+            fd_fixed::Fixed::parse(V0.0, l).unwrap(),
+            fd_fixed::Fixed::parse(V0.1, l).unwrap(),
+        );
         let h = width / 960.0;
-        (Reference::from_fixed(&re, &im, iter), h * (f64::from(i) + 0.5 - 480.0), -h * (f64::from(j) + 0.5 - 270.0))
+        (
+            Reference::from_fixed(&re, &im, iter),
+            h * (f64::from(i) + 0.5 - 480.0),
+            -h * (f64::from(j) + 0.5 - 270.0),
+        )
     }
 
     #[test]
@@ -313,7 +384,17 @@ mod tests {
                 let c = Some((cr + ar, ci + ai));
                 let plain = sample::<true, false>(&r, &[], c, ar, ai, 100_000, 1e20);
                 let mut skip = Skip::default();
-                let fast = perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, c, ar, ai, 100_000, 1e20);
+                let fast = perturb::<true, false, true>(
+                    &r,
+                    &[],
+                    Some(&bla),
+                    &mut skip,
+                    c,
+                    ar,
+                    ai,
+                    100_000,
+                    1e20,
+                );
                 assert_eq!(plain, fast, "{e} {k}");
                 assert!(skip.skipped > 10_000, "{e} {k}: {skip:?}");
             }
@@ -324,7 +405,17 @@ mod tests {
         let (r, ar, ai) = v0(300, 20_000, 2e-49, 324, 10);
         let bla = Bla::build(&r, 1.0 / (1u64 << 50) as f64, 2e-49 * 1.15).unwrap();
         let mut skip = Skip::default();
-        match perturb::<true, false, true>(&r, &[], Some(&bla), &mut skip, None, ar, ai, 20_000, 1e20) {
+        match perturb::<true, false, true>(
+            &r,
+            &[],
+            Some(&bla),
+            &mut skip,
+            None,
+            ar,
+            ai,
+            20_000,
+            1e20,
+        ) {
             Outcome::Escaped { n, .. } => assert_eq!(n, 7412),
             o => panic!("{o:?}"),
         }
@@ -338,26 +429,43 @@ mod tests {
         let l = fd_fixed::limbs_for(256);
         let fx = |s: &str| fd_fixed::Fixed::parse(s, l).unwrap();
         let cases = [
-            ((0.375, 0.28125), (0.03125, 0.015625), ("0.40625", "0.296875")),
-            ((-0.7421875, 0.0546875), (-0.0078125, 0.0078125), ("-0.75", "0.0625")),
+            (
+                (0.375, 0.28125),
+                (0.03125, 0.015625),
+                ("0.40625", "0.296875"),
+            ),
+            (
+                (-0.7421875, 0.0546875),
+                (-0.0078125, 0.0078125),
+                ("-0.75", "0.0625"),
+            ),
             ((0.25, 0.0), (0.03125, 0.0078125), ("0.28125", "0.0078125")),
         ];
         let r2 = 4294967296.0f64;
         for ((c0r, c0i), (ar, ai), (er, ei)) in cases {
             let f64_ref = Reference::new(c0r, c0i, 10_000, r2.sqrt());
-            let fx_ref = Reference::from_fixed(&fx(&c0r.to_string()), &fx(&c0i.to_string()), 10_000);
+            let fx_ref =
+                Reference::from_fixed(&fx(&c0r.to_string()), &fx(&c0i.to_string()), 10_000);
             let mut exact = vec![(0.0, 0.0)];
             fd_fixed::orbit(&fx(er), &fx(ei), 10_000, r2, |a, b| exact.push((a, b)));
             for (r, bits) in [(&f64_ref, None), (&fx_ref, Some(256))] {
                 let q = r.error_radius(bits, c0r, c0i);
-                let Outcome::Escaped { n, zr, zi, ed, ez, .. } = sample::<true, true>(r, &q, Some((c0r + ar, c0i + ai)), ar, ai, 10_000, r2)
+                let Outcome::Escaped {
+                    n, zr, zi, ed, ez, ..
+                } = sample::<true, true>(r, &q, Some((c0r + ar, c0i + ai)), ar, ai, 10_000, r2)
                 else {
                     panic!("{er},{ei} did not escape")
                 };
                 let (xr, xi) = exact[n as usize];
                 let (d, az) = ((zr - xr).hypot(zi - xi), zr.hypot(zi));
-                assert!(d <= ez + 4.0 * U * az, "{er},{ei} {bits:?}: |dz| {d} > ez {ez}");
-                assert!(ez < 1e-9 * az && ed.is_finite(), "{er},{ei} {bits:?}: ez {ez} ed {ed} useless");
+                assert!(
+                    d <= ez + 4.0 * U * az,
+                    "{er},{ei} {bits:?}: |dz| {d} > ez {ez}"
+                );
+                assert!(
+                    ez < 1e-9 * az && ed.is_finite(),
+                    "{er},{ei} {bits:?}: ez {ez} ed {ed} useless"
+                );
             }
         }
     }

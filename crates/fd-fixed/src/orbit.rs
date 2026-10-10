@@ -14,7 +14,10 @@ use crate::{to_f64, Fixed};
 pub fn orbit(cr: &Fixed, ci: &Fixed, steps: u64, escape2: f64, mut emit: impl FnMut(f64, f64)) {
     let l = cr.mag.len();
     assert_eq!(l, ci.mag.len(), "orbit: coordinates need equal precision");
-    assert!(escape2 <= 4294967296.0, "orbit: escape radius too large for the integer limb");
+    assert!(
+        escape2 <= 4294967296.0,
+        "orbit: escape radius too large for the integer limb"
+    );
     let z = || vec![0u64; l];
     let (mut x, mut y, mut x2, mut y2, mut s, mut s2, mut t) = (z(), z(), z(), z(), z(), z(), z());
     let mut prod = vec![0u64; 2 * l];
@@ -59,7 +62,10 @@ mod tests {
             let (mut x, mut y) = (0.0f64, 0.0f64);
             for (n, (a, b)) in run((re, im), 30).into_iter().enumerate() {
                 (x, y) = (x * x - y * y + cr, 2.0 * x * y + ci);
-                assert!((a - x).abs() + (b - y).abs() < 1e-9 * (1.0 + x.abs() + y.abs()), "{re},{im} step {n}");
+                assert!(
+                    (a - x).abs() + (b - y).abs() < 1e-9 * (1.0 + x.abs() + y.abs()),
+                    "{re},{im} step {n}"
+                );
             }
         }
     }
@@ -68,7 +74,17 @@ mod tests {
     fn misiurewicz_i_is_preperiodic() {
         // c = i: 0, i, -1+i, -i, -1+i, -i, ...
         let z = run(("0", "1"), 6);
-        assert_eq!(z, vec![(0.0, 1.0), (-1.0, 1.0), (0.0, -1.0), (-1.0, 1.0), (0.0, -1.0), (-1.0, 1.0)]);
+        assert_eq!(
+            z,
+            vec![
+                (0.0, 1.0),
+                (-1.0, 1.0),
+                (0.0, -1.0),
+                (-1.0, 1.0),
+                (0.0, -1.0),
+                (-1.0, 1.0)
+            ]
+        );
     }
 
     #[test]

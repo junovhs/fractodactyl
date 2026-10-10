@@ -92,7 +92,10 @@ pub fn sqr(a: &[u64], prod: &mut [u64], out: &mut [u64]) {
         prod[2 * i + 1] = t as u64;
         c = (t >> 64) as u64;
     }
-    debug_assert!(c == 0 && prod[2 * l - 1] == 0, "fixed-point square overflow");
+    debug_assert!(
+        c == 0 && prod[2 * l - 1] == 0,
+        "fixed-point square overflow"
+    );
     out.copy_from_slice(&prod[l - 1..2 * l - 1]);
 }
 

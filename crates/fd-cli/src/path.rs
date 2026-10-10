@@ -18,12 +18,18 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 }
 
 fn zoom(rest: &[String]) -> Result<String, String> {
-    let a = Args::parse(rest, &["re", "im", "from", "to", "seconds", "fps", "rotation"])?;
+    let a = Args::parse(
+        rest,
+        &["re", "im", "from", "to", "seconds", "fps", "rotation"],
+    )?;
     let (re, im) = (a.need("re")?, a.need("im")?);
     Decimal::parse(re)?;
     Decimal::parse(im)?;
     let width = |k: &str| -> Result<f64, String> {
-        let w: f64 = a.need(k)?.parse().map_err(|_| format!("--{k}: bad number"))?;
+        let w: f64 = a
+            .need(k)?
+            .parse()
+            .map_err(|_| format!("--{k}: bad number"))?;
         if !(w.is_normal() && w > 0.0) {
             return Err(format!("--{k}: width must be a positive normal f64"));
         }
@@ -44,7 +50,10 @@ fn zoom(rest: &[String]) -> Result<String, String> {
         a.need("from")?,
         a.need("to")?
     );
-    out.push_str(&format!("# {n} frames, {:.6} decades/s\n# re im width [rotation]\n", (l0 - l1).abs() * fps / (n - 1) as f64));
+    out.push_str(&format!(
+        "# {n} frames, {:.6} decades/s\n# re im width [rotation]\n",
+        (l0 - l1).abs() * fps / (n - 1) as f64
+    ));
     for f in 0..n {
         let x = l0 + (l1 - l0) * f as f64 / (n - 1) as f64;
         let w = sig6(10f64.powf(x));
@@ -61,7 +70,11 @@ fn zoom(rest: &[String]) -> Result<String, String> {
 pub(crate) fn sig6(w: f64) -> String {
     let s = format!("{w:.5e}");
     let (m, e) = s.split_once('e').expect("exponent form");
-    let m = if m.contains('.') { m.trim_end_matches('0').trim_end_matches('.') } else { m };
+    let m = if m.contains('.') {
+        m.trim_end_matches('0').trim_end_matches('.')
+    } else {
+        m
+    };
     format!("{m}e{e}")
 }
 
@@ -73,10 +86,16 @@ mod tests {
     fn widths_are_six_digit_decimals_that_round_trip() {
         assert_eq!(sig6(4.0), "4e0");
         assert_eq!(sig6(1.2345678e-30), "1.23457e-30");
-        let argv: Vec<String> =
-            "--re 0 --im 1 --from 4 --to 1e-49 --seconds 1 --fps 10".split(' ').map(String::from).collect();
+        let argv: Vec<String> = "--re 0 --im 1 --from 4 --to 1e-49 --seconds 1 --fps 10"
+            .split(' ')
+            .map(String::from)
+            .collect();
         let text = zoom(&argv).unwrap();
-        let widths: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).map(|l| l.split(' ').nth(2).unwrap()).collect();
+        let widths: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.starts_with('#'))
+            .map(|l| l.split(' ').nth(2).unwrap())
+            .collect();
         assert_eq!(widths.len(), 10);
         assert_eq!((widths[0], widths[9]), ("4e0", "1e-49"));
         for w in &widths {

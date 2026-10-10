@@ -21,7 +21,13 @@ pub enum Column {
 
 impl Column {
     /// Every v1 column, in file (bit) order.
-    pub const ALL: [Column; 5] = [Column::Class, Column::Nu, Column::De, Column::Normal, Column::Bound];
+    pub const ALL: [Column; 5] = [
+        Column::Class,
+        Column::Nu,
+        Column::De,
+        Column::Normal,
+        Column::Bound,
+    ];
 
     /// Bytes per element.
     #[inline]

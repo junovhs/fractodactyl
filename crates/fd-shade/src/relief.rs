@@ -19,14 +19,21 @@ impl Pass for Relief {
     /// sub-sample filaments.
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
         let de = s.de.as_deref().expect("relief pass needs the De column");
-        let nm = s.normal.as_deref().expect("relief pass needs the Normal column");
+        let nm = s
+            .normal
+            .as_deref()
+            .expect("relief pass needs the Normal column");
         resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 let (x, y) = Samples::unit(nm[i]);
                 let k = 1.0 / (1.0 + HEIGHT * HEIGHT).sqrt();
                 let flat = HEIGHT * k * LIGHT[2];
                 let lit = ((x * LIGHT[0] + y * LIGHT[1]) * k + flat).clamp(0.0, 1.0);
-                let lit = if a.aa { flat + (lit - flat) * a.relief_gain(de[i], h.ss) } else { lit };
+                let lit = if a.aa {
+                    flat + (lit - flat) * a.relief_gain(de[i], h.ss)
+                } else {
+                    lit
+                };
                 let edge = (de[i] * 0.5).tanh();
                 let v = (0.15 + 0.85 * lit) * edge;
                 [v, v * 0.96, v * 0.9]

@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn fd(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_fd")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 fn oracle_script() -> PathBuf {
@@ -14,7 +17,10 @@ fn oracle_script() -> PathBuf {
 }
 
 fn have_mpmath() -> bool {
-    let ok = Command::new("python3").args(["-c", "import mpmath"]).output().is_ok_and(|o| o.status.success());
+    let ok = Command::new("python3")
+        .args(["-c", "import mpmath"])
+        .output()
+        .is_ok_and(|o| o.status.success());
     if !ok {
         eprintln!("skipped: python3 with mpmath not available");
     }
@@ -23,10 +29,14 @@ fn have_mpmath() -> bool {
 
 /// The number after `"key":` in a flat scan of the report.
 fn num(json: &str, key: &str) -> f64 {
-    let at = json.find(&format!("\"{key}\":")).unwrap_or_else(|| panic!("no {key} in {json}"));
+    let at = json
+        .find(&format!("\"{key}\":"))
+        .unwrap_or_else(|| panic!("no {key} in {json}"));
     let rest = json[at + key.len() + 3..].trim_start();
     let end = rest.find([',', '}', ']']).unwrap();
-    rest[..end].parse().unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
 }
 
 /// The 1e-9 frame of bench/path-valley.txt on the f64 tier.
@@ -62,12 +72,33 @@ fn ill_conditioned_normal_passes_as_displacement() {
     let d = dir("valley");
     let out_fds = d.join("valley.fds");
     let script = oracle_script();
-    let args = [&["bench"][..], &VALLEY, &["--runs", "1", "--threads", "2", "--k", "2"]].concat();
-    let out = fd(&[&args[..], &["-o", out_fds.to_str().unwrap(), "--oracle", script.to_str().unwrap()]].concat());
+    let args = [
+        &["bench"][..],
+        &VALLEY,
+        &["--runs", "1", "--threads", "2", "--k", "2"],
+    ]
+    .concat();
+    let out = fd(&[
+        &args[..],
+        &[
+            "-o",
+            out_fds.to_str().unwrap(),
+            "--oracle",
+            script.to_str().unwrap(),
+        ],
+    ]
+    .concat());
     let json = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{json}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{json}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(json.contains("\"kernel\":\"pert-f64/1\""), "{json}");
-    assert!(num(&json, "normal_err") > 1e-3, "the ill-conditioned sample should still be probed: {json}");
+    assert!(
+        num(&json, "normal_err") > 1e-3,
+        "the ill-conditioned sample should still be probed: {json}"
+    );
     assert!(num(&json, "normal_px_err") < 1e-5, "{json}");
     std::fs::remove_dir_all(&d).ok();
 }
@@ -82,18 +113,41 @@ fn atlas_frame_150_passes_as_displacement() {
     }
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/path-atlas-v0.txt");
     let text = std::fs::read_to_string(path).unwrap();
-    let line = text.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')).nth(150).unwrap();
+    let line = text
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .nth(150)
+        .unwrap();
     let v: Vec<&str> = line.split_whitespace().collect();
     let d = dir("atlas150");
     let out_fds = d.join("f150.fds");
     let script = oracle_script();
-    let args = ["bench", "--re", v[0], "--im", v[1], "--width", v[2], "--size", "960x540", "--iter", "100000"];
-    let rest = ["--runs", "1", "--threads", "2", "-o", out_fds.to_str().unwrap(), "--oracle", script.to_str().unwrap()];
+    let args = [
+        "bench", "--re", v[0], "--im", v[1], "--width", v[2], "--size", "960x540", "--iter",
+        "100000",
+    ];
+    let rest = [
+        "--runs",
+        "1",
+        "--threads",
+        "2",
+        "-o",
+        out_fds.to_str().unwrap(),
+        "--oracle",
+        script.to_str().unwrap(),
+    ];
     let out = fd(&[&args[..], &rest].concat());
     let json = String::from_utf8_lossy(&out.stdout);
-    assert!(out.status.success(), "{json}\n{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{json}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     assert!(json.contains("\"kernel\":\"pert-f64/1\""), "{json}");
-    assert!(num(&json, "de_rel_err") > 1e-2 && num(&json, "normal_err") > 1e-3, "{json}");
+    assert!(
+        num(&json, "de_rel_err") > 1e-2 && num(&json, "normal_err") > 1e-3,
+        "{json}"
+    );
     for key in ["nu_px_err", "de_px_err", "normal_px_err"] {
         assert!(num(&json, key) < 1e-4, "{key}: {json}");
     }
@@ -109,12 +163,39 @@ fn wrong_normals_fail() {
     }
     let d = dir("wrong");
     let path = d.join("fx.fds");
-    let args = [&["render"][..], &VALLEY, &["--kernel", "fx", "--threads", "2", "-o", path.to_str().unwrap()]].concat();
+    let args = [
+        &["render"][..],
+        &VALLEY,
+        &[
+            "--kernel",
+            "fx",
+            "--threads",
+            "2",
+            "-o",
+            path.to_str().unwrap(),
+        ],
+    ]
+    .concat();
     let out = fd(&args);
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let oracle = |p: &Path| Command::new("python3").arg(oracle_script()).arg(p).args(["--k", "2"]).output().unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let oracle = |p: &Path| {
+        Command::new("python3")
+            .arg(oracle_script())
+            .arg(p)
+            .args(["--k", "2"])
+            .output()
+            .unwrap()
+    };
     let good = oracle(&path);
-    assert!(good.status.success(), "{}", String::from_utf8_lossy(&good.stdout));
+    assert!(
+        good.status.success(),
+        "{}",
+        String::from_utf8_lossy(&good.stdout)
+    );
 
     let mut r = Reader::open(&path).unwrap();
     let header = r.header.clone();

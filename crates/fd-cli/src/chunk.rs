@@ -8,9 +8,21 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let rest = argv.get(1..).ok_or_else(usage)?;
     match argv.first().map(String::as_str) {
         Some("put") => {
-            let a = Args::parse(rest, &["store", "kind", "encoding", "formula", "precision", "rounding"])?;
+            let a = Args::parse(
+                rest,
+                &[
+                    "store",
+                    "kind",
+                    "encoding",
+                    "formula",
+                    "precision",
+                    "rounding",
+                ],
+            )?;
             let [file] = a.positional.as_slice() else {
-                return Err("usage: fd chunk put --store DIR --kind K [contract flags] <file>".into());
+                return Err(
+                    "usage: fd chunk put --store DIR --kind K [contract flags] <file>".into(),
+                );
             };
             let contract = Contract {
                 kind: a.need("kind")?.parse()?,
@@ -23,7 +35,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let chunk = Chunk::new(contract, &payload);
             let s = store(&a)?;
             let (id, outcome) = s.put(&chunk).map_err(|e| e.to_string())?;
-            println!("id {id}\nresult {}\nbytes {}", outcome.name(), chunk.bytes().len());
+            println!(
+                "id {id}\nresult {}\nbytes {}",
+                outcome.name(),
+                chunk.bytes().len()
+            );
             report_target(&s)
         }
         Some("get") => {
@@ -39,9 +55,22 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let (s, id) = (store(&a)?, id(&a)?);
             let chunk = s.get(&id).map_err(|e| e.to_string())?;
             let c = chunk.contract();
-            println!("id {id}\nformat 1.{}\nkind {}\nencoding {}", chunk.minor(), c.kind, c.encoding);
-            println!("formula {}\nprecision {}\nrounding {}", c.formula, c.precision_bits, c.rounding);
-            println!("payload {}\nbytes {}\npath {}", chunk.payload().len(), chunk.bytes().len(), s.path(&id).display());
+            println!(
+                "id {id}\nformat 1.{}\nkind {}\nencoding {}",
+                chunk.minor(),
+                c.kind,
+                c.encoding
+            );
+            println!(
+                "formula {}\nprecision {}\nrounding {}",
+                c.formula, c.precision_bits, c.rounding
+            );
+            println!(
+                "payload {}\nbytes {}\npath {}",
+                chunk.payload().len(),
+                chunk.bytes().len(),
+                s.path(&id).display()
+            );
             Ok(())
         }
         Some("verify") => {
@@ -56,7 +85,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             if bad.is_empty() {
                 Ok(())
             } else {
-                Err(format!("{} of {checked} chunks failed verification", bad.len()))
+                Err(format!(
+                    "{} of {checked} chunks failed verification",
+                    bad.len()
+                ))
             }
         }
         Some("stats") => {
@@ -64,9 +96,21 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let s = store(&a)?;
             let st = s.stats().map_err(|e| e.to_string())?;
             let b = s.budget();
-            println!("chunks {}\nbytes {}\ntarget {}\ncap {}", st.chunks, st.bytes, b.target, b.cap);
-            println!("headroom {}\nover_target {}", b.cap.saturating_sub(st.bytes), u8::from(st.bytes > b.target));
-            let mut classes = [("operators", 0u64), ("evidence", 0), ("manifests", 0), ("other", 0)];
+            println!(
+                "chunks {}\nbytes {}\ntarget {}\ncap {}",
+                st.chunks, st.bytes, b.target, b.cap
+            );
+            println!(
+                "headroom {}\nover_target {}",
+                b.cap.saturating_sub(st.bytes),
+                u8::from(st.bytes > b.target)
+            );
+            let mut classes = [
+                ("operators", 0u64),
+                ("evidence", 0),
+                ("manifests", 0),
+                ("other", 0),
+            ];
             for (kind, k) in s.stats_by_kind().map_err(|e| e.to_string())? {
                 println!("kind.{kind} {} {}", k.chunks, k.bytes);
                 classes[class(kind)].1 += k.bytes;
@@ -81,8 +125,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let mut s = store(&a)?;
             if a.str("target").is_some() || a.str("cap").is_some() {
                 let old = s.budget();
-                let byte_flag = |k: &str, default: u64| a.str(k).map_or(Ok(default), |v| bytes(k, v));
-                let new = Budget { target: byte_flag("target", old.target)?, cap: byte_flag("cap", old.cap)? };
+                let byte_flag =
+                    |k: &str, default: u64| a.str(k).map_or(Ok(default), |v| bytes(k, v));
+                let new = Budget {
+                    target: byte_flag("target", old.target)?,
+                    cap: byte_flag("cap", old.cap)?,
+                };
                 s.set_budget(new).map_err(|e| e.to_string())?;
             }
             println!("target {}\ncap {}", s.budget().target, s.budget().cap);
@@ -101,9 +149,15 @@ pub(crate) fn store(a: &Args) -> Result<Store, String> {
 pub(crate) fn report_target(s: &Store) -> Result<(), String> {
     let used = s.stats().map_err(|e| e.to_string())?.bytes;
     let b = s.budget();
-    println!("atlas_bytes {used}\nover_target {}", u8::from(used > b.target));
+    println!(
+        "atlas_bytes {used}\nover_target {}",
+        u8::from(used > b.target)
+    );
     if used > b.target {
-        eprintln!("warning: atlas holds {used} bytes, over its {} byte target (cap {})", b.target, b.cap);
+        eprintln!(
+            "warning: atlas holds {used} bytes, over its {} byte target (cap {})",
+            b.target, b.cap
+        );
     }
     Ok(())
 }
@@ -125,7 +179,10 @@ pub(crate) fn bytes(flag: &str, v: &str) -> Result<u64, String> {
         .iter()
         .find_map(|&(sfx, unit)| v.strip_suffix(sfx).map(|n| (n, unit)))
         .unwrap_or((v, 1));
-    num.parse::<u64>().ok().and_then(|n| n.checked_mul(unit)).ok_or_else(|| format!("--{flag}: bad byte count {v:?}"))
+    num.parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(unit))
+        .ok_or_else(|| format!("--{flag}: bad byte count {v:?}"))
 }
 
 /// The single positional chunk id.

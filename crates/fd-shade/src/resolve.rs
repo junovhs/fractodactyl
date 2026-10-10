@@ -26,7 +26,9 @@ pub struct Rgb8 {
 pub(crate) fn resolve(h: &Header, dither: bool, f: impl Fn(usize) -> [f32; 3] + Sync) -> Rgb8 {
     let (w, ht) = h.pixels();
     let mut data = vec![0u8; w * ht * 3];
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, ht.max(1));
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, ht.max(1));
     let rows_per = ht.div_ceil(threads).max(1);
     std::thread::scope(|sc| {
         for (k, chunk) in data.chunks_mut(rows_per * w * 3).enumerate() {
@@ -55,8 +57,13 @@ fn pixel_row(h: &Header, py: usize, out: &mut [u8], dither: bool, f: &impl Fn(us
             }
         }
         for (c, (d, v)) in o.iter_mut().zip(acc).enumerate() {
-            let t = if dither { DITHER_LEVELS * tpdf((py as u32) << 16 ^ (px as u32) << 2 ^ c as u32) } else { 0.0 };
-            *d = ((v * inv).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + t).clamp(0.0, 255.0) as u8;
+            let t = if dither {
+                DITHER_LEVELS * tpdf((py as u32) << 16 ^ (px as u32) << 2 ^ c as u32)
+            } else {
+                0.0
+            };
+            *d = ((v * inv).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + t).clamp(0.0, 255.0)
+                as u8;
         }
     }
 }
@@ -82,7 +89,10 @@ mod tests {
         let v: Vec<f32> = (0..1u32 << 16).map(|k| tpdf(k << 2)).collect();
         let mean = v.iter().sum::<f32>() / v.len() as f32;
         let var = v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32;
-        assert!(mean.abs() < 0.01 && (var - 1.0 / 6.0).abs() < 0.01, "mean {mean} var {var}");
+        assert!(
+            mean.abs() < 0.01 && (var - 1.0 / 6.0).abs() < 0.01,
+            "mean {mean} var {var}"
+        );
         assert!(v.iter().all(|x| (-1.0..=1.0).contains(x)));
     }
 }

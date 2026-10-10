@@ -25,7 +25,8 @@ use fd_samples::{Column, ColumnSet, Kind, Reader, Samples};
 use std::fmt::Write as _;
 use std::path::Path;
 
-const USAGE: &str = "usage: fd compare A_DIR B_DIR [--px P] [--de-tol R] [--normal-tol DEG] [--frames A..B]";
+const USAGE: &str =
+    "usage: fd compare A_DIR B_DIR [--px P] [--de-tol R] [--normal-tol DEG] [--frames A..B]";
 
 /// Reference `de` (output px) at or below which de/normal differences are only reported.
 const NEAR_PX: f32 = 1e-3;
@@ -43,8 +44,14 @@ struct Tol {
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let a = Args::parse(argv, &["px", "de-tol", "normal-tol", "frames"])?;
-    let [da, db] = a.positional.as_slice() else { return Err(USAGE.into()) };
-    let tol = Tol { px: a.num("px", 1e-3)?, de: a.num("de-tol", 2e-3)?, normal: a.num("normal-tol", 0.2)? };
+    let [da, db] = a.positional.as_slice() else {
+        return Err(USAGE.into());
+    };
+    let tol = Tol {
+        px: a.num("px", 1e-3)?,
+        de: a.num("de-tol", 2e-3)?,
+        normal: a.num("normal-tol", 0.2)?,
+    };
     let px = tol.px;
     let mut names: Vec<String> = std::fs::read_dir(da)
         .map_err(|e| format!("{da}: {e}"))?
@@ -56,15 +63,25 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         let bad = || format!("--frames: expected A..B, got {r:?}");
         let (x, y) = r.split_once("..").ok_or_else(bad)?;
         let x: usize = x.parse().map_err(|_| bad())?;
-        let y: usize = if y.is_empty() { usize::MAX } else { y.parse().map_err(|_| bad())? };
-        names.retain(|n| n[6..n.len() - 4].parse::<usize>().is_ok_and(|f| f >= x && f < y));
+        let y: usize = if y.is_empty() {
+            usize::MAX
+        } else {
+            y.parse().map_err(|_| bad())?
+        };
+        names.retain(|n| {
+            n[6..n.len() - 4]
+                .parse::<usize>()
+                .is_ok_and(|f| f >= x && f < y)
+        });
     }
     if names.is_empty() {
         return Err(format!("{da}: no frame-NNNNN.fds files"));
     }
     let mut t = Sum::default();
     for name in &names {
-        let f: usize = name[6..name.len() - 4].parse().map_err(|_| format!("{name}: bad frame number"))?;
+        let f: usize = name[6..name.len() - 4]
+            .parse()
+            .map_err(|_| format!("{name}: bad frame number"))?;
         let j = match frame(&Path::new(da).join(name), &Path::new(db).join(name), tol) {
             Ok(c) => {
                 let j = c.json(f, name);
@@ -208,10 +225,17 @@ fn decimal(s: &str) -> Result<(bool, Option<(f64, i64)>), String> {
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return Err(bad());
     }
-    let Some(lead) = digits.bytes().position(|b| b != b'0') else { return Ok((neg, None)) };
+    let Some(lead) = digits.bytes().position(|b| b != b'0') else {
+        return Ok((neg, None));
+    };
     let sig = &digits[lead..digits.len().min(lead + 17)];
-    let mant: f64 = format!("{}.{}", &sig[..1], &sig[1..]).parse().map_err(|_| bad())?;
-    let exp = e.checked_sub(frac.len() as i64).and_then(|x| x.checked_add((digits.len() - lead - 1) as i64)).ok_or_else(bad)?;
+    let mant: f64 = format!("{}.{}", &sig[..1], &sig[1..])
+        .parse()
+        .map_err(|_| bad())?;
+    let exp = e
+        .checked_sub(frac.len() as i64)
+        .and_then(|x| x.checked_add((digits.len() - lead - 1) as i64))
+        .ok_or_else(bad)?;
     Ok((neg, Some((mant, exp))))
 }
 
@@ -235,7 +259,10 @@ fn frame(pa: &Path, pb: &Path, tol: Tol) -> Result<Cmp, String> {
     if (ha.nx, ha.ny, ha.ss, ha.max_iter) != (hb.nx, hb.ny, hb.ss, hb.max_iter) {
         return Err("grids differ".into());
     }
-    if ha.view.rotation != hb.view.rotation || ha.view.center_re != hb.view.center_re || ha.view.center_im != hb.view.center_im {
+    if ha.view.rotation != hb.view.rotation
+        || ha.view.center_re != hb.view.center_re
+        || ha.view.center_im != hb.view.center_im
+    {
         return Err("views differ".into());
     }
     // The player writes the width it derives from the manifests (`width x 2^(2 - L)`),
@@ -244,31 +271,50 @@ fn frame(pa: &Path, pb: &Path, tol: Tol) -> Result<Cmp, String> {
     // 1e-1000 and 1e-2000 differ even though both underflow an f64 (DEC-21).
     let rel = width_rel(&ha.view.width, &hb.view.width)?;
     if rel > WIDTH_REL {
-        return Err(format!("widths differ: {} vs {}", ha.view.width, hb.view.width));
+        return Err(format!(
+            "widths differ: {} vs {}",
+            ha.view.width, hb.view.width
+        ));
     }
     // A must carry nu and de (de converts nu to px); de and normal of B, and normal of
     // A, are read when present and scored when both files have them.
     let (ca, cb) = (ha.columns, hb.columns);
     let base = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
-    let want_a = if ca.has(Column::Normal) { base.with(Column::Normal) } else { base };
+    let want_a = if ca.has(Column::Normal) {
+        base.with(Column::Normal)
+    } else {
+        base
+    };
     let mut want_b = ColumnSet::of(&[Column::Class, Column::Nu]);
     for col in [Column::De, Column::Normal] {
         if cb.has(col) {
             want_b = want_b.with(col);
         }
     }
-    let (sa, sb) = (ra.read(want_a).map_err(|e| e.to_string())?, rb.read(want_b).map_err(|e| e.to_string())?);
-    let (na, nb, de) = (sa.nu.as_ref().ok_or("A has no nu")?, sb.nu.as_ref().ok_or("B has no nu")?, sa.de.as_ref().ok_or("A has no de")?);
+    let (sa, sb) = (
+        ra.read(want_a).map_err(|e| e.to_string())?,
+        rb.read(want_b).map_err(|e| e.to_string())?,
+    );
+    let (na, nb, de) = (
+        sa.nu.as_ref().ok_or("A has no nu")?,
+        sb.nu.as_ref().ok_or("B has no nu")?,
+        sa.de.as_ref().ok_or("A has no de")?,
+    );
     let de_b = sb.de.as_ref();
     let normals = sa.normal.as_ref().zip(sb.normal.as_ref());
-    let mut c = Cmp { samples: sa.class.len() as u64, width_rel: rel, ..Cmp::default() };
+    let mut c = Cmp {
+        samples: sa.class.len() as u64,
+        width_rel: rel,
+        ..Cmp::default()
+    };
     c.de.frames = u64::from(de_b.is_some());
     c.normal.frames = u64::from(normals.is_some());
     for k in 0..sa.class.len() {
         let (x, y) = (kind(&sa, k), kind(&sb, k));
         c.kinds[x][y] += 1;
         let a_bad = x == 0 && !(na[k].is_finite() && de[k].is_finite() && de[k] >= 0.0);
-        let b_bad = y == 0 && !(nb[k].is_finite() && de_b.is_none_or(|d| d[k].is_finite() && d[k] >= 0.0));
+        let b_bad =
+            y == 0 && !(nb[k].is_finite() && de_b.is_none_or(|d| d[k].is_finite() && d[k] >= 0.0));
         if a_bad || b_bad {
             c.non_finite += 1;
         }
@@ -291,26 +337,43 @@ fn frame(pa: &Path, pb: &Path, tol: Tol) -> Result<Cmp, String> {
             let near = de[k] <= NEAR_PX;
             if let Some(db) = de_b {
                 let rel = (f64::from(db[k]) - f64::from(de[k])).abs() / f64::from(de[k]);
-                c.de.add(if de[k] == 0.0 && db[k] == 0.0 { 0.0 } else { rel }, near, tol.de);
+                c.de.add(
+                    if de[k] == 0.0 && db[k] == 0.0 {
+                        0.0
+                    } else {
+                        rel
+                    },
+                    near,
+                    tol.de,
+                );
             }
             if let Some((ma, mb)) = normals {
                 c.normal.add(angle_deg(ma[k], mb[k]), near, tol.normal);
             }
         }
     }
-    c.bytes_identical = std::fs::read(pa).map_err(|e| e.to_string())? == std::fs::read(pb).map_err(|e| e.to_string())?;
+    c.bytes_identical = std::fs::read(pa).map_err(|e| e.to_string())?
+        == std::fs::read(pb).map_err(|e| e.to_string())?;
     Ok(c)
 }
 
 impl Cmp {
     fn ok(&self) -> bool {
-        self.class_mismatches == 0 && self.nu_over == 0 && self.non_finite == 0 && self.de.over == 0 && self.normal.over == 0
+        self.class_mismatches == 0
+            && self.nu_over == 0
+            && self.non_finite == 0
+            && self.de.over == 0
+            && self.normal.over == 0
     }
 
     fn json(&self, f: usize, name: &str) -> String {
         let ok = self.ok();
         let mut j = format!("{{\"schema\":\"fd-compare/1\",\"record\":\"frame\",\"frame\":{f},\"file\":{},\"samples\":{}", q(name), self.samples);
-        let _ = write!(j, ",\"bytes_identical\":{},\"width_rel\":{}", self.bytes_identical, self.width_rel);
+        let _ = write!(
+            j,
+            ",\"bytes_identical\":{},\"width_rel\":{}",
+            self.bytes_identical, self.width_rel
+        );
         self.body(&mut j);
         let _ = write!(j, ",\"ok\":{ok}}}");
         j
@@ -388,6 +451,10 @@ mod tests {
         assert!(width_rel("1e-40", "-1e-40").unwrap().is_infinite());
         assert_eq!(width_rel("0", "0.000").unwrap(), 0.0);
         assert!(width_rel("1e-40", "1e-41").unwrap() > 0.5);
-        assert!(width_rel("abc", "1").is_err() && width_rel("1e", "1").is_err() && width_rel(".", "1").is_err());
+        assert!(
+            width_rel("abc", "1").is_err()
+                && width_rel("1e", "1").is_err()
+                && width_rel(".", "1").is_err()
+        );
     }
 }

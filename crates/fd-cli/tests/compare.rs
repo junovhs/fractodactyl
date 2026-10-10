@@ -6,21 +6,32 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn fd(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_fd")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 fn ok(o: &Output) -> String {
     let text = String::from_utf8(o.stdout.clone()).unwrap();
-    assert!(o.status.success(), "{text}\n{}", String::from_utf8_lossy(&o.stderr));
+    assert!(
+        o.status.success(),
+        "{text}\n{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
     text
 }
 
 /// The number after the first `"key":` in a flat scan of one JSON line.
 fn num(json: &str, key: &str) -> f64 {
-    let at = json.find(&format!("\"{key}\":")).unwrap_or_else(|| panic!("no {key} in {json}"));
+    let at = json
+        .find(&format!("\"{key}\":"))
+        .unwrap_or_else(|| panic!("no {key} in {json}"));
     let rest = &json[at + key.len() + 3..];
     let end = rest.find([',', '}', ']']).unwrap();
-    rest[..end].parse().unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
 }
 
 #[test]
@@ -31,30 +42,54 @@ fn per_frame_bla_control_matches_plain_control() {
     let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/path-atlas-v0.txt");
     let text = std::fs::read_to_string(committed).unwrap();
     let first = text.lines().find(|l| !l.starts_with('#')).unwrap();
-    let (re, im) = (first.split(' ').next().unwrap(), first.split(' ').nth(1).unwrap());
+    let (re, im) = (
+        first.split(' ').next().unwrap(),
+        first.split(' ').nth(1).unwrap(),
+    );
     // An f64-tier frame (empty table) and deep fx frames (tables with valid blocks).
     let path = dir.join("cut.txt");
-    let lines: String = ["1e-3", "1e-25", "1e-40", "2e-49"].iter().map(|w| format!("{re} {im} {w}\n")).collect();
+    let lines: String = ["1e-3", "1e-25", "1e-40", "2e-49"]
+        .iter()
+        .map(|w| format!("{re} {im} {w}\n"))
+        .collect();
     std::fs::write(&path, lines).unwrap();
     let p = path.to_str().unwrap();
     let grid = ["--size", "32x18", "--iter", "20000", "--threads", "2"];
     let (da, db) = (dir.join("A"), dir.join("B"));
     let (a, b) = (da.to_str().unwrap(), db.to_str().unwrap());
     ok(&fd(&[&["control", p, "-o", a][..], &grid].concat()));
-    let out = ok(&fd(&[&["control", p, "--bla", "per-frame", "--runs", "2", "-o", b][..], &grid].concat()));
+    let out = ok(&fd(&[
+        &["control", p, "--bla", "per-frame", "--runs", "2", "-o", b][..],
+        &grid,
+    ]
+    .concat()));
     let records: Vec<&str> = out.lines().collect();
     assert_eq!(records.len(), 5, "{out}");
     let (mut used, mut empty) = (0, 0);
     for rec in &records[..4] {
-        for k in ["\"bla\":{\"mode\":\"per-frame\"", "\"atlas\":\"none\",\"cross_frame_reuse\":false", "\"state\":\"repeat\"", "\"deterministic\":true", "\"ok\":true}"] {
+        for k in [
+            "\"bla\":{\"mode\":\"per-frame\"",
+            "\"atlas\":\"none\",\"cross_frame_reuse\":false",
+            "\"state\":\"repeat\"",
+            "\"deterministic\":true",
+            "\"ok\":true}",
+        ] {
             assert!(rec.contains(k), "missing {k} in {rec}");
         }
         // The table is built inside the frame's clock, and the orbit computed fresh.
         let at = &rec[rec.find("\"bla\":{").unwrap()..];
-        assert!(num(at, "reference_seconds") > 0.0 && num(at, "operator_seconds") > 0.0, "{rec}");
+        assert!(
+            num(at, "reference_seconds") > 0.0 && num(at, "operator_seconds") > 0.0,
+            "{rec}"
+        );
         if rec.contains("\"use\":\"used\"") {
             used += 1;
-            assert!(num(at, "blocks") > 0.0 && num(at, "valid_blocks") > 0.0 && num(rec, "macro_operators_per_pixel") > 0.0, "{rec}");
+            assert!(
+                num(at, "blocks") > 0.0
+                    && num(at, "valid_blocks") > 0.0
+                    && num(rec, "macro_operators_per_pixel") > 0.0,
+                "{rec}"
+            );
             assert!(num(rec, "pixel_fraction") < 1.0, "{rec}");
         } else {
             assert!(rec.contains("\"use\":\"skipped_empty\""), "{rec}");
@@ -64,7 +99,10 @@ fn per_frame_bla_control_matches_plain_control() {
     }
     assert!(used > 0 && empty > 0, "used {used} empty {empty}\n{out}");
     let t = records[4];
-    assert!(t.contains("\"bla\":\"per-frame\"") && t.contains("\"mode\":\"per-frame\""), "{t}");
+    assert!(
+        t.contains("\"bla\":\"per-frame\"") && t.contains("\"mode\":\"per-frame\""),
+        "{t}"
+    );
     assert_eq!(num(t, "frames_used"), used as f64);
     assert_eq!(num(t, "frames_empty_table_skipped"), empty as f64);
 
@@ -73,27 +111,53 @@ fn per_frame_bla_control_matches_plain_control() {
     let lines: Vec<&str> = cmp.lines().collect();
     assert_eq!(lines.len(), 5, "{cmp}");
     let totals = lines[4];
-    assert!(totals.starts_with("{\"schema\":\"fd-compare/1\",\"record\":\"totals\""), "{totals}");
+    assert!(
+        totals.starts_with("{\"schema\":\"fd-compare/1\",\"record\":\"totals\""),
+        "{totals}"
+    );
     assert_eq!(num(totals, "class_mismatches"), 0.0);
     assert_eq!(num(totals, "frames_class_identical"), 4.0);
-    assert!(num(totals, "frames_bytes_identical") >= empty as f64, "{totals}");
-    assert!(lines[0].contains("\"bytes_identical\":true"), "{}", lines[0]);
+    assert!(
+        num(totals, "frames_bytes_identical") >= empty as f64,
+        "{totals}"
+    );
+    assert!(
+        lines[0].contains("\"bytes_identical\":true"),
+        "{}",
+        lines[0]
+    );
     assert!(totals.ends_with("\"ok\":true}"), "{totals}");
 
     // A directory against itself: everything identical. A corrupted class: exit 1.
     let same = ok(&fd(&["compare", a, a]));
-    assert_eq!(num(same.lines().last().unwrap(), "frames_bytes_identical"), 4.0);
+    assert_eq!(
+        num(same.lines().last().unwrap(), "frames_bytes_identical"),
+        4.0
+    );
     let f = db.join("frame-00001.fds");
     let mut bytes = std::fs::read(&f).unwrap();
-    let h = fd_samples::Reader::open(&f).unwrap().header.encode().unwrap().len();
+    let h = fd_samples::Reader::open(&f)
+        .unwrap()
+        .header
+        .encode()
+        .unwrap()
+        .len();
     bytes[h] ^= 1; // escaped <-> interior on sample 0
     std::fs::write(&f, bytes).unwrap();
     let bad = fd(&["compare", a, b]);
     assert_eq!(bad.status.code(), Some(1));
     let text = String::from_utf8(bad.stdout).unwrap();
-    assert_eq!(num(text.lines().last().unwrap(), "class_mismatches"), 1.0, "{text}");
+    assert_eq!(
+        num(text.lines().last().unwrap(), "class_mismatches"),
+        1.0,
+        "{text}"
+    );
 
-    for bad in [&["control", p, "--bla", "frame"][..], &["compare", a], &["control", p, "--every", "0"]] {
+    for bad in [
+        &["control", p, "--bla", "frame"][..],
+        &["compare", a],
+        &["control", p, "--every", "0"],
+    ] {
         assert_eq!(fd(bad).status.code(), Some(2), "{bad:?}");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -112,14 +176,34 @@ fn synth_n(dir: &Path, width: &str, nu: [f64; 2], de: [f32; 2], normal: Option<[
     if normal.is_some() {
         columns = columns.with(Column::Normal);
     }
-    let view = View { center_re: "-0.75".into(), center_im: "0.1".into(), width: width.into(), rotation: 0.0 };
-    let h = Header { minor: fd_samples::MINOR, columns, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+    let view = View {
+        center_re: "-0.75".into(),
+        center_im: "0.1".into(),
+        width: width.into(),
+        rotation: 0.0,
+    };
+    let h = Header {
+        minor: fd_samples::MINOR,
+        columns,
+        nx: 2,
+        ny: 1,
+        ss: 1,
+        max_iter: 1000,
+        escape_radius: 1e10,
+        view,
+        kernel: "test".into(),
+    };
     let mut s = Samples::alloc(2, columns);
     s.class = vec![Class::new(Kind::Escaped, Evidence::Heuristic); 2];
     s.nu = Some(nu.to_vec());
     s.de = Some(de.to_vec());
     s.normal = normal.map(|n| n.to_vec());
-    fd_samples::write(std::fs::File::create(dir.join("frame-00000.fds")).unwrap(), &h, &s).unwrap();
+    fd_samples::write(
+        std::fs::File::create(dir.join("frame-00000.fds")).unwrap(),
+        &h,
+        &s,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -171,7 +255,9 @@ fn non_finite_values_and_deep_widths_fail() {
 
 /// The JSON object after `"key":` in a flat line, up to its matching brace.
 fn section<'a>(json: &'a str, key: &str) -> &'a str {
-    let at = json.find(&format!("\"{key}\":{{")).unwrap_or_else(|| panic!("no {key} in {json}"));
+    let at = json
+        .find(&format!("\"{key}\":{{"))
+        .unwrap_or_else(|| panic!("no {key} in {json}"));
     let rest = &json[at..];
     let mut depth = 0;
     for (i, ch) in rest.char_indices() {
@@ -198,7 +284,11 @@ fn de_and_normal_are_scored() {
         let (a, b) = (dir.join(name).join("A"), dir.join(name).join("B"));
         synth_n(&a, "1e-40", nu, a_de, Some([1000, 65500]));
         synth_n(&b, "1e-40", nu, b_de, Some(b_normal));
-        let o = fd(&[&["compare", a.to_str().unwrap(), b.to_str().unwrap()][..], extra].concat());
+        let o = fd(&[
+            &["compare", a.to_str().unwrap(), b.to_str().unwrap()][..],
+            extra,
+        ]
+        .concat());
         let text = String::from_utf8(o.stdout.clone()).unwrap();
         (o.status.code(), text.lines().last().unwrap().to_string())
     };
@@ -216,19 +306,47 @@ fn de_and_normal_are_scored() {
     assert_eq!(code, Some(1), "{t}");
     assert_eq!(num(section(&t, "nu"), "over_px"), 0.0, "{t}");
     assert_eq!(num(section(&t, "de"), "over_tol"), 2.0, "{t}");
-    assert!((num(section(&t, "de"), "rel_max") - 0.027).abs() < 1e-6, "{t}");
+    assert!(
+        (num(section(&t, "de"), "rel_max") - 0.027).abs() < 1e-6,
+        "{t}"
+    );
     assert_eq!(num(section(&t, "normal"), "over_tol"), 0.0, "{t}");
     // A looser --de-tol accepts it.
-    assert_eq!(run("de-tol", de, [1.027, 2.054], [1000, 65500], &["--de-tol", "0.03"]).0, Some(0));
+    assert_eq!(
+        run(
+            "de-tol",
+            de,
+            [1.027, 2.054],
+            [1000, 65500],
+            &["--de-tol", "0.03"]
+        )
+        .0,
+        Some(0)
+    );
 
     // Normals rotated by 1 degree (one wraps past 0): normal fails.
-    let (code, t) = run("normal", de, de, [1000 + one_degree, 65500u16.wrapping_add(one_degree)], &[]);
+    let (code, t) = run(
+        "normal",
+        de,
+        de,
+        [1000 + one_degree, 65500u16.wrapping_add(one_degree)],
+        &[],
+    );
     assert_eq!(code, Some(1), "{t}");
     assert_eq!(num(section(&t, "normal"), "over_tol"), 2.0, "{t}");
-    assert!((num(section(&t, "normal"), "deg_max") - 1.0).abs() < 0.01, "{t}");
+    assert!(
+        (num(section(&t, "normal"), "deg_max") - 1.0).abs() < 0.01,
+        "{t}"
+    );
 
     // Within 1e-3 px of the boundary: reported, never failing.
-    let (code, t) = run("near", [1e-4, 2.0], [2e-4, 2.0], [1000 + 5 * one_degree, 65500], &[]);
+    let (code, t) = run(
+        "near",
+        [1e-4, 2.0],
+        [2e-4, 2.0],
+        [1000 + 5 * one_degree, 65500],
+        &[],
+    );
     assert_eq!(code, Some(0), "{t}");
     let n = section(&t, "de");
     assert_eq!(num(section(n, "near_boundary"), "samples"), 1.0, "{t}");
@@ -241,12 +359,32 @@ fn de_and_normal_are_scored() {
         use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View};
         std::fs::create_dir_all(&b).unwrap();
         let columns = ColumnSet::of(&[Column::Class, Column::Nu]);
-        let view = View { center_re: "-0.75".into(), center_im: "0.1".into(), width: "1e-40".into(), rotation: 0.0 };
-        let h = Header { minor: fd_samples::MINOR, columns, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+        let view = View {
+            center_re: "-0.75".into(),
+            center_im: "0.1".into(),
+            width: "1e-40".into(),
+            rotation: 0.0,
+        };
+        let h = Header {
+            minor: fd_samples::MINOR,
+            columns,
+            nx: 2,
+            ny: 1,
+            ss: 1,
+            max_iter: 1000,
+            escape_radius: 1e10,
+            view,
+            kernel: "test".into(),
+        };
         let mut s = Samples::alloc(2, columns);
         s.class = vec![Class::new(Kind::Escaped, Evidence::Heuristic); 2];
         s.nu = Some(nu.to_vec());
-        fd_samples::write(std::fs::File::create(b.join("frame-00000.fds")).unwrap(), &h, &s).unwrap();
+        fd_samples::write(
+            std::fs::File::create(b.join("frame-00000.fds")).unwrap(),
+            &h,
+            &s,
+        )
+        .unwrap();
     }
     let t = ok(&fd(&["compare", a.to_str().unwrap(), b.to_str().unwrap()]));
     let t = t.lines().last().unwrap();

@@ -39,10 +39,32 @@ pub(crate) struct Keyframes<'a> {
 }
 
 impl<'a> Keyframes<'a> {
-    pub fn new(re: &str, im: &str, w0: f64, out: (u32, u32), m: u32, p: &Params, zone: Option<&'a Zone>) -> Self {
-        let p = Params { nx: out.0 * m, ny: out.1 * m, ss: 1, ..*p };
+    pub fn new(
+        re: &str,
+        im: &str,
+        w0: f64,
+        out: (u32, u32),
+        m: u32,
+        p: &Params,
+        zone: Option<&'a Zone>,
+    ) -> Self {
+        let p = Params {
+            nx: out.0 * m,
+            ny: out.1 * m,
+            ss: 1,
+            ..*p
+        };
         let (re, im) = (re.to_string(), im.to_string());
-        Keyframes { re, im, w0, out: (out.0 as usize, out.1 as usize), p, zone, cache: Vec::new(), rendered: Vec::new() }
+        Keyframes {
+            re,
+            im,
+            w0,
+            out: (out.0 as usize, out.1 as usize),
+            p,
+            zone,
+            cache: Vec::new(),
+            rendered: Vec::new(),
+        }
     }
 
     fn width_str(&self, j: usize) -> String {
@@ -59,7 +81,12 @@ impl<'a> Keyframes<'a> {
         if self.cache.iter().any(|c| c.0 == j) {
             return Ok(());
         }
-        let view = View { center_re: self.re.clone(), center_im: self.im.clone(), width: self.width_str(j), rotation: 0.0 };
+        let view = View {
+            center_re: self.re.clone(),
+            center_im: self.im.clone(),
+            width: self.width_str(j),
+            rotation: 0.0,
+        };
         let t = std::time::Instant::now();
         let (h, s, used) = render_frame(&view, &self.p, self.zone)?;
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
@@ -81,7 +108,13 @@ impl<'a> Keyframes<'a> {
 
     /// The frame at width `w`, centred `off` (complex, re/im) from the keyframe centre,
     /// shaded by `look` at appearance `a`.
-    pub fn frame(&mut self, w: f64, off: (f64, f64), look: &dyn Pass, a: &Appearance) -> Result<Rgb8, String> {
+    pub fn frame(
+        &mut self,
+        w: f64,
+        off: (f64, f64),
+        look: &dyn Pass,
+        a: &Appearance,
+    ) -> Result<Rgb8, String> {
         let req = coverage(w, off, (self.out.0 as u32, self.out.1 as u32));
         let k = self.octave(req);
         self.ensure(k, k)?;
@@ -89,7 +122,10 @@ impl<'a> Keyframes<'a> {
         let get = |j: usize| self.cache.iter().find(|c| c.0 == j).expect("ensured");
         let (outer, inner) = (get(k), get(k + 1));
         let sa = Appearance { dither: true, ..*a };
-        let (so, si) = (look.shade_with(&outer.2, &outer.3, &sa), look.shade_with(&inner.2, &inner.3, &sa));
+        let (so, si) = (
+            look.shade_with(&outer.2, &outer.3, &sa),
+            look.shade_with(&inner.2, &inner.3, &sa),
+        );
         let lut: Vec<f32> = (0..256).map(|v| (v as f32 / 255.0).powf(2.2)).collect();
         let (ow, oh) = self.out;
         let u = (outer.1 / req).log2().clamp(0.0, 1.0) as f32;
@@ -101,7 +137,9 @@ impl<'a> Keyframes<'a> {
         let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect) as f32);
         let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
         let mut data = vec![0u8; ow * oh * 3];
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, oh);
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .clamp(1, oh);
         let rows_per = oh.div_ceil(threads);
         std::thread::scope(|sc| {
             for (c, chunk) in data.chunks_mut(rows_per * ow * 3).enumerate() {
@@ -117,11 +155,18 @@ impl<'a> Keyframes<'a> {
                             let wi = ramp * ((1.0 - d) / margin).clamp(0.0, 1.0);
                             let mut col = [0f32; 3];
                             if wi < 1.0 {
-                                let o = gather(so, lut, xn * zo + oxo, yn * zo + oyo, TENT * zo * so.w as f32 / ow as f32);
+                                let o = gather(
+                                    so,
+                                    lut,
+                                    xn * zo + oxo,
+                                    yn * zo + oyo,
+                                    TENT * zo * so.w as f32 / ow as f32,
+                                );
                                 col = o.map(|v| v * (1.0 - wi));
                             }
                             if wi > 0.0 {
-                                let i = gather(si, lut, xi, yi, TENT * zi * si.w as f32 / ow as f32);
+                                let i =
+                                    gather(si, lut, xi, yi, TENT * zi * si.w as f32 / ow as f32);
                                 col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
                             }
                             for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
@@ -181,15 +226,28 @@ mod tests {
 
     #[test]
     fn gather_keeps_flat_colour_and_weights_by_distance() {
-        let flat = Rgb8 { w: 8, h: 4, data: [10u8, 128, 250].repeat(32) };
+        let flat = Rgb8 {
+            w: 8,
+            h: 4,
+            data: [10u8, 128, 250].repeat(32),
+        };
         let lut: Vec<f32> = (0..256).map(|v| v as f32).collect();
         for (x, y, f) in [(0.0, 0.0, 1.0), (0.49, -0.49, 3.0), (-0.3, 0.2, 0.2)] {
             let g = gather(&flat, &lut, x, y, f);
-            assert!(g.iter().zip([10.0, 128.0, 250.0]).all(|(a, b)| (a - b).abs() < 1e-3), "{g:?}");
+            assert!(
+                g.iter()
+                    .zip([10.0, 128.0, 250.0])
+                    .all(|(a, b)| (a - b).abs() < 1e-3),
+                "{g:?}"
+            );
         }
         // Left half 0, right half 200: a point a quarter pixel right of the edge, with a
         // one-pixel tent, sees both sides, more of the right.
-        let mut img = Rgb8 { w: 8, h: 4, data: vec![0; 96] };
+        let mut img = Rgb8 {
+            w: 8,
+            h: 4,
+            data: vec![0; 96],
+        };
         for r in 0..4 {
             for c in 4..8 {
                 img.data[(r * 8 + c) * 3..(r * 8 + c) * 3 + 3].copy_from_slice(&[200; 3]);
@@ -201,7 +259,16 @@ mod tests {
 
     #[test]
     fn octave_picks_the_pair_around_the_frame_width() {
-        let p = Params { nx: 2, ny: 2, ss: 1, max_iter: 10, escape_radius: 1e10, columns: crate::render::columns("nu").unwrap(), threads: 1, tier: None };
+        let p = Params {
+            nx: 2,
+            ny: 2,
+            ss: 1,
+            max_iter: 10,
+            escape_radius: 1e10,
+            columns: crate::render::columns("nu").unwrap(),
+            threads: 1,
+            tier: None,
+        };
         let k = Keyframes::new("0", "0", 4.0, (2, 2), 2, &p, None);
         assert_eq!(k.octave(4.0), 0);
         assert_eq!(k.octave(2.0001), 0);

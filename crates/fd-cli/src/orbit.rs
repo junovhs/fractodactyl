@@ -20,8 +20,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     match argv.first().map(String::as_str) {
         Some("put") => run_put(rest),
         Some("bla") => run_bla(rest),
-        _ => Err("usage: fd orbit put --store DIR <render view flags> [--slab N]
-       fd orbit bla --store DIR <render view flags> [--orbit ID] [--eps E] [--slab N]".into()),
+        _ => Err(
+            "usage: fd orbit put --store DIR <render view flags> [--slab N]
+       fd orbit bla --store DIR <render view flags> [--orbit ID] [--eps E] [--slab N]"
+                .into(),
+        ),
     }
 }
 
@@ -40,7 +43,11 @@ fn run_put(rest: &[String]) -> Result<(), String> {
 /// `fd orbit bla`: build the BLA table of a stored orbit (`--orbit`, else computed and
 /// stored now) for the view's largest `|dc|`, and store it as one `bla` chunk.
 fn run_bla(rest: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "slab", "orbit", "eps"]).collect();
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .chain(["store", "slab", "orbit", "eps"])
+        .collect();
     let a = Args::parse(rest, &known)?;
     let (view, p) = job(&a)?;
     let s = store(&a)?;
@@ -60,8 +67,18 @@ fn run_bla(rest: &[String]) -> Result<(), String> {
     let t = Instant::now();
     let bla = Bla::build(&r, eps, dc_max)?;
     let secs = t.elapsed().as_secs_f64();
-    let levels = bla.levels.iter().map(|l| l.iter().map(Block::to_array).collect()).collect();
-    let table = BlaTable { orbit, eps, dc_max, points: bla.points, levels };
+    let levels = bla
+        .levels
+        .iter()
+        .map(|l| l.iter().map(Block::to_array).collect())
+        .collect();
+    let table = BlaTable {
+        orbit,
+        eps,
+        dc_max,
+        points: bla.points,
+        levels,
+    };
     let chunk = table.to_chunk().map_err(|e| e.to_string())?;
     let (id, outcome) = s.put(&chunk).map_err(|e| e.to_string())?;
     let (blocks, valid) = bla.counts();
@@ -86,46 +103,92 @@ fn run_bla(rest: &[String]) -> Result<(), String> {
 
 /// Stored bytes of the slab chunks an orbit manifest names.
 fn slab_bytes(s: &Store, orbit: &ChunkId) -> Result<usize, String> {
-    let m = OrbitManifest::from_chunk(&s.get(orbit).map_err(|e| e.to_string())?).map_err(|e| format!("{orbit}: {e}"))?;
-    m.slabs.iter().map(|id| s.get(id).map(|c| c.bytes().len()).map_err(|e| e.to_string())).sum()
+    let m = OrbitManifest::from_chunk(&s.get(orbit).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("{orbit}: {e}"))?;
+    m.slabs
+        .iter()
+        .map(|id| {
+            s.get(id)
+                .map(|c| c.bytes().len())
+                .map_err(|e| e.to_string())
+        })
+        .sum()
 }
 
 /// Load the BLA table `id` and the orbit it was built over (centre-checked against
 /// `view` like [`load`]), with the orbit manifest's id.
-pub(crate) fn load_bla(s: &Store, id: &str, view: &View) -> Result<(Reference, u32, Bla, ChunkId), String> {
+pub(crate) fn load_bla(
+    s: &Store,
+    id: &str,
+    view: &View,
+) -> Result<(Reference, u32, Bla, ChunkId), String> {
     let id: ChunkId = id.parse()?;
-    let t = BlaTable::from_chunk(&s.get(&id).map_err(|e| e.to_string())?).map_err(|e| format!("{id}: {e}"))?;
+    let t = BlaTable::from_chunk(&s.get(&id).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("{id}: {e}"))?;
     let (r, bits) = load(s, &t.orbit.to_string(), view)?;
-    let levels = t.levels.into_iter().map(|l| l.into_iter().map(Block::from_array).collect()).collect();
+    let levels = t
+        .levels
+        .into_iter()
+        .map(|l| l.into_iter().map(Block::from_array).collect())
+        .collect();
     let bla = Bla::new(t.eps, t.dc_max, t.points, levels).map_err(|e| format!("{id}: {e}"))?;
     Ok((r, bits, bla, t.orbit))
 }
 
 /// Store `r` (computed at `view`'s centre with `bits`) as slabs of `size` points plus
 /// its orbit manifest; returns the manifest id. `verbose` prints the slab report.
-pub(crate) fn put(s: &Store, view: &View, r: &Reference, bits: u32, size: u32, verbose: bool) -> Result<ChunkId, String> {
+pub(crate) fn put(
+    s: &Store,
+    view: &View,
+    r: &Reference,
+    bits: u32,
+    size: u32,
+    verbose: bool,
+) -> Result<ChunkId, String> {
     put_sized(s, view, r, bits, size, verbose).map(|(id, _)| id)
 }
 
 /// [`put`], also returning the encoded bytes of the slabs plus the manifest (stored now
 /// or already present).
-pub(crate) fn put_sized(s: &Store, view: &View, r: &Reference, bits: u32, size: u32, verbose: bool) -> Result<(ChunkId, usize), String> {
+pub(crate) fn put_sized(
+    s: &Store,
+    view: &View,
+    r: &Reference,
+    bits: u32,
+    size: u32,
+    verbose: bool,
+) -> Result<(ChunkId, usize), String> {
     let slabs = OrbitSlab::split(&r.re, &r.im, size).map_err(|e| e.to_string())?;
     let (mut ids, mut total) = (Vec::new(), 0);
     for sl in &slabs {
         let chunk = sl.to_chunk(bits).map_err(|e| e.to_string())?;
         let (id, outcome) = s.put(&chunk).map_err(|e| e.to_string())?;
         if verbose {
-            println!("slab {} {} {id} {} {}", sl.start, sl.re.len(), outcome.name(), chunk.bytes().len());
+            println!(
+                "slab {} {} {id} {} {}",
+                sl.start,
+                sl.re.len(),
+                outcome.name(),
+                chunk.bytes().len()
+            );
         }
         total += chunk.bytes().len();
         ids.push(id);
     }
-    let m = OrbitManifest { center_re: view.center_re.clone(), center_im: view.center_im.clone(), precision_bits: bits, slabs: ids };
+    let m = OrbitManifest {
+        center_re: view.center_re.clone(),
+        center_im: view.center_im.clone(),
+        precision_bits: bits,
+        slabs: ids,
+    };
     let manifest = m.to_chunk().map_err(|e| e.to_string())?;
     let (id, _) = s.put(&manifest).map_err(|e| e.to_string())?;
     if verbose {
-        println!("slabs {}\nslab_bytes {total}\nbytes_per_iter {:.3}", slabs.len(), total as f64 / r.len() as f64);
+        println!(
+            "slabs {}\nslab_bytes {total}\nbytes_per_iter {:.3}",
+            slabs.len(),
+            total as f64 / r.len() as f64
+        );
         println!("orbit {id}");
     }
     Ok((id, total + manifest.bytes().len()))
@@ -135,15 +198,21 @@ pub(crate) fn put_sized(s: &Store, view: &View, r: &Reference, bits: u32, size: 
 /// orbit computed at any centre other than `view`'s (compared as exact decimals).
 pub(crate) fn load(s: &Store, id: &str, view: &View) -> Result<(Reference, u32), String> {
     let id: ChunkId = id.parse()?;
-    let m = OrbitManifest::from_chunk(&s.get(&id).map_err(|e| e.to_string())?).map_err(|e| format!("{id}: {e}"))?;
+    let m = OrbitManifest::from_chunk(&s.get(&id).map_err(|e| e.to_string())?)
+        .map_err(|e| format!("{id}: {e}"))?;
     if !same(&m.center_re, &view.center_re)? || !same(&m.center_im, &view.center_im)? {
-        return Err(format!("orbit {id} is for centre {} {}, not this view's centre", m.center_re, m.center_im));
+        return Err(format!(
+            "orbit {id} is for centre {} {}, not this view's centre",
+            m.center_re, m.center_im
+        ));
     }
     let mut slabs = Vec::new();
     for sid in &m.slabs {
         let chunk = s.get(sid).map_err(|e| e.to_string())?;
         if chunk.contract().precision_bits != m.precision_bits {
-            return Err(format!("orbit slab {sid} disagrees with its manifest on precision"));
+            return Err(format!(
+                "orbit slab {sid} disagrees with its manifest on precision"
+            ));
         }
         slabs.push(OrbitSlab::from_chunk(&chunk).map_err(|e| format!("{sid}: {e}"))?);
     }

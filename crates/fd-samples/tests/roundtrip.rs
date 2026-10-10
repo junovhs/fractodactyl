@@ -29,7 +29,10 @@ fn every_column_round_trips_bit_exactly() {
     let h = header(all);
     let mut s = Samples::alloc(h.count(), all);
     for i in 0..h.count() {
-        s.class[i] = Class::new([Kind::Escaped, Kind::Interior, Kind::Unresolved][i % 3], Evidence::Heuristic);
+        s.class[i] = Class::new(
+            [Kind::Escaped, Kind::Interior, Kind::Unresolved][i % 3],
+            Evidence::Heuristic,
+        );
         s.nu.as_mut().unwrap()[i] = 1e9 + i as f64 / 7.0;
         s.de.as_mut().unwrap()[i] = i as f32 * 0.5;
         s.normal.as_mut().unwrap()[i] = (i * 4099) as u16;
@@ -81,7 +84,9 @@ fn huge_dimensions_are_refused_without_allocating() {
     h.ss = 1;
     let p = path("huge");
     std::fs::write(&p, h.encode().unwrap()).unwrap();
-    let err = Reader::open(&p).err().expect("huge sample file must be rejected");
+    let err = Reader::open(&p)
+        .err()
+        .expect("huge sample file must be rejected");
     assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     std::fs::remove_file(p).unwrap();
 }

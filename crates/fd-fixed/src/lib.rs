@@ -58,7 +58,11 @@ impl Fixed {
 
     /// `self - o`, exact; both must have the same limb count.
     pub fn sub(&self, o: &Fixed) -> Fixed {
-        assert_eq!(self.mag.len(), o.mag.len(), "Fixed::sub: limb counts differ");
+        assert_eq!(
+            self.mag.len(),
+            o.mag.len(),
+            "Fixed::sub: limb counts differ"
+        );
         let mut mag = vec![0; self.mag.len()];
         let neg = limbs::add_signed(self.neg, &self.mag, !o.neg, &o.mag, &mut mag);
         Fixed { neg, mag }
@@ -92,7 +96,13 @@ mod tests {
 
     #[test]
     fn parse_and_convert() {
-        for (s, v) in [("1.5", 1.5), ("-0.75", -0.75), ("0", 0.0), ("2.5e-3", 2.5e-3), ("-1.25E2", -125.0)] {
+        for (s, v) in [
+            ("1.5", 1.5),
+            ("-0.75", -0.75),
+            ("0", 0.0),
+            ("2.5e-3", 2.5e-3),
+            ("-1.25E2", -125.0),
+        ] {
             assert_eq!(Fixed::parse(s, 4).unwrap().to_f64(), v, "{s}");
         }
     }

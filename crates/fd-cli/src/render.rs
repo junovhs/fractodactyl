@@ -1,15 +1,24 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
-use fd_kernel::{render_bla, render_refined, render_with, render_zone, zone_covers, BlaStats, Params, Refinement, Stats, Tier, Zone, FINAL};
+use fd_kernel::{
+    render_bla, render_refined, render_with, render_zone, zone_covers, BlaStats, Params,
+    Refinement, Stats, Tier, Zone, FINAL,
+};
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
 
 /// Flags shared by `fd render` and `fd bench`.
-pub(crate) const FLAGS: [&str; 11] = ["re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o"];
+pub(crate) const FLAGS: [&str; 11] = [
+    "re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o",
+];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["store", "orbit", "bla", "refine", "max-px", "zone"]).collect();
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .chain(["store", "orbit", "bla", "refine", "max-px", "zone"])
+        .collect();
     let a = Args::parse(argv, &known)?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
@@ -24,9 +33,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let table = match a.str("bla") {
         Some(_) if a.str("refine").is_some() => return Err("--refine does not take --bla".into()),
         Some(id) => {
-            let (r, bits, table, oid) = crate::orbit::load_bla(&crate::chunk::store(&a)?, id, &view)?;
+            let (r, bits, table, oid) =
+                crate::orbit::load_bla(&crate::chunk::store(&a)?, id, &view)?;
             if a.str("orbit").is_some_and(|o| o != oid.to_string()) {
-                return Err(format!("BLA table {id} was built over orbit {oid}, not --orbit"));
+                return Err(format!(
+                    "BLA table {id} was built over orbit {oid}, not --orbit"
+                ));
             }
             Some(((r, bits), table))
         }
@@ -35,7 +47,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     // `--zone FILE` (KERN-01): the minibrot-band fast path when the zone covers the view,
     // otherwise the perturbation kernel as without it.
     let zone = match a.str("zone") {
-        Some(_) if a.str("bla").is_some() || a.str("orbit").is_some() || a.str("refine").is_some() => {
+        Some(_)
+            if a.str("bla").is_some() || a.str("orbit").is_some() || a.str("refine").is_some() =>
+        {
             return Err("--zone does not take --bla, --orbit or --refine".into())
         }
         Some(f) => {
@@ -43,7 +57,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             if zone_covers(&view, &p, &z)? {
                 Some(z)
             } else {
-                eprintln!("fd: the zone does not cover this view; rendering with the perturbation kernel");
+                eprintln!(
+                    "fd: the zone does not cover this view; rendering with the perturbation kernel"
+                );
                 None
             }
         }
@@ -55,7 +71,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut bla = None;
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
     let (header, samples, refined) = match (a.str("refine"), table) {
-        _ if zone.is_some() => render_zone(&view, &p, zone.as_ref().unwrap()).map(|(h, s, _, _)| (h, s, None))?,
+        _ if zone.is_some() => {
+            render_zone(&view, &p, zone.as_ref().unwrap()).map(|(h, s, _, _)| (h, s, None))?
+        }
         (None, Some((orbit, table))) => {
             let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;
             bla = Some((st, b));
@@ -73,7 +91,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let file = std::fs::File::create(out).map_err(|e| format!("{out}: {e}"))?;
     write(BufWriter::new(file), &header, &samples).map_err(|e| format!("{out}: {e}"))?;
     let bytes = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
-    println!("{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes", p.nx, p.ny, header.kernel);
+    println!(
+        "{out}: {}x{} samples, {}, {threads} threads, {secs:.3} s, {bytes} bytes",
+        p.nx, p.ny, header.kernel
+    );
     if let Some((iterations, max_px, r)) = refined {
         report(&r, max_px, iterations, samples.class.len() as u64);
     }
@@ -95,11 +116,17 @@ fn report_bla(st: &Stats, b: &BlaStats, samples: u64, load_seconds: f64) {
     println!("iterations.equivalent {equivalent}");
     println!("skip_fraction {:.6}", frac(b.skipped, equivalent));
     println!("speedup.iterations {:.3}", frac(equivalent, st.iterations));
-    println!("fallback.iteration_fraction {:.6}", frac(equivalent - b.skipped, equivalent));
+    println!(
+        "fallback.iteration_fraction {:.6}",
+        frac(equivalent - b.skipped, equivalent)
+    );
     // Closed-form interior samples ran no iteration: neither BLA nor fallback.
     println!("closed_form.samples {}", b.closed_form_samples);
     println!("fallback.samples {}", b.fallback_samples);
-    println!("fallback.sample_fraction {:.6}", frac(b.fallback_samples, samples - b.closed_form_samples));
+    println!(
+        "fallback.sample_fraction {:.6}",
+        frac(b.fallback_samples, samples - b.closed_form_samples)
+    );
     match b.shift_px {
         Some(px) => println!("bla.shift_px.max {px:e}"),
         None => println!("bla.shift_px.max untracked"),
@@ -109,17 +136,34 @@ fn report_bla(st: &Stats, b: &BlaStats, samples: u64, load_seconds: f64) {
 /// Work per phase and each block's phase mask (final or fallback).
 fn report(r: &Refinement, max_px: f64, iterations: u64, full: u64) {
     let finals = r.mask.iter().filter(|&&m| m & FINAL != 0).count();
-    println!("refine block_px {} max_px {max_px} blocks {}", r.block_px, r.mask.len());
-    for (name, ph) in [("preview", r.preview), ("sparse", r.sparse), ("dense", r.dense)] {
-        println!("phase {name} blocks {} samples {} iterations {}", ph.blocks, ph.samples, ph.iterations);
+    println!(
+        "refine block_px {} max_px {max_px} blocks {}",
+        r.block_px,
+        r.mask.len()
+    );
+    for (name, ph) in [
+        ("preview", r.preview),
+        ("sparse", r.sparse),
+        ("dense", r.dense),
+    ] {
+        println!(
+            "phase {name} blocks {} samples {} iterations {}",
+            ph.blocks, ph.samples, ph.iterations
+        );
     }
     let samples = r.preview.samples + r.sparse.samples + r.dense.samples;
-    println!("blocks.final {finals}
-blocks.fallback {}", r.mask.len() - finals);
-    println!("samples {samples}
+    println!(
+        "blocks.final {finals}
+blocks.fallback {}",
+        r.mask.len() - finals
+    );
+    println!(
+        "samples {samples}
 full_samples {full}
 skipped_samples {}
-iterations {iterations}", full - samples);
+iterations {iterations}",
+        full - samples
+    );
     for (k, m) in r.mask.iter().enumerate() {
         let end = if m & FINAL != 0 { "final" } else { "fallback" };
         println!("block {} {} mask {m} {end}", k % r.blocks_x, k / r.blocks_x);
@@ -141,7 +185,10 @@ pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
 pub(crate) fn params(a: &Args) -> Result<Params, String> {
     let (w, h) = size(a.str("size").unwrap_or("640x360"))?;
     let ss: u32 = a.num("ss", 1)?;
-    let threads = a.num("threads", std::thread::available_parallelism().map_or(1, |n| n.get()))?;
+    let threads = a.num(
+        "threads",
+        std::thread::available_parallelism().map_or(1, |n| n.get()),
+    )?;
     Ok(Params {
         nx: w * ss,
         ny: h * ss,
@@ -169,19 +216,27 @@ fn tier(s: &str) -> Result<Option<Tier>, String> {
         "f64" => Ok(Some(Tier::F64)),
         "fx" => Ok(Some(Tier::Fixed)),
         "scaled" => Ok(Some(Tier::Scaled)),
-        _ => Err(format!("--kernel: expected auto, f64, fx or scaled, got {s:?}")),
+        _ => Err(format!(
+            "--kernel: expected auto, f64, fx or scaled, got {s:?}"
+        )),
     }
 }
 
 pub(crate) fn columns(s: &str) -> Result<ColumnSet, String> {
-    s.split(',').filter(|c| !c.is_empty()).try_fold(ColumnSet::of(&[Column::Class]), |set, c| {
-        let col = match c {
-            "nu" => Column::Nu,
-            "de" => Column::De,
-            "normal" => Column::Normal,
-            "bound" => Column::Bound,
-            _ => return Err(format!("--columns: unknown column {c:?} (nu, de, normal, bound)")),
-        };
-        Ok(set.with(col))
-    })
+    s.split(',')
+        .filter(|c| !c.is_empty())
+        .try_fold(ColumnSet::of(&[Column::Class]), |set, c| {
+            let col = match c {
+                "nu" => Column::Nu,
+                "de" => Column::De,
+                "normal" => Column::Normal,
+                "bound" => Column::Bound,
+                _ => {
+                    return Err(format!(
+                        "--columns: unknown column {c:?} (nu, de, normal, bound)"
+                    ))
+                }
+            };
+            Ok(set.with(col))
+        })
 }

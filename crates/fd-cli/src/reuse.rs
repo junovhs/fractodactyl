@@ -10,13 +10,21 @@ use fd_kernel::{reference, reference_bits, render_stats, render_with, Params};
 use fd_samples::{Samples, View};
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd reuse PATH --store DIR [render flags without --re/--im/--width] [--slab N]";
+const USAGE: &str =
+    "usage: fd reuse PATH --store DIR [render flags without --re/--im/--width] [--slab N]";
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation", "o"];
-    let known: Vec<&str> = FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["store", "slab"]).collect();
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .filter(|f| !view_flags.contains(f))
+        .chain(["store", "slab"])
+        .collect();
     let a = Args::parse(argv, &known)?;
-    let [file] = a.positional.as_slice() else { return Err(USAGE.into()) };
+    let [file] = a.positional.as_slice() else {
+        return Err(USAGE.into());
+    };
     let p = params(&a)?;
     let size: u32 = a.num("slab", 4096)?;
     let s = crate::chunk::store(&a)?;
@@ -84,15 +92,26 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         );
     }
     let n = frames.len();
-    println!("frames {n}\norbits {}\nreused {reused}\nfallback {fallback}", groups.len());
+    println!(
+        "frames {n}\norbits {}\nreused {reused}\nfallback {fallback}",
+        groups.len()
+    );
     println!("reuse_ratio {:.3}", n as f64 / groups.len() as f64);
     println!("reference_seconds.per_frame {own_ref:.6}\nreference_seconds.shared {shared_s:.6}\nload_seconds {load_total:.6}");
-    println!("reference_seconds.saved {:.6}", own_ref - shared_s - load_total);
-    println!("seconds.per_frame {own_total:.6}\nseconds.reuse {:.6}", shared_s + reuse_total);
+    println!(
+        "reference_seconds.saved {:.6}",
+        own_ref - shared_s - load_total
+    );
+    println!(
+        "seconds.per_frame {own_total:.6}\nseconds.reuse {:.6}",
+        shared_s + reuse_total
+    );
     println!("identical_frames {identical}\ndiffering_samples {differing}");
     crate::chunk::report_target(&s)?;
     if broken > 0 {
-        return Err(format!("{broken} frames rendered differently from an orbit of the same precision"));
+        return Err(format!(
+            "{broken} frames rendered differently from an orbit of the same precision"
+        ));
     }
     Ok(())
 }
@@ -129,12 +148,20 @@ pub(crate) fn groups(frames: &[(View, u32)]) -> Vec<Vec<usize>> {
 /// The frame a group's shared orbit is computed for: its deepest (most bits), the
 /// earliest of those on a tie.
 pub(crate) fn lead(frames: &[(View, u32)], members: &[usize]) -> usize {
-    *members.iter().max_by_key(|&&f| (frames[f].1, std::cmp::Reverse(f))).expect("a group has a frame")
+    *members
+        .iter()
+        .max_by_key(|&&f| (frames[f].1, std::cmp::Reverse(f)))
+        .expect("a group has a frame")
 }
 
 /// Samples whose class or any column value differs (compared bit for bit).
 fn diff(a: &Samples, b: &Samples) -> u64 {
-    fn ne<T: Copy, K: PartialEq>(a: &Option<Vec<T>>, b: &Option<Vec<T>>, i: usize, k: impl Fn(T) -> K) -> bool {
+    fn ne<T: Copy, K: PartialEq>(
+        a: &Option<Vec<T>>,
+        b: &Option<Vec<T>>,
+        i: usize,
+        k: impl Fn(T) -> K,
+    ) -> bool {
         a.as_ref().map(|v| k(v[i])) != b.as_ref().map(|v| k(v[i]))
     }
     (0..a.class.len())

@@ -10,8 +10,13 @@ mod slab;
 mod store;
 
 pub use bla::{BlaTable, BLA_ENCODING};
-pub use chunk::{canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN};
-pub use manifest::{is_manifest, walk, Evidence, FrameManifest, OrbitManifest, TileManifest, Walk, MANIFEST_ENCODING};
+pub use chunk::{
+    canonical_f64, Builder, Chunk, Contract, Formula, Kind, Rounding, CANONICAL_NAN, HEADER_LEN,
+};
+pub use manifest::{
+    is_manifest, walk, Evidence, FrameManifest, OrbitManifest, TileManifest, Walk,
+    MANIFEST_ENCODING,
+};
 pub use sha256::Sha256;
 pub use slab::{OrbitSlab, SLAB_ENCODING};
 pub use store::{Budget, Put, Stats, Store};
@@ -56,7 +61,10 @@ impl std::str::FromStr for ChunkId {
         }
         let mut id = [0; 32];
         for (out, pair) in id.iter_mut().zip(s.as_bytes().chunks_exact(2)) {
-            *out = digit(pair[0]).zip(digit(pair[1])).map(|(h, l)| (h << 4) | l).ok_or_else(bad)?;
+            *out = digit(pair[0])
+                .zip(digit(pair[1]))
+                .map(|(h, l)| (h << 4) | l)
+                .ok_or_else(bad)?;
         }
         Ok(ChunkId(id))
     }
@@ -108,7 +116,10 @@ mod tests {
     fn id_text_round_trip() {
         let id = ChunkId::of(b"abc");
         let text = id.to_string();
-        assert_eq!(text, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            text,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         assert_eq!(text.parse::<ChunkId>().unwrap(), id);
         assert!(text.to_uppercase().parse::<ChunkId>().is_err());
         assert!(text[1..].parse::<ChunkId>().is_err());

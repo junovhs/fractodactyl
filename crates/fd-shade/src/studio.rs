@@ -135,7 +135,10 @@ pub struct Look {
 impl Look {
     /// A built-in look by name.
     pub fn builtin(name: &str) -> Option<Look> {
-        BUILTIN.iter().find(|(n, _)| *n == name).map(|(_, t)| Look::parse(t).expect("built-in looks parse"))
+        BUILTIN
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, t)| Look::parse(t).expect("built-in looks parse"))
     }
 
     /// Parse `.look` text. Every key is optional except `stops`; unknown keys are refused.
@@ -165,13 +168,28 @@ impl Look {
             let bad = |what: &str| format!("line {}: {key}: {what}", n + 1);
             let one = || -> Result<f64, String> {
                 match vals.as_slice() {
-                    [v] => v.parse::<f64>().ok().filter(|x| x.is_finite()).ok_or_else(|| bad("expected one finite number")),
+                    [v] => v
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|x| x.is_finite())
+                        .ok_or_else(|| bad("expected one finite number")),
                     _ => Err(bad("expected one value")),
                 }
             };
             match key {
-                "stops" => l.stops = vals.iter().map(|v| hex(v).ok_or_else(|| bad("expected #rrggbb colours"))).collect::<Result<_, _>>()?,
-                "interior" => l.interior = vals.first().and_then(|v| hex(v)).filter(|_| vals.len() == 1).ok_or_else(|| bad("expected one #rrggbb"))?,
+                "stops" => {
+                    l.stops = vals
+                        .iter()
+                        .map(|v| hex(v).ok_or_else(|| bad("expected #rrggbb colours")))
+                        .collect::<Result<_, _>>()?
+                }
+                "interior" => {
+                    l.interior = vals
+                        .first()
+                        .and_then(|v| hex(v))
+                        .filter(|_| vals.len() == 1)
+                        .ok_or_else(|| bad("expected one #rrggbb"))?
+                }
                 "density" => l.density = one()?,
                 "terrace" => l.terrace = one()? as f32,
                 "slope" => l.slope = one()? as f32,
@@ -186,9 +204,16 @@ impl Look {
             }
         }
         if !(2..=16).contains(&l.stops.len()) {
-            return Err(format!("stops: expected 2 to 16 colours, got {}", l.stops.len()));
+            return Err(format!(
+                "stops: expected 2 to 16 colours, got {}",
+                l.stops.len()
+            ));
         }
-        if l.density <= 0.0 || !(0.0..=1.0).contains(&l.terrace) || !(0.0..=1.0).contains(&l.lines) || l.line_px <= 0.0 {
+        if l.density <= 0.0
+            || !(0.0..=1.0).contains(&l.terrace)
+            || !(0.0..=1.0).contains(&l.lines)
+            || l.line_px <= 0.0
+        {
             return Err("need density > 0, terrace and lines in 0..1, line_px > 0".into());
         }
         Ok(l)
@@ -218,7 +243,9 @@ impl Look {
 
 fn hex(s: &str) -> Option<u32> {
     let h = s.strip_prefix('#')?;
-    (h.len() == 6).then(|| u32::from_str_radix(h, 16).ok()).flatten()
+    (h.len() == 6)
+        .then(|| u32::from_str_radix(h, 16).ok())
+        .flatten()
 }
 
 fn linear(rgb: u32) -> [f32; 3] {
@@ -243,7 +270,10 @@ impl Pass for Studio {
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
         let nu = s.nu.as_deref().expect("studio look needs the Nu column");
         let de = s.de.as_deref().expect("studio look needs the De column");
-        let nm = s.normal.as_deref().expect("studio look needs the Normal column");
+        let nm = s
+            .normal
+            .as_deref()
+            .expect("studio look needs the Normal column");
         let l = &self.0;
         let stops: Vec<[f32; 3]> = l.stops.iter().map(|&c| linear(c)).collect();
         let n = stops.len();
@@ -283,7 +313,8 @@ impl Pass for Studio {
                 }
                 let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
                 let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
-                let mut v = (1.0 + l.slope * facing * steep * fade) * (1.0 - CREVICE * (-d * ss * 1.5).exp());
+                let mut v = (1.0 + l.slope * facing * steep * fade)
+                    * (1.0 - CREVICE * (-d * ss * 1.5).exp());
                 if l.lines > 0.0 {
                     let c = t * n as f64;
                     let per_px = (cycles * n as f32).max(1e-30);
@@ -317,14 +348,17 @@ mod tests {
     #[test]
     fn parse_reads_keys_and_refuses_bad_input() {
         let l = Look::parse("# mine\nstops #ff0000 #00ff00 #0000ff\ninterior #010203\ndensity 0.1\nlines 0.5\nflow 0.2\n").unwrap();
-        assert_eq!((l.stops.len(), l.interior, l.density, l.lines, l.flow), (3, 0x010203, 0.1, 0.5, 0.2));
+        assert_eq!(
+            (l.stops.len(), l.interior, l.density, l.lines, l.flow),
+            (3, 0x010203, 0.1, 0.5, 0.2)
+        );
         for bad in [
-            "stops #ff0000\n",                       // one stop
-            "stops #ff0000 #00ff00\nsparkle 1\n",    // unknown key
-            "stops #ff0000 #00ff00\ndensity -1\n",   // density <= 0
-            "stops #ff0000 #00ff0\n",                // bad colour
-            "stops #ff0000 #00ff00\nterrace 2\n",    // out of range
-            "stops #ff0000 #00ff00\nlines 1 2\n",    // two values
+            "stops #ff0000\n",                     // one stop
+            "stops #ff0000 #00ff00\nsparkle 1\n",  // unknown key
+            "stops #ff0000 #00ff00\ndensity -1\n", // density <= 0
+            "stops #ff0000 #00ff0\n",              // bad colour
+            "stops #ff0000 #00ff00\nterrace 2\n",  // out of range
+            "stops #ff0000 #00ff00\nlines 1 2\n",  // two values
         ] {
             assert!(Look::parse(bad).is_err(), "{bad:?}");
         }
@@ -342,14 +376,41 @@ mod tests {
         }
         // Sample 0: bands ~1e5 per sample (noise); sample 1: far below one per sample.
         s.de.as_mut().unwrap().copy_from_slice(&[1e-6, 1e6]);
-        let view = View { center_re: "0".into(), center_im: "0".into(), width: "1".into(), rotation: 0.0 };
-        let h = Header { minor: MINOR, columns: cols, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+        let view = View {
+            center_re: "0".into(),
+            center_im: "0".into(),
+            width: "1".into(),
+            rotation: 0.0,
+        };
+        let h = Header {
+            minor: MINOR,
+            columns: cols,
+            nx: 2,
+            ny: 1,
+            ss: 1,
+            max_iter: 1000,
+            escape_radius: 1e10,
+            view,
+            kernel: "test".into(),
+        };
         let look = Look::parse("stops #ff0000 #00ff00 #0000ff\nslope 0\n").unwrap();
-        let shade = |aa| Studio(look.clone()).shade_with(&h, &s, &Appearance { aa, ..Appearance::STILL }).data;
+        let shade = |aa| {
+            Studio(look.clone())
+                .shade_with(
+                    &h,
+                    &s,
+                    &Appearance {
+                        aa,
+                        ..Appearance::STILL
+                    },
+                )
+                .data
+        };
         let (on, off) = (shade(true), shade(false));
         assert_eq!(on[3..], off[3..], "coarse bands are untouched");
         // Mean of pure R, G, B is 1/3 each in linear light, times the crevice darkening.
-        let want = ((1.0f32 / 3.0 * (1.0 - CREVICE * (-1.5e-6f32).exp())).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+        let want = ((1.0f32 / 3.0 * (1.0 - CREVICE * (-1.5e-6f32).exp())).powf(1.0 / 2.2) * 255.0
+            + 0.5) as u8;
         assert_eq!(on[..3], [want; 3]);
         assert_ne!(off[..3], [want; 3]);
     }

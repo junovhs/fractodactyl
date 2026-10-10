@@ -24,7 +24,10 @@ use crate::bench::{measure, peak_rss, q, reset_peak_rss, run_oracle, sample_byte
 use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
-use fd_kernel::{bla_dc_max, reference_bits, render_bla, render_with, render_zone, zone_covers, Bla, BlaStats, Params, Zone, ZoneStats};
+use fd_kernel::{
+    bla_dc_max, reference_bits, render_bla, render_with, render_zone, zone_covers, Bla, BlaStats,
+    Params, Zone, ZoneStats,
+};
 use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
 use std::time::Instant;
@@ -33,10 +36,16 @@ const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--wi
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation"];
-    let known: Vec<&str> =
-        FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(["runs", "oracle", "every", "k", "python", "bla", "zone"]).collect();
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .filter(|f| !view_flags.contains(f))
+        .chain(["runs", "oracle", "every", "k", "python", "bla", "zone"])
+        .collect();
     let a = Args::parse(argv, &known)?;
-    let [file] = a.positional.as_slice() else { return Err(USAGE.into()) };
+    let [file] = a.positional.as_slice() else {
+        return Err(USAGE.into());
+    };
     let p = params(&a)?;
     let runs: usize = a.num("runs", 1)?;
     if runs == 0 {
@@ -46,7 +55,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let per_frame = match a.str("bla").unwrap_or("none") {
         "none" => false,
         "per-frame" => true,
-        b => return Err(format!("--bla: expected none or per-frame (a table built inside each frame), got {b:?}")),
+        b => {
+            return Err(format!(
+                "--bla: expected none or per-frame (a table built inside each frame), got {b:?}"
+            ))
+        }
     };
     let every: usize = a.num("every", 1)?;
     if every == 0 {
@@ -67,7 +80,19 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut error = None;
     for (f, (line, view)) in frames.iter().enumerate() {
         let check = oracle.filter(|_| f.is_multiple_of(every));
-        if let Err(e) = frame(&a, &p, runs, per_frame, zone.as_ref(), dir, check, f, *line, view, &mut t) {
+        if let Err(e) = frame(
+            &a,
+            &p,
+            runs,
+            per_frame,
+            zone.as_ref(),
+            dir,
+            check,
+            f,
+            *line,
+            view,
+            &mut t,
+        ) {
             error = Some(format!("frame {f} (line {line}): {e}"));
             break;
         }
@@ -116,20 +141,33 @@ fn frame(
     if let Some(out) = &out {
         std::fs::write(out, &frame.bytes).map_err(|e| format!("{out}: {e}"))?;
     }
-    let mut j = format!("{{\"schema\":\"fd-control/1\",\"record\":\"frame\",\"frame\":{f},\"line\":{line}");
+    let mut j =
+        format!("{{\"schema\":\"fd-control/1\",\"record\":\"frame\",\"frame\":{f},\"line\":{line}");
     // Every run recomputes everything; later runs only check determinism, so they are
     // `repeat`, not `warm`: a control frame has no warm state.
     frame.body(&mut j, "repeat", None)?;
     let checked = runs > 1;
-    let det = if checked { frame.deterministic.to_string() } else { "null".into() };
-    let _ = write!(j, ",\"deterministic\":{det},\"fds\":{}", out.as_deref().map_or("null".into(), q));
+    let det = if checked {
+        frame.deterministic.to_string()
+    } else {
+        "null".into()
+    };
+    let _ = write!(
+        j,
+        ",\"deterministic\":{det},\"fds\":{}",
+        out.as_deref().map_or("null".into(), q)
+    );
     if let Some(o) = &own {
         o.record(&mut j, frame.stats.iterations);
     }
     if zone.is_some() {
         let _ = write!(j, ",\"zone\":{{\"used\":{covered}");
         if let Some(z) = zst {
-            let _ = write!(j, ",\"returns\":{},\"jumps\":{},\"patches\":{},\"plain_steps\":{}", z.returns, z.jumps, z.patches, z.plain);
+            let _ = write!(
+                j,
+                ",\"returns\":{},\"jumps\":{},\"patches\":{},\"plain_steps\":{}",
+                z.returns, z.jumps, z.patches, z.plain
+            );
         }
         j.push('}');
     }
@@ -170,7 +208,10 @@ fn frame(
     for (sum, c) in t.classes.iter_mut().zip(frame.classes) {
         *sum += c as u64;
     }
-    t.log10_width = (t.log10_width.0.min(log10_width), t.log10_width.1.max(log10_width));
+    t.log10_width = (
+        t.log10_width.0.min(log10_width),
+        t.log10_width.1.max(log10_width),
+    );
     t.bits_max = t.bits_max.max(bits);
     if checked {
         t.deterministic &= frame.deterministic;
@@ -184,7 +225,9 @@ fn frame(
         let b = o.stats.unwrap_or_default();
         t.blocks += b.blocks;
         t.skipped += b.skipped;
-        t.fallback_samples += o.stats.map_or(frame.samples as u64, |b| b.fallback_samples + b.closed_form_samples);
+        t.fallback_samples += o.stats.map_or(frame.samples as u64, |b| {
+            b.fallback_samples + b.closed_form_samples
+        });
         if let Some(px) = b.shift_px {
             t.shift_px_max = t.shift_px_max.max(px);
         }
@@ -256,7 +299,11 @@ impl OwnBla {
 /// builds a BLA table over it for the frame's largest `|dc|`, and renders with it (or
 /// without it when it has no valid block, or on the scaled tier), all inside the run's
 /// clock. Runs share nothing.
-fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<(Frame<'a>, OwnBla), String> {
+fn measure_per_frame_bla<'a>(
+    view: &'a View,
+    p: &'a Params,
+    runs: usize,
+) -> Result<(Frame<'a>, OwnBla), String> {
     let mut first: Option<(Frame, OwnBla)> = None;
     let mut times = Vec::with_capacity(runs);
     for _ in 0..runs {
@@ -279,7 +326,14 @@ fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Resu
             }
             other => {
                 let (h, s, st) = render_with(view, p, Some((orbit, bits)))?;
-                (if other.is_some() { TableUse::Empty } else { TableUse::None }, (h, s, st, None))
+                (
+                    if other.is_some() {
+                        TableUse::Empty
+                    } else {
+                        TableUse::None
+                    },
+                    (h, s, st, None),
+                )
             }
         };
         let render_seconds = r.elapsed().as_secs_f64();
@@ -312,7 +366,11 @@ fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Resu
                     deterministic: true,
                     samples: s.class.len(),
                     sample_bytes: sample_bytes(&s),
-                    classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
+                    classes: [
+                        count(Kind::Escaped),
+                        count(Kind::Interior),
+                        count(Kind::Unresolved),
+                    ],
                     peak_rss: peak_rss(),
                     peak_rss_scope: if reset { "run" } else { "process" },
                     atlas: None,
@@ -320,7 +378,9 @@ fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Resu
                 };
                 first = Some((fr, own));
             }
-            Some((f, _)) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
+            Some((f, _)) => {
+                f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations
+            }
         }
     }
     let (mut frame, own) = first.expect("runs >= 1");
@@ -331,7 +391,12 @@ fn measure_per_frame_bla<'a>(view: &'a View, p: &'a Params, runs: usize) -> Resu
 /// [`measure`] for a frame the zone covers: each run renders it with the zone fast
 /// path inside the run's clock (the zone's constants are loaded once, before the clock,
 /// as `--bla ID` tables are).
-fn measure_zone<'a>(view: &'a View, p: &'a Params, runs: usize, zone: &Zone) -> Result<(Frame<'a>, ZoneStats), String> {
+fn measure_zone<'a>(
+    view: &'a View,
+    p: &'a Params,
+    runs: usize,
+    zone: &Zone,
+) -> Result<(Frame<'a>, ZoneStats), String> {
     let mut first: Option<(Frame, ZoneStats)> = None;
     let mut times = Vec::with_capacity(runs);
     for _ in 0..runs {
@@ -354,7 +419,11 @@ fn measure_zone<'a>(view: &'a View, p: &'a Params, runs: usize, zone: &Zone) -> 
                     deterministic: true,
                     samples: s.class.len(),
                     sample_bytes: sample_bytes(&s),
-                    classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
+                    classes: [
+                        count(Kind::Escaped),
+                        count(Kind::Interior),
+                        count(Kind::Unresolved),
+                    ],
                     peak_rss: peak_rss(),
                     peak_rss_scope: if reset { "run" } else { "process" },
                     atlas: None,
@@ -362,7 +431,9 @@ fn measure_zone<'a>(view: &'a View, p: &'a Params, runs: usize, zone: &Zone) -> 
                 };
                 first = Some((fr, zst));
             }
-            Some((f, _)) => f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations,
+            Some((f, _)) => {
+                f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations
+            }
         }
     }
     let (mut frame, zst) = first.expect("runs >= 1");
@@ -373,8 +444,17 @@ fn measure_zone<'a>(view: &'a View, p: &'a Params, runs: usize, zone: &Zone) -> 
 /// The totals record; quantities over zero frames are `null`.
 fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&str>) -> String {
     let n = t.frames;
-    let num = |x: f64| if n == 0 { "null".to_string() } else { x.to_string() };
-    let mut j = format!("{{\"schema\":\"fd-control/1\",\"record\":\"totals\",\"path\":{},\"frames\":{n}", q(file));
+    let num = |x: f64| {
+        if n == 0 {
+            "null".to_string()
+        } else {
+            x.to_string()
+        }
+    };
+    let mut j = format!(
+        "{{\"schema\":\"fd-control/1\",\"record\":\"totals\",\"path\":{},\"frames\":{n}",
+        q(file)
+    );
     j.push_str(if per_frame {
         ",\"cache\":{\"atlas\":\"none\",\"cross_frame_reuse\":false,\"bla\":\"per-frame\"}"
     } else {
@@ -386,7 +466,12 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
         t.cold,
         num(t.cold / n as f64)
     );
-    let _ = write!(j, ",\"reference_seconds\":{{\"total\":{},\"per_frame\":{}}}", t.reference, num(t.reference / n as f64));
+    let _ = write!(
+        j,
+        ",\"reference_seconds\":{{\"total\":{},\"per_frame\":{}}}",
+        t.reference,
+        num(t.reference / n as f64)
+    );
     let _ = write!(
         j,
         ",\"iterations\":{{\"total\":{},\"per_pixel\":{},\"per_sample\":{},\"reference_length_max\":{}}}",
@@ -395,13 +480,21 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
         num(t.iterations as f64 / t.samples as f64),
         t.reference_len_max
     );
-    let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{},\"atlas_bytes_read\":0}}", t.fds_bytes);
+    let _ = write!(
+        j,
+        ",\"bytes\":{{\"fds_bytes\":{},\"atlas_bytes_read\":0}}",
+        t.fds_bytes
+    );
     let _ = write!(
         j,
         ",\"atlas_work\":{{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":{}}}",
         num(t.blocks as f64 / t.pixels)
     );
-    let fallback = if per_frame { t.fallback_samples as f64 / t.samples as f64 } else { 1.0 };
+    let fallback = if per_frame {
+        t.fallback_samples as f64 / t.samples as f64
+    } else {
+        1.0
+    };
     let _ = write!(
         j,
         ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
@@ -429,14 +522,22 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
             t.shift_px_max
         );
     }
-    let _ = write!(j, ",\"zone\":{{\"frames\":{},\"seconds\":{}}}", t.zone_frames, t.zone_seconds);
+    let _ = write!(
+        j,
+        ",\"zone\":{{\"frames\":{},\"seconds\":{}}}",
+        t.zone_frames, t.zone_seconds
+    );
     let _ = write!(
         j,
         ",\"memory\":{{\"peak_rss_bytes\":{},\"sample_bytes\":{},\"device\":\"cpu\",\"peak_vram_bytes\":0}}",
         t.peak_rss.map_or("null".into(), |b| b.to_string()),
         t.sample_bytes
     );
-    let _ = write!(j, ",\"classes\":{{\"escaped\":{},\"interior\":{},\"unresolved\":{}}}", t.classes[0], t.classes[1], t.classes[2]);
+    let _ = write!(
+        j,
+        ",\"classes\":{{\"escaped\":{},\"interior\":{},\"unresolved\":{}}}",
+        t.classes[0], t.classes[1], t.classes[2]
+    );
     let _ = write!(
         j,
         ",\"depth\":{{\"log10_width_min\":{},\"log10_width_max\":{},\"precision_bits_max\":{}}}",
@@ -444,7 +545,11 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
         num(t.log10_width.1),
         num(f64::from(t.bits_max))
     );
-    let det = if runs > 1 && n > 0 { t.deterministic.to_string() } else { "null".into() };
+    let det = if runs > 1 && n > 0 {
+        t.deterministic.to_string()
+    } else {
+        "null".into()
+    };
     let ok = t.ok && error.is_none();
     let _ = write!(
         j,

@@ -66,7 +66,11 @@ pub fn render_refined(
     let t = Instant::now();
     let reference = compute(view, &plane, tier, p)?;
     let reference_seconds = t.elapsed().as_secs_f64();
-    let cols = p.columns.with(Column::Class).with(Column::De).with(Column::Bound);
+    let cols = p
+        .columns
+        .with(Column::Class)
+        .with(Column::De)
+        .with(Column::Bound);
     let job = Job::new(&reference, &plane, tier, p, cols);
     let (nx, ss, b) = (p.nx as usize, p.ss as usize, block_px as usize);
     let (pw, ph) = (nx / ss, p.ny as usize / ss);
@@ -80,17 +84,29 @@ pub fn render_refined(
         (y0..(y0 + b).min(ph)).flat_map(move |py| (x0..(x0 + b).min(pw)).map(move |px| (px, py)))
     };
     let samples = |k: usize| {
-        pixels(k).flat_map(move |(px, py)| (0..ss * ss).map(move |u| (py * ss + u / ss) * nx + px * ss + u % ss))
+        pixels(k).flat_map(move |(px, py)| {
+            (0..ss * ss).map(move |u| (py * ss + u / ss) * nx + px * ss + u % ss)
+        })
     };
     let blocks = bx * by;
     let mut mask = vec![PREVIEW | SPARSE; blocks];
 
     // Preview: the sparse sample of each block's centre pixel. Display only.
-    let idx: Vec<usize> = (0..blocks).map(|k| rep((k % bx * b + b / 2).min(pw - 1), (k / bx * b + b / 2).min(ph - 1))).collect();
+    let idx: Vec<usize> = (0..blocks)
+        .map(|k| {
+            rep(
+                (k % bx * b + b / 2).min(pw - 1),
+                (k / bx * b + b / 2).min(ph - 1),
+            )
+        })
+        .collect();
     let preview = run(&job, nx, &mut s, &mut done, &idx, blocks, p.threads);
     // Sparse: the rest of every pixel's sparse sample, then the rule per block with each
     // sample standing for its whole pixel (reach: its farthest pixel corner).
-    let idx: Vec<usize> = (0..blocks).flat_map(|k| pixels(k).map(|(x, y)| rep(x, y))).filter(|&k| !done[k]).collect();
+    let idx: Vec<usize> = (0..blocks)
+        .flat_map(|k| pixels(k).map(|(x, y)| rep(x, y)))
+        .filter(|&k| !done[k])
+        .collect();
     let sparse = run(&job, nx, &mut s, &mut done, &idx, blocks, p.threads);
     let reach = std::f64::consts::SQRT_2 * ((ss / 2) as f64 + 0.5) / ss as f64;
     let mut open = Vec::new();
@@ -98,27 +114,59 @@ pub fn render_refined(
         if judge_reach(&s, pixels(k).map(|(x, y)| rep(x, y)), reach, max_px).accept {
             *m |= FINAL;
             for (px, py) in pixels(k) {
-                fill(&mut s, rep(px, py), (0..ss * ss).map(|u| (py * ss + u / ss) * nx + px * ss + u % ss));
+                fill(
+                    &mut s,
+                    rep(px, py),
+                    (0..ss * ss).map(|u| (py * ss + u / ss) * nx + px * ss + u % ss),
+                );
             }
         } else {
             open.push(k);
         }
     }
     // Dense: compact the open blocks and compute everything they still lack.
-    let idx: Vec<usize> = open.iter().flat_map(|&k| samples(k)).filter(|&k| !done[k]).collect();
+    let idx: Vec<usize> = open
+        .iter()
+        .flat_map(|&k| samples(k))
+        .filter(|&k| !done[k])
+        .collect();
     let dense = run(&job, nx, &mut s, &mut done, &idx, open.len(), p.threads);
     for &k in &open {
-        mask[k] |= DENSE | if judge(&s, samples(k), p.ss, max_px).accept { FINAL } else { FALLBACK };
+        mask[k] |= DENSE
+            | if judge(&s, samples(k), p.ss, max_px).accept {
+                FINAL
+            } else {
+                FALLBACK
+            };
     }
 
     let iterations = preview.iterations + sparse.iterations + dense.iterations;
-    let stats = Stats { reference_len: reference.len(), reference_seconds, iterations };
-    let r = Refinement { block_px, blocks_x: bx, mask, preview, sparse, dense };
+    let stats = Stats {
+        reference_len: reference.len(),
+        reference_seconds,
+        iterations,
+    };
+    let r = Refinement {
+        block_px,
+        blocks_x: bx,
+        mask,
+        preview,
+        sparse,
+        dense,
+    };
     Ok((header(view, p, cols, &plane, tier), s, stats, r))
 }
 
 /// Compute samples `idx` on `threads` workers and store them.
-fn run(job: &Job, nx: usize, s: &mut Samples, done: &mut [bool], idx: &[usize], blocks: usize, threads: usize) -> Phase {
+fn run(
+    job: &Job,
+    nx: usize,
+    s: &mut Samples,
+    done: &mut [bool],
+    idx: &[usize],
+    blocks: usize,
+    threads: usize,
+) -> Phase {
     let queue = Mutex::new(idx.chunks(256));
     let parts: Vec<Vec<(usize, Outcome)>> = std::thread::scope(|sc| {
         let workers: Vec<_> = (0..threads.max(1))
@@ -127,7 +175,9 @@ fn run(job: &Job, nx: usize, s: &mut Samples, done: &mut [bool], idx: &[usize], 
                     let mut v = Vec::new();
                     loop {
                         // let-else drops the lock guard before the chunk is computed.
-                        let Some(c) = queue.lock().unwrap().next() else { break };
+                        let Some(c) = queue.lock().unwrap().next() else {
+                            break;
+                        };
                         v.extend(c.iter().map(|&k| (k, job.outcome(k % nx, k / nx))));
                     }
                     v
@@ -138,7 +188,10 @@ fn run(job: &Job, nx: usize, s: &mut Samples, done: &mut [bool], idx: &[usize], 
     });
     let n = s.class.len();
     let mut row = Row::split(s, n).pop().expect("non-empty grid");
-    let mut ph = Phase { blocks, ..Phase::default() };
+    let mut ph = Phase {
+        blocks,
+        ..Phase::default()
+    };
     for (k, o) in parts.into_iter().flatten() {
         ph.samples += 1;
         ph.iterations += o.iterations(job.max_iter);
@@ -152,7 +205,9 @@ fn run(job: &Job, nx: usize, s: &mut Samples, done: &mut [bool], idx: &[usize], 
 /// evidence for its own position.
 fn fill(s: &mut Samples, from: usize, to: impl Iterator<Item = usize>) {
     let c = s.class[from];
-    let copy = c.kind().map_or(c, |kind| Class::new(kind, Evidence::Heuristic));
+    let copy = c
+        .kind()
+        .map_or(c, |kind| Class::new(kind, Evidence::Heuristic));
     for k in to.filter(|&k| k != from) {
         s.class[k] = copy;
         if let Some(v) = s.nu.as_mut() {
@@ -177,10 +232,21 @@ mod tests {
 
     #[test]
     fn copied_samples_have_no_bound() {
-        let view = View { center_re: "3".into(), center_im: "0".into(), width: "0.1".into(), rotation: 0.0 };
+        let view = View {
+            center_re: "3".into(),
+            center_im: "0".into(),
+            width: "0.1".into(),
+            rotation: 0.0,
+        };
         let p = Params {
-            nx: 4, ny: 4, ss: 2, max_iter: 32, escape_radius: 4.0,
-            columns: ColumnSet::of(&[Column::Bound]), threads: 1, tier: None,
+            nx: 4,
+            ny: 4,
+            ss: 2,
+            max_iter: 32,
+            escape_radius: 4.0,
+            columns: ColumnSet::of(&[Column::Bound]),
+            threads: 1,
+            tier: None,
         };
         let (_, s, _, r) = render_refined(&view, &p, 2, 1e6).unwrap();
         assert_eq!(r.dense.samples, 0, "no samples were copied");

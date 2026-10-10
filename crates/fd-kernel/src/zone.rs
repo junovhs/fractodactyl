@@ -71,7 +71,10 @@ impl Cx {
     #[inline(always)]
     fn div(self, o: Cx) -> Cx {
         let d = o.norm2();
-        Cx((self.0 * o.0 + self.1 * o.1) / d, (self.1 * o.0 - self.0 * o.1) / d)
+        Cx(
+            (self.0 * o.0 + self.1 * o.1) / d,
+            (self.1 * o.0 - self.0 * o.1) / d,
+        )
     }
 }
 
@@ -84,7 +87,10 @@ struct Fx {
 }
 
 impl Fx {
-    const ONE: Fx = Fx { m: Cx(1.0, 0.0), e: 0 };
+    const ONE: Fx = Fx {
+        m: Cx(1.0, 0.0),
+        e: 0,
+    };
 
     #[inline(always)]
     fn new(m: Cx, e: i64) -> Fx {
@@ -94,13 +100,23 @@ impl Fx {
     fn norm(self) -> Fx {
         let a = self.m.0.abs().max(self.m.1.abs());
         if a == 0.0 || !a.is_finite() {
-            return Fx { m: self.m, e: if a == 0.0 { 0 } else { self.e } };
+            return Fx {
+                m: self.m,
+                e: if a == 0.0 { 0 } else { self.e },
+            };
         }
         let k = ((a.to_bits() >> 52) & 0x7ff) as i64 - 1023;
         if k == -1023 {
-            return Fx { m: self.m.scale(exp2i(64)), e: self.e - 64 }.norm();
+            return Fx {
+                m: self.m.scale(exp2i(64)),
+                e: self.e - 64,
+            }
+            .norm();
         }
-        Fx { m: self.m.scale(exp2i(-k)), e: self.e + k }
+        Fx {
+            m: self.m.scale(exp2i(-k)),
+            e: self.e + k,
+        }
     }
     #[inline(always)]
     fn is_zero(self) -> bool {
@@ -119,19 +135,34 @@ impl Fx {
         if d > 110 {
             return a;
         }
-        Fx { m: a.m.add(b.m.scale(exp2i(-d))), e: a.e }.norm()
+        Fx {
+            m: a.m.add(b.m.scale(exp2i(-d))),
+            e: a.e,
+        }
+        .norm()
     }
     #[inline(always)]
     fn sub(self, o: Fx) -> Fx {
-        self.add(Fx { m: o.m.scale(-1.0), e: o.e })
+        self.add(Fx {
+            m: o.m.scale(-1.0),
+            e: o.e,
+        })
     }
     #[inline(always)]
     fn mul(self, o: Fx) -> Fx {
-        Fx { m: self.m.mul(o.m), e: self.e + o.e }.norm()
+        Fx {
+            m: self.m.mul(o.m),
+            e: self.e + o.e,
+        }
+        .norm()
     }
     #[inline(always)]
     fn inv(self) -> Fx {
-        Fx { m: Cx(1.0, 0.0).div(self.m), e: -self.e }.norm()
+        Fx {
+            m: Cx(1.0, 0.0).div(self.m),
+            e: -self.e,
+        }
+        .norm()
     }
     /// Nearest f64 pair: 0 below f64's range, infinite above it.
     #[inline(always)]
@@ -183,8 +214,15 @@ impl ZoneSize {
             return Err("scale needs a mantissa and optional binary exponent".into());
         }
         let mant = f[1].parse::<f64>().map_err(|_| "bad scale mantissa")?;
-        let exp2 = if f.len() == 3 { f[2].parse::<i64>().map_err(|_| "bad scale exponent")? } else { 0 };
-        if !mant.is_finite() || mant < 0.0 || (f.len() == 3 && mant != 0.0 && !(1.0..2.0).contains(&mant)) {
+        let exp2 = if f.len() == 3 {
+            f[2].parse::<i64>().map_err(|_| "bad scale exponent")?
+        } else {
+            0
+        };
+        if !mant.is_finite()
+            || mant < 0.0
+            || (f.len() == 3 && mant != 0.0 && !(1.0..2.0).contains(&mant))
+        {
             return Err("scale must be finite and positive (new mantissas in [1, 2))".into());
         }
         Ok(Self { mant, exp2 })
@@ -199,7 +237,9 @@ impl ZoneSize {
     }
 
     fn bits(self) -> u64 {
-        (128.0 - self.mant.log2() - self.exp2 as f64).max(128.0).ceil() as u64
+        (128.0 - self.mant.log2() - self.exp2 as f64)
+            .max(128.0)
+            .ceil() as u64
     }
 }
 
@@ -297,15 +337,26 @@ impl Zone {
         };
         let mut raw = vec![];
         let (mut raw_x, mut z24ma_x) = (vec![], None);
-        for (ln, line) in text.lines().enumerate().filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty()) {
+        for (ln, line) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty())
+        {
             let f: Vec<&str> = line.split_whitespace().collect();
             let bad = |what: &str| format!("line {}: {what}", ln + 1);
             let n = |i: usize| -> Result<f64, String> {
-                f.get(i).ok_or_else(|| bad("missing value"))?.parse::<f64>().map_err(|_| bad("bad number"))
+                f.get(i)
+                    .ok_or_else(|| bad("missing value"))?
+                    .parse::<f64>()
+                    .map_err(|_| bad("bad number"))
             };
             let cx = |i: usize| -> Result<Cx, String> { Ok(Cx(n(i)?, n(i + 1)?)) };
             let fx = |i: usize| -> Result<Fx, String> {
-                let e = f.get(i + 2).ok_or_else(|| bad("missing value"))?.parse::<i64>().map_err(|_| bad("bad exponent"))?;
+                let e = f
+                    .get(i + 2)
+                    .ok_or_else(|| bad("missing value"))?
+                    .parse::<i64>()
+                    .map_err(|_| bad("bad exponent"))?;
                 let m = cx(i)?;
                 if !(m.0.is_finite() && m.1.is_finite()) {
                     return Err(bad("non-finite mantissa"));
@@ -314,7 +365,10 @@ impl Zone {
             };
             match f[0] {
                 "c_exact" => {
-                    let (re, im) = (f.get(1).ok_or_else(|| bad("missing value"))?, f.get(2).ok_or_else(|| bad("missing value"))?);
+                    let (re, im) = (
+                        f.get(1).ok_or_else(|| bad("missing value"))?,
+                        f.get(2).ok_or_else(|| bad("missing value"))?,
+                    );
                     (z.c_re, z.c_im) = (re.to_string(), im.to_string());
                 }
                 "c" => z.c = cx(1)?,
@@ -342,7 +396,11 @@ impl Zone {
                     if z.diag.len() <= k {
                         z.diag.resize(k + 1, f64::NEG_INFINITY);
                     }
-                    z.diag[k] = if a.is_zero() { f64::NEG_INFINITY } else { a.m.abs().log2() + a.e as f64 };
+                    z.diag[k] = if a.is_zero() {
+                        f64::NEG_INFINITY
+                    } else {
+                        a.m.abs().log2() + a.e as f64
+                    };
                 }
                 "patch_root" => {
                     z.patch_nx = n(3)? as usize;
@@ -359,7 +417,12 @@ impl Zone {
                     for (i, c) in coef.iter_mut().enumerate() {
                         *c = cx(5 + 2 * i)?;
                     }
-                    z.leaves.push(Leaf { centre: cx(1)?, r: n(3)?, m: n(4)? as i64, coef });
+                    z.leaves.push(Leaf {
+                        centre: cx(1)?,
+                        r: n(3)?,
+                        m: n(4)? as i64,
+                        coef,
+                    });
                 }
                 // Lean-baseline reference orbit of the research bench: not used here.
                 "ref" => {}
@@ -369,17 +432,27 @@ impl Zone {
         if z.c_re.is_empty() {
             return Err("no c_exact line (the nucleus as exact decimals)".into());
         }
-        if raw.is_empty() || z.period == 0 || z.scale.mant <= 0.0 || z.guard.mant <= 0.0 || z.r0 <= 0.0 {
+        if raw.is_empty()
+            || z.period == 0
+            || z.scale.mant <= 0.0
+            || z.guard.mant <= 0.0
+            || z.r0 <= 0.0
+        {
             return Err("incomplete zone: needs period, scale, guard, r0 and biseries".into());
         }
         if z.orbit.len() != APPROACH {
-            return Err(format!("expected {APPROACH} orbit points, got {}", z.orbit.len()));
+            return Err(format!(
+                "expected {APPROACH} orbit points, got {}",
+                z.orbit.len()
+            ));
         }
         if z.phi.is_empty() || z.psi.is_empty() {
             return Err("needs phi and psi series".into());
         }
         for &(_, kid, leaf) in &z.nodes {
-            if (kid >= 0 && kid as usize + 4 > z.nodes.len()) || (kid < 0 && (leaf < 0 || leaf as usize >= z.leaves.len())) {
+            if (kid >= 0 && kid as usize + 4 > z.nodes.len())
+                || (kid < 0 && (leaf < 0 || leaf as usize >= z.leaves.len()))
+            {
                 return Err("malformed patch tree".into());
             }
         }
@@ -399,7 +472,9 @@ impl Zone {
         // result, so such a zone renders only from its exact (`_x`) lines.
         let f64_ok = z.scale.to_f64() >= f64::MIN_POSITIVE
             && z.z24ma.abs() != 0.0
-            && raw.iter().all(|&(_, _, a)| a.0.is_finite() && a.1.is_finite());
+            && raw
+                .iter()
+                .all(|&(_, _, a)| a.0.is_finite() && a.1.is_finite());
         if !f64_ok {
             let Some(z24ma) = z24ma_x else {
                 return Err("Koenigs entry offset or biseries leaves f64's range; z24_minus_alpha_x and biseries_x lines required".into());
@@ -414,7 +489,11 @@ impl Zone {
                 }
                 bis[i][j] = a;
             }
-            z.deep = Some(Deep { bis, z24ma, phi: z.phi.iter().map(|&a| Fx::new(a, 0)).collect() });
+            z.deep = Some(Deep {
+                bis,
+                z24ma,
+                phi: z.phi.iter().map(|&a| Fx::new(a, 0)).collect(),
+            });
         }
         if !z.diag.is_empty() && z.diag.len() <= z.deg + 1 {
             return Err("diag lines must go beyond the biseries degree".into());
@@ -450,24 +529,36 @@ struct CentreOffset {
 
 /// Subtract exact decimal centres at the greater of the view and zone precisions.
 fn centre_offset(view: &View, zone: &Zone, plane: &Plane) -> Result<CentreOffset, String> {
-    let bits = plane.bits.max(zone.scale.bits()).max(zone.guard.bits()).max(zone.max_dc.bits());
+    let bits = plane
+        .bits
+        .max(zone.scale.bits())
+        .max(zone.guard.bits())
+        .max(zone.max_dc.bits());
     let limbs = fd_fixed::limbs_for(bits);
     let d = |a: &str, b: &str| -> Result<(f64, f64, (f64, i64)), String> {
         let diff = Fixed::parse(a, limbs)?.sub(&Fixed::parse(b, limbs)?);
         let me = diff.frexp().unwrap_or((0.0, 0));
-        let scaled = diff.frexp().map_or(0.0, |(m, e)| ZoneSize { mant: m, exp2: e }.over(zone.scale));
+        let scaled = diff
+            .frexp()
+            .map_or(0.0, |(m, e)| ZoneSize { mant: m, exp2: e }.over(zone.scale));
         Ok((diff.to_f64(), scaled, me))
     };
     let (re, sr, (rm, rexp)) = d(&view.center_re, &zone.c_re)?;
     let (im, si, (im_m, iexp)) = d(&view.center_im, &zone.c_im)?;
     let exact = Fx::new(Cx(rm, 0.0), rexp).add(Fx::new(Cx(0.0, im_m), iexp));
-    Ok(CentreOffset { absolute: Cx(re, im), scaled: Cx(sr, si), exact })
+    Ok(CentreOffset {
+        absolute: Cx(re, im),
+        scaled: Cx(sr, si),
+        exact,
+    })
 }
 
 impl Zone {
     fn f64_geometry(&self, plane: &Plane) -> bool {
         plane.h() > 0.0
-            && [self.scale, self.guard, self.max_dc].iter().all(|size| size.to_f64() > 0.0 && size.to_f64().is_finite())
+            && [self.scale, self.guard, self.max_dc]
+                .iter()
+                .all(|size| size.to_f64() > 0.0 && size.to_f64().is_finite())
     }
 
     /// Bound on the pixel shift from truncating the first return (`u = v`) at the
@@ -485,8 +576,12 @@ impl Zone {
         }
         let lr = r.log2();
         // log2 of each term's modulus: |S_n| r^n, and n |S_n| r^(n - 1) for dM/dv.
-        let rem: Vec<f64> = (self.deg + 1..self.diag.len()).map(|n| self.diag[n] + n as f64 * lr).collect();
-        let der: Vec<f64> = (1..=self.deg).map(|n| (n as f64).log2() + self.diag[n] + (n - 1) as f64 * lr).collect();
+        let rem: Vec<f64> = (self.deg + 1..self.diag.len())
+            .map(|n| self.diag[n] + n as f64 * lr)
+            .collect();
+        let der: Vec<f64> = (1..=self.deg)
+            .map(|n| (n as f64).log2() + self.diag[n] + (n - 1) as f64 * lr)
+            .collect();
         let top = der.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let others: f64 = der.iter().map(|&t| (t - top).exp2()).sum::<f64>() - 1.0;
         if !top.is_finite() || others >= 1.0 {
@@ -505,7 +600,11 @@ pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String>
     let (plane, _) = setup(view, p)?;
     let off = centre_offset(view, zone, &plane)?;
     let diagonal = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
-    let spacing = ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale);
+    let spacing = ZoneSize {
+        mant: plane.h_m,
+        exp2: plane.h_e,
+    }
+    .over(zone.scale);
     let inside = if zone.f64_geometry(&plane) {
         off.absolute.abs() + plane.h() * diagonal <= zone.max_dc.to_f64()
     } else {
@@ -518,19 +617,34 @@ pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String>
 /// Render `view` with the zone pipeline. Refused when the zone does not cover the view
 /// (see [`zone_covers`]) or `Bound` is requested (the pipeline carries no error radii).
 /// The header's kernel id is `zone-koenigs/1 P=<period>`.
-pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples, Stats, ZoneStats), String> {
+pub fn render_zone(
+    view: &View,
+    p: &Params,
+    zone: &Zone,
+) -> Result<(Header, Samples, Stats, ZoneStats), String> {
     if p.columns.has(Column::Bound) {
         return Err("--columns bound: the zone pipeline carries no error radii (PROB-13)".into());
     }
     if !zone_covers(view, p, zone)? {
-        return Err(format!("the zone (nucleus within {:e} * 2^{}) does not cover this view", zone.max_dc.mant, zone.max_dc.exp2));
+        return Err(format!(
+            "the zone (nucleus within {:e} * 2^{}) does not cover this view",
+            zone.max_dc.mant, zone.max_dc.exp2
+        ));
     }
     let (plane, tier) = setup(view, p)?;
     let off = centre_offset(view, zone, &plane)?;
     let legacy = zone.f64_geometry(&plane);
     // Deep zones: v = (centre offset + pixel offset) / scale, all in Fx.
     let inv_scale = Fx::new(Cx(1.0 / zone.scale.mant, 0.0), -zone.scale.exp2);
-    let h = if legacy { plane.h() } else { ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale) };
+    let h = if legacy {
+        plane.h()
+    } else {
+        ZoneSize {
+            mant: plane.h_m,
+            exp2: plane.h_e,
+        }
+        .over(zone.scale)
+    };
     let cols = p.columns.with(Column::Class);
     let deriv = cols.needs_derivative();
     let store = Store::new(&plane, p.ss);
@@ -547,11 +661,16 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                     let mut st = ZoneStats::default();
                     let mut its = 0u64;
                     loop {
-                        let Some(mut row) = queue.lock().unwrap().next() else { break };
+                        let Some(mut row) = queue.lock().unwrap().next() else {
+                            break;
+                        };
                         for i in 0..row.class.len() {
                             let (ux, uy) = plane.unit_offset(i, row.j);
                             if let Some(deep) = &zone.deep {
-                                let v = off.exact.add(Fx::new(Cx(ux * plane.h_m, uy * plane.h_m), plane.h_e)).mul(inv_scale);
+                                let v = off
+                                    .exact
+                                    .add(Fx::new(Cx(ux * plane.h_m, uy * plane.h_m), plane.h_e))
+                                    .mul(inv_scale);
                                 let (o, w) = if deriv {
                                     pixel_deep::<true>(zone, deep, v, p.max_iter, r2, &mut st)
                                 } else {
@@ -562,7 +681,8 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                                 continue;
                             }
                             let v = if legacy {
-                                Cx(off.absolute.0 + ux * h, off.absolute.1 + uy * h).scale(1.0 / zone.scale.to_f64())
+                                Cx(off.absolute.0 + ux * h, off.absolute.1 + uy * h)
+                                    .scale(1.0 / zone.scale.to_f64())
                             } else {
                                 Cx(off.scaled.0 + ux * h, off.scaled.1 + uy * h)
                             };
@@ -587,7 +707,11 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
     }
     let mut hd = header(view, p, cols, &plane, tier);
     hd.kernel = format!("zone-koenigs/1 P={}", zone.period);
-    let stats = Stats { reference_len: 0, reference_seconds: 0.0, iterations: work.into_inner() };
+    let stats = Stats {
+        reference_len: 0,
+        reference_seconds: 0.0,
+        iterations: work.into_inner(),
+    };
     Ok((hd, s, stats, total.into_inner().unwrap()))
 }
 
@@ -595,7 +719,13 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
 /// Returns the outcome and the work it took (biseries returns + approach + jump +
 /// patch + plain steps, each counted once).
 #[inline]
-fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneStats) -> (Outcome, u64) {
+fn pixel<const D: bool>(
+    k: &Zone,
+    v: Cx,
+    max_iter: u64,
+    r2: f64,
+    st: &mut ZoneStats,
+) -> (Outcome, u64) {
     // Biseries coefficients in u, with the v powers folded in: b_i(v) and db_i/dv.
     let mut b = [Cx::default(); 8];
     let mut bv = [Cx::default(); 8];
@@ -637,7 +767,9 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
         // 32, 64, ... returns) u provably lies in the basin of an attracting cycle of
         // the return map of period <= 4 (an attracting q-cycle of the minibrot's
         // return map is an attracting qP-cycle of f_c: the minibrot or one of its bulbs).
-        if (su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()) || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u)) {
+        if (su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2())
+            || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u))
+        {
             st.returns += 1;
             return (Outcome::Interior { n }, work + 1);
         }
@@ -716,7 +848,14 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
 
 /// [`pixel`] for a deep zone: the same four stages with states, constants and `dz/dc`
 /// in [`Fx`]. `v = (c - C) / scale`. Returns `dz/dc` as mantissa and `dexp`.
-fn pixel_deep<const D: bool>(k: &Zone, x: &Deep, v: Fx, max_iter: u64, r2: f64, st: &mut ZoneStats) -> (Outcome, u64) {
+fn pixel_deep<const D: bool>(
+    k: &Zone,
+    x: &Deep,
+    v: Fx,
+    max_iter: u64,
+    r2: f64,
+    st: &mut ZoneStats,
+) -> (Outcome, u64) {
     let mut b = [Fx::default(); 8];
     let mut bv = [Fx::default(); 8];
     let mut pv = [Cx(1.0, 0.0); 8];
@@ -747,13 +886,18 @@ fn pixel_deep<const D: bool>(k: &Zone, x: &Deep, v: Fx, max_iter: u64, r2: f64, 
         }
         let s = poly_fx(&b, k.deg, &pw, u.e, 0);
         let su = poly_fx(&b, k.deg, &pw, u.e, 1);
-        let sv = if D { poly_fx(&bv, k.deg, &pw, u.e, 0) } else { Fx::default() };
+        let sv = if D {
+            poly_fx(&bv, k.deg, &pw, u.e, 0)
+        } else {
+            Fx::default()
+        };
         let step = s.sub(u);
         if D {
             du = su.mul(du).add(sv);
         }
         // As in `pixel`; `attracted` runs on the map conjugated by 2^u.e, which is f64.
-        let settled = su.to_cx().norm2() < 1.0 && step.m.norm2() * exp2i(2 * (step.e - u.e)) <= 1e-24 * u.m.norm2();
+        let settled = su.to_cx().norm2() < 1.0
+            && step.m.norm2() * exp2i(2 * (step.e - u.e)) <= 1e-24 * u.m.norm2();
         if settled || (work >= 16 && work.is_power_of_two() && attracted_deep(&b, k.deg, u)) {
             st.returns += 1;
             return (Outcome::Interior { n }, work + 1);
@@ -798,7 +942,10 @@ fn pixel_deep<const D: bool>(k: &Zone, x: &Deep, v: Fx, max_iter: u64, r2: f64, 
             let w = Fx::polar(lw + j * lr, aw + j * ar).to_cx();
             let (hw, dpsi) = series_d(&k.psi, w);
             if D {
-                du = Fx::new(dpsi, 0).mul(Fx::polar(j * lr, j * ar)).mul(dphi).mul(du);
+                du = Fx::new(dpsi, 0)
+                    .mul(Fx::polar(j * lr, j * ar))
+                    .mul(dphi)
+                    .mul(du);
             }
             z = k.alpha.add(hw);
             n += 2 * j as u64;
@@ -849,7 +996,12 @@ struct Lazy {
 impl Lazy {
     #[inline(always)]
     fn from(x: Fx) -> Lazy {
-        Lazy { m: x.m, e: x.e, up: exp2i(x.e), down: exp2i((-x.e).min(1023)) }
+        Lazy {
+            m: x.m,
+            e: x.e,
+            up: exp2i(x.e),
+            down: exp2i((-x.e).min(1023)),
+        }
     }
     #[inline(always)]
     fn fx(self) -> Fx {
@@ -871,12 +1023,22 @@ impl Lazy {
     /// `dz/dc <- 2 z dz/dc + 1`.
     #[inline(always)]
     fn step(self, z: Cx) -> Lazy {
-        Lazy { m: z.mul(self.m).scale(2.0).add(Cx(self.down, 0.0)), ..self }.renorm()
+        Lazy {
+            m: z.mul(self.m).scale(2.0).add(Cx(self.down, 0.0)),
+            ..self
+        }
+        .renorm()
     }
     /// `d <- 2 z d + d^2` (`d^2` is negligible next to `2 z d` whenever `2^e` underflows).
     #[inline(always)]
     fn square_plus_2z(self, z: Cx) -> Lazy {
-        Lazy { m: z.scale(2.0).mul(self.m).add(self.m.mul(self.m).scale(self.up)), ..self }.renorm()
+        Lazy {
+            m: z.scale(2.0)
+                .mul(self.m)
+                .add(self.m.mul(self.m).scale(self.up)),
+            ..self
+        }
+        .renorm()
     }
 }
 
@@ -884,14 +1046,23 @@ impl Lazy {
 /// `pw[i] = u.m^i` and `u = u.m 2^ue`.
 #[inline(always)]
 fn poly_fx(c: &[Fx; 8], deg: usize, pw: &[Cx; 8], ue: i64, d: usize) -> Fx {
-    let terms = || c[..=deg].iter().enumerate().skip(d).filter(|(_, a)| !a.is_zero());
+    let terms = || {
+        c[..=deg]
+            .iter()
+            .enumerate()
+            .skip(d)
+            .filter(|(_, a)| !a.is_zero())
+    };
     let Some(top) = terms().map(|(i, a)| a.e + (i - d) as i64 * ue).max() else {
         return Fx::default();
     };
     let mut sum = Cx::default();
     for (i, a) in terms() {
         let k = if d == 1 { i as f64 } else { 1.0 };
-        sum = sum.add(a.m.mul(pw[i - d]).scale(k * exp2i(a.e + (i - d) as i64 * ue - top)));
+        sum = sum.add(
+            a.m.mul(pw[i - d])
+                .scale(k * exp2i(a.e + (i - d) as i64 * ue - top)),
+        );
     }
     Fx::new(sum, top)
 }
@@ -901,7 +1072,11 @@ fn poly_fx(c: &[Fx; 8], deg: usize, pw: &[Cx; 8], ue: i64, d: usize) -> Fx {
 fn attracted_deep(b: &[Fx; 8], deg: usize, u: Fx) -> bool {
     let mut bt = [Cx::default(); 8];
     for (i, (t, a)) in bt.iter_mut().zip(b).enumerate().take(deg + 1) {
-        *t = Fx { m: a.m, e: a.e + u.e * (i as i64 - 1) }.to_cx();
+        *t = Fx {
+            m: a.m,
+            e: a.e + u.e * (i as i64 - 1),
+        }
+        .to_cx();
     }
     attracted(&bt, deg, u.m)
 }
@@ -1021,7 +1196,10 @@ mod tests {
         let (a, _) = series_d(&c, x.add(Cx(e, 0.0)));
         let (b, _) = series_d(&c, x);
         let fd = Cx((a.0 - b.0) / e, (a.1 - b.1) / e);
-        assert!((fd.0 - d.0).abs() < 1e-6 && (fd.1 - d.1).abs() < 1e-6, "{fd:?} {d:?}");
+        assert!(
+            (fd.0 - d.0).abs() < 1e-6 && (fd.1 - d.1).abs() < 1e-6,
+            "{fd:?} {d:?}"
+        );
     }
 
     /// The v0 zone without its tail patch atlas (bench/zones/v0-core.zone; the full
@@ -1077,12 +1255,25 @@ mod tests {
                 }
                 let px = (an[i] - bn[i]).abs() * f64::from(ad[i]) * std::f64::consts::LN_2 / 2.0;
                 assert!(px <= 1e-3, "{w} sample {i}: {px} px");
-                assert!((bd[i] / ad[i] - 1.0).abs() < 1e-2, "{w} sample {i}: de {} vs {}", bd[i], ad[i]);
+                assert!(
+                    (bd[i] / ad[i] - 1.0).abs() < 1e-2,
+                    "{w} sample {i}: de {} vs {}",
+                    bd[i],
+                    ad[i]
+                );
                 let da = am[i].wrapping_sub(bm[i]).min(bm[i].wrapping_sub(am[i]));
-                assert!(f64::from(da) * 360.0 / 65536.0 < 1.0, "{w} sample {i}: normal {} vs {}", am[i], bm[i]);
+                assert!(
+                    f64::from(da) * 360.0 / 65536.0 < 1.0,
+                    "{w} sample {i}: normal {} vs {}",
+                    am[i],
+                    bm[i]
+                );
                 checked += 1;
             }
-            assert!(checked > a.class.len() / 2, "{w}: only {checked} samples checked");
+            assert!(
+                checked > a.class.len() / 2,
+                "{w}: only {checked} samples checked"
+            );
         }
     }
 
@@ -1103,16 +1294,27 @@ mod tests {
     #[test]
     fn band_top_frames_wait_for_the_truncation_guard() {
         let z = v0();
-        let p = Params { nx: 1280, ny: 720, ..params(&[Column::Nu]) };
+        let p = Params {
+            nx: 1280,
+            ny: 720,
+            ..params(&[Column::Nu])
+        };
         let at = |w: &str| zone_covers(&view(w), &p, &z).unwrap();
         assert!(!at("1.70834e-28") && !at("1.46809e-28") && !at("1.0842e-28"));
         assert!(at("9.3172e-29") && at("2e-49"));
         // Bound at frame 431's outer radius: 2.622e-6 px from the mpmath series.
-        let (h, r) = (1.70834e-28 / 1280.0 / 1e-25, 1.70834e-28 / 1280.0 * 640f64.hypot(360.0) / 1e-25);
+        let (h, r) = (
+            1.70834e-28 / 1280.0 / 1e-25,
+            1.70834e-28 / 1280.0 * 640f64.hypot(360.0) / 1e-25,
+        );
         let s = z.truncation_shift(r, h).unwrap();
         assert!((s / 2.622e-6 - 1.0).abs() < 0.01, "{s}");
         // A zone without diag lines keeps the radius-only rule.
-        let old: String = include_str!("../../../bench/zones/v0-core.zone").lines().filter(|l| !l.starts_with("diag")).map(|l| format!("{l}\n")).collect();
+        let old: String = include_str!("../../../bench/zones/v0-core.zone")
+            .lines()
+            .filter(|l| !l.starts_with("diag"))
+            .map(|l| format!("{l}\n"))
+            .collect();
         let old = Zone::parse(&old).unwrap();
         assert!(zone_covers(&view("1.70834e-28"), &p, &old).unwrap());
     }
@@ -1130,7 +1332,10 @@ mod tests {
             .replace("scale 1e-25", "scale 1.9342813113834068 -84")
             .replace("guard 1e-28", "guard 1.9807040628566084 -94");
         let new = Zone::parse(&text).unwrap();
-        let (v, p) = (view("1e-36"), params(&[Column::Nu, Column::De, Column::Normal]));
+        let (v, p) = (
+            view("1e-36"),
+            params(&[Column::Nu, Column::De, Column::Normal]),
+        );
         let (_, a, _, _) = render_zone(&v, &p, &old).unwrap();
         let (_, b, _, _) = render_zone(&v, &p, &new).unwrap();
         assert_eq!(a.class, b.class);
@@ -1142,7 +1347,9 @@ mod tests {
     #[test]
     fn rung_7676_zone_covers_five_sizes_but_not_ten_away() {
         let rung = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
-            .lines().find(|line| line.starts_with("7676 ")).unwrap();
+            .lines()
+            .find(|line| line.starts_with("7676 "))
+            .unwrap();
         let parts: Vec<_> = rung.split_whitespace().collect();
         assert_eq!(parts[1], "16116");
         // v0's diag lines describe v0's map, not this one: dropped.
@@ -1159,7 +1366,12 @@ mod tests {
             .collect();
         lines.push("max_dc 1.0511037747648835 -3320".into()); // 4e-1000
         let z = Zone::parse(&with_exact_lines(&lines.join("\n"))).unwrap();
-        let mut v = View { center_re: parts[2].into(), center_im: parts[3].into(), width: "5e-1000".into(), rotation: 0.3 };
+        let mut v = View {
+            center_re: parts[2].into(),
+            center_im: parts[3].into(),
+            width: "5e-1000".into(),
+            rotation: 0.3,
+        };
         let p = params(&[Column::Nu]);
         assert!(zone_covers(&v, &p, &z).unwrap());
         // Increase the magnitude of the negative real centre by 1e-999 (ten sizes).
@@ -1186,8 +1398,15 @@ mod tests {
         let (a, b) = (Fx::new(Cx(0.3, -1.7), -3000), Fx::new(Cx(-2.5, 0.25), 3000));
         let p = a.mul(b).to_cx();
         let q = Cx(0.3, -1.7).mul(Cx(-2.5, 0.25));
-        assert!((p.0 - q.0).abs() < 1e-15 && (p.1 - q.1).abs() < 1e-15, "{p:?} {q:?}");
-        let s = a.add(Fx::new(Cx(0.1, 0.0), -3000)).sub(a).mul(Fx::new(Cx(1.0, 0.0), 3000)).to_cx();
+        assert!(
+            (p.0 - q.0).abs() < 1e-15 && (p.1 - q.1).abs() < 1e-15,
+            "{p:?} {q:?}"
+        );
+        let s = a
+            .add(Fx::new(Cx(0.1, 0.0), -3000))
+            .sub(a)
+            .mul(Fx::new(Cx(1.0, 0.0), 3000))
+            .to_cx();
         assert!((s.0 - 0.1).abs() < 1e-15 && s.1.abs() < 1e-15, "{s:?}");
         let r = a.mul(a.inv()).to_cx();
         assert!((r.0 - 1.0).abs() < 1e-15 && r.1.abs() < 1e-15, "{r:?}");
@@ -1200,7 +1419,11 @@ mod tests {
     fn as_deep(mut z: Zone) -> Zone {
         let fx = |a: &Cx| Fx::new(*a, 0);
         z.deep = Some(Deep {
-            bis: z.bis.iter().map(|r| std::array::from_fn(|j| r.get(j).map_or(Fx::default(), fx))).collect(),
+            bis: z
+                .bis
+                .iter()
+                .map(|r| std::array::from_fn(|j| r.get(j).map_or(Fx::default(), fx)))
+                .collect(),
             z24ma: fx(&z.z24ma),
             phi: z.phi.iter().map(fx).collect(),
         });
@@ -1216,7 +1439,11 @@ mod tests {
             let (_, a, _, sa) = render_zone(&v, &p, &old).unwrap();
             let (_, b, _, sb) = render_zone(&v, &p, &new).unwrap();
             assert_eq!(a.class, b.class, "{w}");
-            assert_eq!((sa.returns, sa.jumps, sa.patches), (sb.returns, sb.jumps, sb.patches), "{w}");
+            assert_eq!(
+                (sa.returns, sa.jumps, sa.patches),
+                (sb.returns, sb.jumps, sb.patches),
+                "{w}"
+            );
             let (an, bn) = (a.nu.as_ref().unwrap(), b.nu.as_ref().unwrap());
             let (ad, bd) = (a.de.as_ref().unwrap(), b.de.as_ref().unwrap());
             let (am, bm) = (a.normal.as_ref().unwrap(), b.normal.as_ref().unwrap());
@@ -1227,7 +1454,12 @@ mod tests {
                 // fd compare's displacement, 1000x tighter than its 1e-3 px gate.
                 let px = (an[i] - bn[i]).abs() * f64::from(ad[i]) * std::f64::consts::LN_2 / 2.0;
                 assert!(px <= 1e-6, "{w} {i}: {px} px");
-                assert!((bd[i] / ad[i] - 1.0).abs() < 1e-5, "{w} {i}: de {} {}", ad[i], bd[i]);
+                assert!(
+                    (bd[i] / ad[i] - 1.0).abs() < 1e-5,
+                    "{w} {i}: de {} {}",
+                    ad[i],
+                    bd[i]
+                );
                 let da = am[i].wrapping_sub(bm[i]).min(bm[i].wrapping_sub(am[i]));
                 assert!(da <= 1, "{w} {i}: normal {} {}", am[i], bm[i]);
             }
@@ -1240,10 +1472,19 @@ mod tests {
         let mut out = text.to_string();
         for l in core.lines().filter(|l| l.starts_with("biseries ")) {
             let f: Vec<&str> = l.split_whitespace().collect();
-            out.push_str(&format!("\nbiseries_x {} {} {} {} 0", f[1], f[2], f[3], f[4]));
+            out.push_str(&format!(
+                "\nbiseries_x {} {} {} {} 0",
+                f[1], f[2], f[3], f[4]
+            ));
         }
-        let z24 = core.lines().find(|l| l.starts_with("z24_minus_alpha ")).unwrap();
-        out.push_str(&format!("\nz24_minus_alpha_x {} 0", &z24["z24_minus_alpha ".len()..]));
+        let z24 = core
+            .lines()
+            .find(|l| l.starts_with("z24_minus_alpha "))
+            .unwrap();
+        out.push_str(&format!(
+            "\nz24_minus_alpha_x {} 0",
+            &z24["z24_minus_alpha ".len()..]
+        ));
         out
     }
 
@@ -1252,7 +1493,13 @@ mod tests {
         let text = include_str!("../../../bench/zones/v0-core.zone");
         let broken: String = text
             .lines()
-            .map(|l| if l.starts_with("biseries 2 0 ") { "biseries 2 0 inf -inf".to_string() } else { l.to_string() })
+            .map(|l| {
+                if l.starts_with("biseries 2 0 ") {
+                    "biseries 2 0 inf -inf".to_string()
+                } else {
+                    l.to_string()
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n");
         assert!(Zone::parse(&broken).unwrap_err().contains("_x"));

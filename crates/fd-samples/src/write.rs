@@ -39,7 +39,11 @@ pub fn write<W: Write>(mut w: W, h: &Header, s: &Samples) -> Result<()> {
 }
 
 /// Encode one column into `buf` (reused across columns) and write it padded.
-fn put<W: Write, const N: usize>(w: &mut W, buf: &mut Vec<u8>, it: impl Iterator<Item = [u8; N]>) -> Result<()> {
+fn put<W: Write, const N: usize>(
+    w: &mut W,
+    buf: &mut Vec<u8>,
+    it: impl Iterator<Item = [u8; N]>,
+) -> Result<()> {
     buf.clear();
     for b in it {
         buf.extend_from_slice(&b);

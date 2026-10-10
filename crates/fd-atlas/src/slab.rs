@@ -24,11 +24,20 @@ impl OrbitSlab {
     /// Cut an orbit into slabs of `size` points; only the last may be shorter.
     pub fn split(re: &[f64], im: &[f64], size: u32) -> Result<Vec<OrbitSlab>, Error> {
         if size == 0 || re.len() != im.len() {
-            return Err(malformed("orbit slabs need a positive size and equal re/im lengths"));
+            return Err(malformed(
+                "orbit slabs need a positive size and equal re/im lengths",
+            ));
         }
         let n = size as usize;
         let slabs = re.chunks(n).zip(im.chunks(n)).enumerate();
-        Ok(slabs.map(|(i, (r, m))| OrbitSlab { size, start: (i * n) as u64, re: r.to_vec(), im: m.to_vec() }).collect())
+        Ok(slabs
+            .map(|(i, (r, m))| OrbitSlab {
+                size,
+                start: (i * n) as u64,
+                re: r.to_vec(),
+                im: m.to_vec(),
+            })
+            .collect())
     }
 
     /// Reassemble an orbit from its slabs in order: one size, contiguous from `Z_0`,
@@ -37,8 +46,13 @@ impl OrbitSlab {
         let (mut re, mut im) = (Vec::new(), Vec::new());
         for (i, s) in slabs.iter().enumerate() {
             let last = i + 1 == slabs.len();
-            if s.size != slabs[0].size || s.start != re.len() as u64 || (!last && s.re.len() != s.size as usize) {
-                return Err(malformed("orbit slabs are not one contiguous orbit from Z_0"));
+            if s.size != slabs[0].size
+                || s.start != re.len() as u64
+                || (!last && s.re.len() != s.size as usize)
+            {
+                return Err(malformed(
+                    "orbit slabs are not one contiguous orbit from Z_0",
+                ));
             }
             re.extend_from_slice(&s.re);
             im.extend_from_slice(&s.im);
@@ -56,7 +70,9 @@ impl OrbitSlab {
             && self.start.is_multiple_of(self.size as u64)
             && self.re.iter().chain(&self.im).all(|v| v.is_finite());
         if !ok {
-            return Err(malformed("orbit slab needs 1..=size finite points at a multiple of size"));
+            return Err(malformed(
+                "orbit slab needs 1..=size finite points at a multiple of size",
+            ));
         }
         let mut b = Builder::new(contract(precision_bits));
         b.u32(self.size).u32(len as u32).u64(self.start);
@@ -70,10 +86,15 @@ impl OrbitSlab {
     pub fn from_chunk(chunk: &Chunk) -> Result<OrbitSlab, Error> {
         let c = chunk.contract();
         if *c != contract(c.precision_bits) {
-            return Err(malformed("not an orbit slab chunk (kind, encoding, formula or rounding)"));
+            return Err(malformed(
+                "not an orbit slab chunk (kind, encoding, formula or rounding)",
+            ));
         }
         let p = chunk.payload();
-        let word = |i: usize| p.get(i..i + 8).map(|b| u64::from_le_bytes(b.try_into().unwrap()));
+        let word = |i: usize| {
+            p.get(i..i + 8)
+                .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+        };
         let head = word(0).ok_or_else(|| malformed("orbit slab payload ends early"))?;
         let (size, len) = (head as u32, (head >> 32) as usize);
         let start = word(8).ok_or_else(|| malformed("orbit slab payload ends early"))?;
@@ -82,7 +103,12 @@ impl OrbitSlab {
             .collect::<Option<Vec<f64>>>()
             .ok_or_else(|| malformed("orbit slab payload ends early"))?;
         let (re, im) = vals.split_at(len);
-        let s = OrbitSlab { size, start, re: re.to_vec(), im: im.to_vec() };
+        let s = OrbitSlab {
+            size,
+            start,
+            re: re.to_vec(),
+            im: im.to_vec(),
+        };
         if s.to_chunk(c.precision_bits)?.bytes() != chunk.bytes() {
             return Err(malformed("orbit slab is not in canonical form"));
         }
@@ -115,8 +141,10 @@ mod tests {
         for size in [2048, 4096, 8192] {
             let slabs = OrbitSlab::split(&re, &im, size).unwrap();
             assert_eq!(slabs.len(), 5000usize.div_ceil(size as usize));
-            let back: Vec<OrbitSlab> =
-                slabs.iter().map(|s| OrbitSlab::from_chunk(&s.to_chunk(200).unwrap()).unwrap()).collect();
+            let back: Vec<OrbitSlab> = slabs
+                .iter()
+                .map(|s| OrbitSlab::from_chunk(&s.to_chunk(200).unwrap()).unwrap())
+                .collect();
             assert_eq!(OrbitSlab::join(&back).unwrap(), (re.clone(), im.clone()));
         }
     }
@@ -130,6 +158,8 @@ mod tests {
         assert!(odd.to_chunk(53).is_err());
         let mut bytes = s[0].to_chunk(53).unwrap().bytes().to_vec();
         bytes[32 + 4] = 3; // claims 3 points
-        assert!(Chunk::from_bytes(bytes).and_then(|c| OrbitSlab::from_chunk(&c)).is_err());
+        assert!(Chunk::from_bytes(bytes)
+            .and_then(|c| OrbitSlab::from_chunk(&c))
+            .is_err());
     }
 }

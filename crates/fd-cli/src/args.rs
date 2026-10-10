@@ -12,7 +12,10 @@ impl Args {
         let (mut flags, mut positional) = (HashMap::new(), Vec::new());
         let mut it = argv.iter();
         while let Some(a) = it.next() {
-            if let Some(k) = a.strip_prefix("--").or_else(|| a.strip_prefix('-').filter(|k| k.len() == 1)) {
+            if let Some(k) = a
+                .strip_prefix("--")
+                .or_else(|| a.strip_prefix('-').filter(|k| k.len() == 1))
+            {
                 if !known.contains(&k) {
                     return Err(format!("unknown flag {a}"));
                 }

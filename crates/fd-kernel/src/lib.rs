@@ -28,7 +28,10 @@ mod view;
 mod zone;
 
 pub use bla::{Bla, Block, EPS_MAX as BLA_EPS_MAX};
-pub use grid::{bla_dc_max, reference, reference_bits, render, render_bla, render_stats, render_with, BlaStats, Params, Stats};
+pub use grid::{
+    bla_dc_max, reference, reference_bits, render, render_bla, render_stats, render_with, BlaStats,
+    Params, Stats,
+};
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};

@@ -14,7 +14,9 @@ pub(crate) struct Place {
 
 /// `$FD_PLACES` if set, else the repo's `places/` (not the cwd), as `shade::looks_dir`.
 pub(crate) fn places_dir() -> PathBuf {
-    std::env::var_os("FD_PLACES").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../places"))
+    std::env::var_os("FD_PLACES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../places"))
 }
 
 /// `[+-]digits[.digits]`.
@@ -28,29 +30,58 @@ fn is_decimal(s: &str) -> bool {
 fn is_width(s: &str) -> bool {
     let (m, e) = s.split_once(['e', 'E']).unwrap_or((s, "0"));
     let e = e.strip_prefix(['-', '+']).unwrap_or(e);
-    is_decimal(m) && !m.starts_with(['-', '+']) && m.bytes().any(|b| (b'1'..=b'9').contains(&b)) && !e.is_empty() && e.bytes().all(|b| b.is_ascii_digit())
+    is_decimal(m)
+        && !m.starts_with(['-', '+'])
+        && m.bytes().any(|b| (b'1'..=b'9').contains(&b))
+        && !e.is_empty()
+        && e.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl Place {
     pub(crate) fn parse(text: &str) -> Result<Place, String> {
         let (mut re, mut im, mut width, mut iter) = (None, None, None, 20_000);
-        for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-            let (k, v) = line.split_once(char::is_whitespace).map(|(k, v)| (k, v.trim())).unwrap_or((line, ""));
+        for line in text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        {
+            let (k, v) = line
+                .split_once(char::is_whitespace)
+                .map(|(k, v)| (k, v.trim()))
+                .unwrap_or((line, ""));
             match k {
-                "re" | "im" if !is_decimal(v) => return Err(format!("{k}: not a decimal number: {v:?}")),
+                "re" | "im" if !is_decimal(v) => {
+                    return Err(format!("{k}: not a decimal number: {v:?}"))
+                }
                 "re" => re = Some(v.to_string()),
                 "im" => im = Some(v.to_string()),
-                "width" if !is_width(v) => return Err(format!("width: not a positive number: {v:?}")),
+                "width" if !is_width(v) => {
+                    return Err(format!("width: not a positive number: {v:?}"))
+                }
                 "width" => width = Some(v.to_string()),
-                "iter" => iter = v.parse().ok().filter(|n| (100..=2_000_000).contains(n)).ok_or_else(|| format!("iter: expected 100..2000000, got {v:?}"))?,
+                "iter" => {
+                    iter = v
+                        .parse()
+                        .ok()
+                        .filter(|n| (100..=2_000_000).contains(n))
+                        .ok_or_else(|| format!("iter: expected 100..2000000, got {v:?}"))?
+                }
                 _ => return Err(format!("unknown place key {k:?}")),
             }
         }
-        Ok(Place { re: re.ok_or("place has no re")?, im: im.ok_or("place has no im")?, width: width.ok_or("place has no width")?, iter })
+        Ok(Place {
+            re: re.ok_or("place has no re")?,
+            im: im.ok_or("place has no im")?,
+            width: width.ok_or("place has no width")?,
+            iter,
+        })
     }
 
     pub(crate) fn to_text(&self) -> String {
-        format!("# fractodactyl place\nre {}\nim {}\nwidth {}\niter {}\n", self.re, self.im, self.width, self.iter)
+        format!(
+            "# fractodactyl place\nre {}\nim {}\nwidth {}\niter {}\n",
+            self.re, self.im, self.width, self.iter
+        )
     }
 }
 
@@ -73,10 +104,18 @@ pub(crate) fn list() -> Vec<(String, Place)> {
 
 /// `places/NAME.place`, or a file path.
 pub(crate) fn load(name: &str) -> Result<Place, String> {
-    let path = [PathBuf::from(name), places_dir().join(format!("{name}.place"))]
-        .into_iter()
-        .find(|p| p.is_file())
-        .ok_or_else(|| format!("no place {name:?} (looked for a file and {})", places_dir().join(format!("{name}.place")).display()))?;
+    let path = [
+        PathBuf::from(name),
+        places_dir().join(format!("{name}.place")),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+    .ok_or_else(|| {
+        format!(
+            "no place {name:?} (looked for a file and {})",
+            places_dir().join(format!("{name}.place")).display()
+        )
+    })?;
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     Place::parse(&text).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -96,9 +135,18 @@ mod tests {
 
     #[test]
     fn parses_round_trips_and_validates() {
-        let deep = format!("-0.7432918908524302029316241585089040394625440130877230883413356446722846985935{}", "1".repeat(1000));
-        let p = Place::parse(&format!("# x\nre {deep}\nim 0.13124\nwidth 1.5e-1000\niter 50000\n")).unwrap();
-        assert_eq!((p.re.as_str(), p.width.as_str(), p.iter), (deep.as_str(), "1.5e-1000", 50000));
+        let deep = format!(
+            "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935{}",
+            "1".repeat(1000)
+        );
+        let p = Place::parse(&format!(
+            "# x\nre {deep}\nim 0.13124\nwidth 1.5e-1000\niter 50000\n"
+        ))
+        .unwrap();
+        assert_eq!(
+            (p.re.as_str(), p.width.as_str(), p.iter),
+            (deep.as_str(), "1.5e-1000", 50000)
+        );
         assert_eq!(Place::parse(&p.to_text()).unwrap(), p);
         assert_eq!(Place::parse("re 0\nim 1\nwidth 4.2").unwrap().iter, 20_000);
         for bad in [

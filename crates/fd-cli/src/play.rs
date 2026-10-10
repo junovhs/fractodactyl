@@ -12,9 +12,13 @@
 use crate::args::Args;
 use crate::bench::{peak_rss, q, reset_peak_rss, run_oracle, sample_bytes, AtlasWork, Frame};
 use crate::plan::anchor;
-use fd_atlas::{BlaTable, ChunkId, FrameManifest, Kind, OrbitManifest, OrbitSlab, Store, TileManifest};
+use fd_atlas::{
+    BlaTable, ChunkId, FrameManifest, Kind, OrbitManifest, OrbitSlab, Store, TileManifest,
+};
 use fd_fixed::exp2i;
-use fd_kernel::{reference_bits, render_bla, render_with, Bla, BlaStats, Block, Params, Reference, Stats};
+use fd_kernel::{
+    reference_bits, render_bla, render_with, Bla, BlaStats, Block, Params, Reference, Stats,
+};
 use fd_samples::{write, ColumnSet, Header, Samples, View};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -30,11 +34,18 @@ const ESCAPE_RADIUS: f64 = 1e10;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let wall = Instant::now();
-    let known: Vec<&str> =
-        ["store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python"].into_iter().chain(crate::shade::APPEARANCE_FLAGS).chain(crate::shade::LOOK_FLAGS).collect();
+    let known: Vec<&str> = [
+        "store", "frames", "threads", "o", "look", "mp4", "oracle", "every", "k", "python",
+    ]
+    .into_iter()
+    .chain(crate::shade::APPEARANCE_FLAGS)
+    .chain(crate::shade::LOOK_FLAGS)
+    .collect();
     let a = Args::parse(argv, &known)?;
     let mut base = crate::shade::appearance(&a)?;
-    let [log] = a.positional.as_slice() else { return Err(USAGE.into()) };
+    let [log] = a.positional.as_slice() else {
+        return Err(USAGE.into());
+    };
     let store = crate::chunk::store(&a)?;
     let record = CompileLog::read(log)?;
     let n = record.frames.len();
@@ -42,7 +53,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         None => (0, n),
         Some(r) => range(r, n)?,
     };
-    let threads = a.num("threads", std::thread::available_parallelism().map_or(1, |n| n.get()))?;
+    let threads = a.num(
+        "threads",
+        std::thread::available_parallelism().map_or(1, |n| n.get()),
+    )?;
     let dir = a.str("o").map(|d| d.trim_end_matches('/').to_string());
     let looks: Vec<(String, Box<dyn fd_shade::Pass>)> = match a.str("look") {
         None => Vec::new(),
@@ -65,22 +79,55 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 
     // From here on a failure is a runtime one (exit 1), reported with the totals so far.
     let mut cache = Cache::default();
-    let mut t = Totals { ok: true, log10_width: (f64::INFINITY, f64::NEG_INFINITY), ..Totals::default() };
+    let mut t = Totals {
+        ok: true,
+        log10_width: (f64::INFINITY, f64::NEG_INFINITY),
+        ..Totals::default()
+    };
     let mut error = None;
     for f in from..to {
         let check = oracle.filter(|_| (f - from).is_multiple_of(every));
         // Film time of frame f: animation is tied to the frame, not to render speed.
-        let look_at = fd_shade::Appearance { time: f as f64 / record.fps, ..base };
-        if let Err(e) = frame(&a, &store, &mut cache, &record.frames[f], f, threads, dir.as_deref(), &looks, &look_at, check, &mut t) {
+        let look_at = fd_shade::Appearance {
+            time: f as f64 / record.fps,
+            ..base
+        };
+        if let Err(e) = frame(
+            &a,
+            &store,
+            &mut cache,
+            &record.frames[f],
+            f,
+            threads,
+            dir.as_deref(),
+            &looks,
+            &look_at,
+            check,
+            &mut t,
+        ) {
             error = Some(format!("frame {f}: {e}"));
             break;
         }
     }
     let mp4 = match (a.str("mp4"), &dir, looks.first()) {
-        (Some(out), Some(d), Some((look, _))) if error.is_none() => mux(out, d, look, from, record.fps)?,
+        (Some(out), Some(d), Some((look, _))) if error.is_none() => {
+            mux(out, d, look, from, record.fps)?
+        }
         _ => Mux::NotAsked,
     };
-    println!("{}", totals(log, &record, (from, to), threads, &t, &mp4, error.as_deref(), wall.elapsed().as_secs_f64()));
+    println!(
+        "{}",
+        totals(
+            log,
+            &record,
+            (from, to),
+            threads,
+            &t,
+            &mp4,
+            error.as_deref(),
+            wall.elapsed().as_secs_f64()
+        )
+    );
     if let Some(e) = &error {
         eprintln!("fd: {e}");
     }
@@ -106,13 +153,22 @@ impl CompileLog {
         for (k, line) in text.lines().enumerate() {
             let w: Vec<&str> = line.split(' ').collect();
             match w.as_slice() {
-                ["fps", x] => fps = Some(x.parse::<f64>().map_err(|_| format!("{file}:{}: bad fps", k + 1))?),
+                ["fps", x] => {
+                    fps = Some(
+                        x.parse::<f64>()
+                            .map_err(|_| format!("{file}:{}: bad fps", k + 1))?,
+                    )
+                }
                 ["frame", f, ..] => {
                     let bad = || format!("{file}:{}: expected `frame F ... manifest ID`", k + 1);
                     let at = w.iter().position(|x| *x == "manifest").ok_or_else(bad)?;
                     let id: ChunkId = w.get(at + 1).ok_or_else(bad)?.parse()?;
                     if f.parse::<usize>().ok() != Some(frames.len()) {
-                        return Err(format!("{file}:{}: frame {f} out of order (expected {})", k + 1, frames.len()));
+                        return Err(format!(
+                            "{file}:{}: frame {f} out of order (expected {})",
+                            k + 1,
+                            frames.len()
+                        ));
                     }
                     frames.push(id);
                 }
@@ -120,9 +176,15 @@ impl CompileLog {
             }
         }
         if frames.is_empty() {
-            return Err(format!("{file}: no `frame F ... manifest ID` lines (expected `fd compile` output)"));
+            return Err(format!(
+                "{file}: no `frame F ... manifest ID` lines (expected `fd compile` output)"
+            ));
         }
-        Ok(CompileLog { frames, fps: fps.unwrap_or(30.0), fps_logged: fps.is_some() })
+        Ok(CompileLog {
+            frames,
+            fps: fps.unwrap_or(30.0),
+            fps_logged: fps.is_some(),
+        })
     }
 }
 
@@ -131,7 +193,11 @@ fn range(r: &str, n: usize) -> Result<(usize, usize), String> {
     let bad = || format!("--frames: expected A..B within 0..{n}, got {r:?}");
     let (a, b) = r.split_once("..").ok_or_else(bad)?;
     let a: usize = a.parse().map_err(|_| bad())?;
-    let b: usize = if b.is_empty() { n } else { b.parse().map_err(|_| bad())? };
+    let b: usize = if b.is_empty() {
+        n
+    } else {
+        b.parse().map_err(|_| bad())?
+    };
     if a < b && b <= n {
         Ok((a, b))
     } else {
@@ -189,12 +255,20 @@ fn load_orbit(s: &Store, id: &ChunkId, reads: &mut Reads) -> Result<Orbit, Strin
         let chunk = reads.get(s, sid)?;
         bytes += chunk.bytes().len() as u64;
         if chunk.contract().precision_bits != m.precision_bits {
-            return Err(format!("orbit slab {sid} disagrees with its manifest on precision"));
+            return Err(format!(
+                "orbit slab {sid} disagrees with its manifest on precision"
+            ));
         }
         slabs.push(OrbitSlab::from_chunk(&chunk).map_err(|e| format!("{sid}: {e}"))?);
     }
     let (re, im) = OrbitSlab::join(&slabs).map_err(|e| e.to_string())?;
-    Ok(Orbit { r: Reference { re, im }, bits: m.precision_bits, centre: (m.center_re, m.center_im), slabs: m.slabs, bytes })
+    Ok(Orbit {
+        r: Reference { re, im },
+        bits: m.precision_bits,
+        centre: (m.center_re, m.center_im),
+        slabs: m.slabs,
+        bytes,
+    })
 }
 
 fn load_table(s: &Store, id: &ChunkId, reads: &mut Reads) -> Result<Table, String> {
@@ -205,10 +279,18 @@ fn load_table(s: &Store, id: &ChunkId, reads: &mut Reads) -> Result<Table, Strin
     let bla = if t.levels.is_empty() {
         None
     } else {
-        let levels = t.levels.into_iter().map(|l| l.into_iter().map(Block::from_array).collect()).collect();
+        let levels = t
+            .levels
+            .into_iter()
+            .map(|l| l.into_iter().map(Block::from_array).collect())
+            .collect();
         Some(Bla::new(t.eps, t.dc_max, t.points, levels).map_err(|e| format!("{id}: {e}"))?)
     };
-    Ok(Table { orbit, bla, bytes: c.bytes().len() as u64 })
+    Ok(Table {
+        orbit,
+        bla,
+        bytes: c.bytes().len() as u64,
+    })
 }
 
 /// How the frame used its BLA table.
@@ -249,24 +331,39 @@ fn frame(
     let reset = reset_peak_rss();
     let load = Instant::now();
     let mut reads = Reads::default();
-    let fm = FrameManifest::from_chunk(&reads.get(store, fid)?).map_err(|e| format!("frame manifest {fid}: {e}"))?;
+    let fm = FrameManifest::from_chunk(&reads.get(store, fid)?)
+        .map_err(|e| format!("frame manifest {fid}: {e}"))?;
     let mut referenced = reads.bytes;
     let mut refs: HashSet<(Kind, ChunkId)> = HashSet::new();
     for tid in &fm.tiles {
         if !cache.tiles.contains_key(tid) {
             let c = reads.get(store, tid)?;
-            let tm = TileManifest::from_chunk(&c).map_err(|e| format!("tile manifest {tid}: {e}"))?;
+            let tm =
+                TileManifest::from_chunk(&c).map_err(|e| format!("tile manifest {tid}: {e}"))?;
             cache.tiles.insert(*tid, (tm.refs, c.bytes().len() as u64));
         }
         let (r, b) = &cache.tiles[tid];
         referenced += b;
         refs.extend(r.iter().copied());
     }
-    let of = |k: Kind| refs.iter().filter(|r| r.0 == k).map(|r| r.1).collect::<Vec<_>>();
+    let of = |k: Kind| {
+        refs.iter()
+            .filter(|r| r.0 == k)
+            .map(|r| r.1)
+            .collect::<Vec<_>>()
+    };
     let (oids, bids) = (of(Kind::ORBIT_MANIFEST), of(Kind::BLA));
-    let [oid] = oids.as_slice() else { return Err(format!("tiles name {} orbit manifests, need exactly 1", oids.len())) };
+    let [oid] = oids.as_slice() else {
+        return Err(format!(
+            "tiles name {} orbit manifests, need exactly 1",
+            oids.len()
+        ));
+    };
     if bids.len() > 1 {
-        return Err(format!("tiles name {} BLA tables, need at most 1", bids.len()));
+        return Err(format!(
+            "tiles name {} BLA tables, need at most 1",
+            bids.len()
+        ));
     }
     if !cache.orbits.contains_key(oid) {
         reads.math_miss = true;
@@ -288,10 +385,17 @@ fn frame(
         }
         let tb = &cache.tables[bid];
         if tb.orbit != *oid {
-            return Err(format!("BLA table {bid} was built over orbit {}, not the frame's {oid}", tb.orbit));
+            return Err(format!(
+                "BLA table {bid} was built over orbit {}, not the frame's {oid}",
+                tb.orbit
+            ));
         }
         referenced += tb.bytes;
-        table_use = if tb.bla.is_some() { TableUse::Used } else { TableUse::Empty };
+        table_use = if tb.bla.is_some() {
+            TableUse::Used
+        } else {
+            TableUse::Empty
+        };
     }
 
     // Camera: exact centre from the orbit manifest, width from the frame manifest
@@ -300,11 +404,20 @@ fn frame(
     if !width.is_normal() {
         return Err(format!("frame width {width:e} is not a normal f64"));
     }
-    let view = View { center_re: orbit.centre.0.clone(), center_im: orbit.centre.1.clone(), width: format!("{width:e}"), rotation: fm.rotation };
+    let view = View {
+        center_re: orbit.centre.0.clone(),
+        center_im: orbit.centre.1.clone(),
+        width: format!("{width:e}"),
+        rotation: fm.rotation,
+    };
     let (tile, at) = anchor(&view, fm.anchor.level)?;
     let off = (at.0 - 0.5, 0.5 - at.1);
-    if tile != fm.anchor || (off.0 - fm.offset.0).abs() > 1e-9 || (off.1 - fm.offset.1).abs() > 1e-9 {
-        return Err(format!("anchor {} offset {:?} does not place the orbit's centre (at {tile} {off:?})", fm.anchor, fm.offset));
+    if tile != fm.anchor || (off.0 - fm.offset.0).abs() > 1e-9 || (off.1 - fm.offset.1).abs() > 1e-9
+    {
+        return Err(format!(
+            "anchor {} offset {:?} does not place the orbit's centre (at {tile} {off:?})",
+            fm.anchor, fm.offset
+        ));
     }
     let p = Params {
         nx: fm.size.0 * fm.ss,
@@ -319,25 +432,35 @@ fn frame(
     for (name, pass) in looks {
         let need = pass.columns().with(fd_samples::Column::Class);
         if need.0 & !p.columns.with(fd_samples::Column::Class).0 != 0 {
-            return Err(format!("look {name} needs columns the atlas frame does not have (frame columns mask {})", p.columns.0));
+            return Err(format!(
+                "look {name} needs columns the atlas frame does not have (frame columns mask {})",
+                p.columns.0
+            ));
         }
     }
-    let supplied = (Reference { re: orbit.r.re.clone(), im: orbit.r.im.clone() }, orbit.bits);
+    let supplied = (
+        Reference {
+            re: orbit.r.re.clone(),
+            im: orbit.r.im.clone(),
+        },
+        orbit.bits,
+    );
     let (orbit_bits, orbit_points) = (orbit.bits, orbit.r.re.len());
     let load_seconds = load.elapsed().as_secs_f64();
 
     // Render from the stored orbit (and table): the kernel computes no reference.
     let r = Instant::now();
-    let (h, s, st, bla): (Header, Samples, Stats, Option<BlaStats>) = match bids.first().and_then(|b| cache.tables[b].bla.as_ref()) {
-        Some(bla) => {
-            let (h, s, st, b) = render_bla(&view, &p, supplied, bla)?;
-            (h, s, st, Some(b))
-        }
-        None => {
-            let (h, s, st) = render_with(&view, &p, Some(supplied))?;
-            (h, s, st, None)
-        }
-    };
+    let (h, s, st, bla): (Header, Samples, Stats, Option<BlaStats>) =
+        match bids.first().and_then(|b| cache.tables[b].bla.as_ref()) {
+            Some(bla) => {
+                let (h, s, st, b) = render_bla(&view, &p, supplied, bla)?;
+                (h, s, st, Some(b))
+            }
+            None => {
+                let (h, s, st) = render_with(&view, &p, Some(supplied))?;
+                (h, s, st, None)
+            }
+        };
     let render_seconds = r.elapsed().as_secs_f64();
     let mut bytes = Vec::new();
     write(&mut bytes, &h, &s).map_err(|e| e.to_string())?;
@@ -350,7 +473,11 @@ fn frame(
     cache.tables.retain(|k, _| bids.contains(k));
 
     let count = |k: fd_samples::Kind| s.class.iter().filter(|c| c.kind() == Some(k)).count();
-    let classes = [count(fd_samples::Kind::Escaped), count(fd_samples::Kind::Interior), count(fd_samples::Kind::Unresolved)];
+    let classes = [
+        count(fd_samples::Kind::Escaped),
+        count(fd_samples::Kind::Interior),
+        count(fd_samples::Kind::Unresolved),
+    ];
     let state = if reads.math_miss { "cold" } else { "warm" };
     let seconds = load_seconds + render_seconds;
     let fr = Frame {
@@ -367,7 +494,14 @@ fn frame(
         classes,
         peak_rss: peak,
         peak_rss_scope: if reset { "run" } else { "process" },
-        atlas: Some(AtlasWork { state, load_seconds, bytes_read: reads.bytes, bytes_referenced: referenced, tiles_touched: fm.tiles.len(), bla }),
+        atlas: Some(AtlasWork {
+            state,
+            load_seconds,
+            bytes_read: reads.bytes,
+            bytes_referenced: referenced,
+            tiles_touched: fm.tiles.len(),
+            bla,
+        }),
         own_bla: None,
     };
 
@@ -379,12 +513,15 @@ fn frame(
     let shade = Instant::now();
     for (name, pass) in looks {
         let png = format!("{}/frame-{f:05}.{name}.png", dir.expect("checked"));
-        std::fs::write(&png, fd_shade::png(&pass.shade_with(&h, &s, look_at))).map_err(|e| format!("{png}: {e}"))?;
+        std::fs::write(&png, fd_shade::png(&pass.shade_with(&h, &s, look_at)))
+            .map_err(|e| format!("{png}: {e}"))?;
         t.pngs += 1;
     }
     let shade_seconds = shade.elapsed().as_secs_f64();
 
-    let mut j = format!("{{\"schema\":\"fd-play/1\",\"record\":\"frame\",\"frame\":{f},\"manifest\":\"{fid}\"");
+    let mut j = format!(
+        "{{\"schema\":\"fd-play/1\",\"record\":\"frame\",\"frame\":{f},\"manifest\":\"{fid}\""
+    );
     fr.body(&mut j, "warm", None)?;
     let need_bits = reference_bits(&view, &p)?;
     let _ = write!(
@@ -450,7 +587,10 @@ fn frame(
     for (sum, c) in t.classes.iter_mut().zip(classes) {
         *sum += c as u64;
     }
-    t.log10_width = (t.log10_width.0.min(log10_width), t.log10_width.1.max(log10_width));
+    t.log10_width = (
+        t.log10_width.0.min(log10_width),
+        t.log10_width.1.max(log10_width),
+    );
     t.bits_max = t.bits_max.max(need_bits);
     t.table_use[table_use as usize] += 1;
     if let Some(b) = bla {
@@ -480,12 +620,25 @@ fn mux(out: &str, dir: &str, look: &str, start: usize, fps: f64) -> Result<Mux, 
     let t = Instant::now();
     let pattern = format!("{dir}/frame-%05d.{look}.png");
     let o = Command::new("ffmpeg")
-        .args(["-y", "-loglevel", "error", "-framerate", &fps.to_string(), "-start_number", &start.to_string(), "-i", &pattern])
+        .args([
+            "-y",
+            "-loglevel",
+            "error",
+            "-framerate",
+            &fps.to_string(),
+            "-start_number",
+            &start.to_string(),
+            "-i",
+            &pattern,
+        ])
         .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", out])
         .output()
         .map_err(|e| format!("ffmpeg: {e}"))?;
     if !o.status.success() {
-        return Err(format!("ffmpeg failed: {}", String::from_utf8_lossy(&o.stderr)));
+        return Err(format!(
+            "ffmpeg failed: {}",
+            String::from_utf8_lossy(&o.stderr)
+        ));
     }
     Ok(Mux::Done(out.to_string(), t.elapsed().as_secs_f64()))
 }
@@ -524,14 +677,50 @@ struct Totals {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn totals(log: &str, record: &CompileLog, (from, to): (usize, usize), threads: usize, t: &Totals, mp4: &Mux, error: Option<&str>, wall: f64) -> String {
+fn totals(
+    log: &str,
+    record: &CompileLog,
+    (from, to): (usize, usize),
+    threads: usize,
+    t: &Totals,
+    mp4: &Mux,
+    error: Option<&str>,
+    wall: f64,
+) -> String {
     let n = t.frames;
-    let num = |x: f64, d: usize| if d == 0 { "null".to_string() } else { (x / d as f64).to_string() };
-    let ratio = |x: f64, d: f64| if d == 0.0 { "null".to_string() } else { (x / d).to_string() };
-    let mut j = format!("{{\"schema\":\"fd-play/1\",\"record\":\"totals\",\"compile_log\":{},\"frames\":{n}", q(log));
-    let _ = write!(j, ",\"range\":[{from},{to}],\"threads\":{threads},\"fps\":{},\"fps_source\":\"{}\"", record.fps, if record.fps_logged { "compile_log" } else { "default" });
+    let num = |x: f64, d: usize| {
+        if d == 0 {
+            "null".to_string()
+        } else {
+            (x / d as f64).to_string()
+        }
+    };
+    let ratio = |x: f64, d: f64| {
+        if d == 0.0 {
+            "null".to_string()
+        } else {
+            (x / d).to_string()
+        }
+    };
+    let mut j = format!(
+        "{{\"schema\":\"fd-play/1\",\"record\":\"totals\",\"compile_log\":{},\"frames\":{n}",
+        q(log)
+    );
+    let _ = write!(
+        j,
+        ",\"range\":[{from},{to}],\"threads\":{threads},\"fps\":{},\"fps_source\":\"{}\"",
+        record.fps,
+        if record.fps_logged {
+            "compile_log"
+        } else {
+            "default"
+        }
+    );
     // Not in the frame manifest: stated, not silently derived.
-    let _ = write!(j, ",\"assumed\":{{\"kernel\":\"auto\",\"escape_radius\":{ESCAPE_RADIUS}}}");
+    let _ = write!(
+        j,
+        ",\"assumed\":{{\"kernel\":\"auto\",\"escape_radius\":{ESCAPE_RADIUS}}}"
+    );
     j.push_str(",\"cache\":{\"atlas\":\"store\",\"cross_frame_reuse\":true,\"keep\":\"chunks of the previous frame\"}");
     let _ = write!(
         j,
@@ -603,8 +792,13 @@ fn totals(log: &str, record: &CompileLog, (from, to): (usize, usize), threads: u
         t.peak_rss.map_or("null".into(), |b| b.to_string()),
         t.sample_bytes
     );
-    let _ = write!(j, ",\"classes\":{{\"escaped\":{},\"interior\":{},\"unresolved\":{}}}", t.classes[0], t.classes[1], t.classes[2]);
     let _ = write!(
+        j,
+        ",\"classes\":{{\"escaped\":{},\"interior\":{},\"unresolved\":{}}}",
+        t.classes[0], t.classes[1], t.classes[2]
+    );
+    let _ =
+        write!(
         j,
         ",\"depth\":{{\"log10_width_min\":{},\"log10_width_max\":{},\"precision_bits_max\":{}}}",
         if n == 0 { "null".into() } else { t.log10_width.0.to_string() },

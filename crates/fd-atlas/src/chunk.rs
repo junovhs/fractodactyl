@@ -56,7 +56,10 @@ impl Kind {
 
     /// The registered name, if this code has one.
     pub fn name(self) -> Option<&'static str> {
-        Kind::NAMES.iter().find(|(k, _)| *k == self).map(|(_, n)| *n)
+        Kind::NAMES
+            .iter()
+            .find(|(k, _)| *k == self)
+            .map(|(_, n)| *n)
     }
 }
 
@@ -99,7 +102,10 @@ impl std::str::FromStr for Formula {
         match s {
             "none" => Ok(Formula::NONE),
             "mandelbrot" => Ok(Formula::MANDELBROT),
-            _ => s.parse().map(Formula).map_err(|_| format!("unknown formula {s:?}")),
+            _ => s
+                .parse()
+                .map(Formula)
+                .map_err(|_| format!("unknown formula {s:?}")),
         }
     }
 }
@@ -127,7 +133,9 @@ pub enum Rounding {
 
 impl Rounding {
     fn from_u8(v: u8) -> Option<Rounding> {
-        [Rounding::Exact, Rounding::Nearest, Rounding::Outward].into_iter().find(|r| *r as u8 == v)
+        [Rounding::Exact, Rounding::Nearest, Rounding::Outward]
+            .into_iter()
+            .find(|r| *r as u8 == v)
     }
 }
 
@@ -197,7 +205,10 @@ impl Chunk {
             return bad("bad magic: not a chunk");
         }
         if u16_at(8) != MAJOR {
-            return Err(Error::Malformed(format!("unsupported chunk major version {}", u16_at(8))));
+            return Err(Error::Malformed(format!(
+                "unsupported chunk major version {}",
+                u16_at(8)
+            )));
         }
         let kind = Kind(u16_at(12));
         if kind.0 == 0 {
@@ -217,8 +228,13 @@ impl Chunk {
         if bytes[HEADER_LEN + len as usize..].iter().any(|&b| b != 0) {
             return bad("payload padding is not zero");
         }
-        let contract =
-            Contract { kind, encoding: u16_at(14), formula: Formula(u16_at(16)), precision_bits: u32_at(20), rounding };
+        let contract = Contract {
+            kind,
+            encoding: u16_at(14),
+            formula: Formula(u16_at(16)),
+            precision_bits: u32_at(20),
+            rounding,
+        };
         Ok(Chunk { contract, bytes })
     }
 
@@ -259,7 +275,10 @@ pub struct Builder {
 impl Builder {
     /// Start an empty payload under `contract`.
     pub fn new(contract: Contract) -> Builder {
-        Builder { contract, payload: Vec::new() }
+        Builder {
+            contract,
+            payload: Vec::new(),
+        }
     }
 
     /// Append a byte.
@@ -288,7 +307,13 @@ impl Builder {
     }
     /// Append an `f32` in canonical bits.
     pub fn f32(&mut self, v: f32) -> &mut Self {
-        let bits = if v == 0.0 { 0 } else if v.is_nan() { CANONICAL_NAN_F32 } else { v.to_bits() };
+        let bits = if v == 0.0 {
+            0
+        } else if v.is_nan() {
+            CANONICAL_NAN_F32
+        } else {
+            v.to_bits()
+        };
         self.u32(bits)
     }
     /// A `u64` length followed by the bytes.
@@ -353,8 +378,16 @@ mod tests {
 
     #[test]
     fn signed_zero_and_nan_are_normalised() {
-        let a = Builder::new(contract()).f64(0.0).f64(f64::NAN).f32(-0.0).finish();
-        let b = Builder::new(contract()).f64(-0.0).f64(-f64::NAN).f32(0.0).finish();
+        let a = Builder::new(contract())
+            .f64(0.0)
+            .f64(f64::NAN)
+            .f32(-0.0)
+            .finish();
+        let b = Builder::new(contract())
+            .f64(-0.0)
+            .f64(-f64::NAN)
+            .f32(0.0)
+            .finish();
         assert_eq!(a.bytes(), b.bytes());
         assert_eq!(a.id(), b.id());
     }
@@ -372,7 +405,13 @@ mod tests {
     #[test]
     fn contract_is_part_of_identity() {
         let a = Chunk::new(contract(), b"same");
-        let b = Chunk::new(Contract { precision_bits: 128, ..contract() }, b"same");
+        let b = Chunk::new(
+            Contract {
+                precision_bits: 128,
+                ..contract()
+            },
+            b"same",
+        );
         assert_ne!(a.id(), b.id());
     }
 

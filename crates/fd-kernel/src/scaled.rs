@@ -16,7 +16,14 @@ const HI: f64 = 4294967296.0; // 2^32
 const LO: f64 = 1.0 / HI;
 
 /// Iterate the sample at `C + 2^ed * (ar, ai)`.
-pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, max_iter: u64, r2: f64) -> Outcome {
+pub(crate) fn scaled<const D: bool>(
+    r: &Reference,
+    ar: f64,
+    ai: f64,
+    ed: i64,
+    max_iter: u64,
+    r2: f64,
+) -> Outcome {
     let (zr, zi, last) = (&r.re, &r.im, r.len() - 1);
     let (mut wr, mut wi, mut e) = (0.0f64, 0.0f64, ed);
     let mut s = exp2i(e); // 2^e as f64 (0 while below range)
@@ -45,13 +52,26 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
         let (fr, fi) = (zr[m] + xr, zi[m] + xi);
         let f2 = fr * fr + fi * fi;
         if f2 > r2 {
-            return Outcome::Escaped { n, zr: fr, zi: fi, dr: vr, di: vi, dexp: g, ez: f64::INFINITY, ed: f64::INFINITY };
+            return Outcome::Escaped {
+                n,
+                zr: fr,
+                zi: fi,
+                dr: vr,
+                di: vi,
+                dexp: g,
+                ez: f64::INFINITY,
+                ed: f64::INFINITY,
+            };
         }
         if f2 <= xr * xr + xi * xi || m == last {
             // Rebase onto Z_0 = 0: the delta becomes z itself. Near a deep nucleus z is
             // far below f64's range, so form it as Z_m + 2^e w without leaving the
             // scaled representation and keep dc at the new exponent (FIX-40).
-            (wr, wi, e) = if f2 > SQUARE_OK { (fr, fi, 0) } else { sum2(&[(zr[m], zi[m], 0), (wr, wi, e)], e) };
+            (wr, wi, e) = if f2 > SQUARE_OK {
+                (fr, fi, 0)
+            } else {
+                sum2(&[(zr[m], zi[m], 0), (wr, wi, e)], e)
+            };
             s = exp2i(e);
             m = 0;
             if s < TINY {
@@ -70,7 +90,13 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
             (dr, di) = (ar * q, ai * q);
         } else {
             let wm = wr.abs().max(wi.abs());
-            let k = if wm > HI && e < 0 { 32.min(-e) } else if wm < LO && wm != 0.0 { -32 } else { 0 };
+            let k = if wm > HI && e < 0 {
+                32.min(-e)
+            } else if wm < LO && wm != 0.0 {
+                -32
+            } else {
+                0
+            };
             if k != 0 {
                 let f = exp2i(-k);
                 (wr, wi, e) = (wr * f, wi * f, e + k);
@@ -109,10 +135,20 @@ fn sum2(terms: &[(f64, f64, i64)], zero_e: i64) -> (f64, f64, i64) {
         let a = t.0.abs().max(t.1.abs());
         (a != 0.0).then(|| a.log2().floor() as i64 + t.2)
     };
-    let Some(top) = terms.iter().filter_map(lg).max() else { return (0.0, 0.0, zero_e) };
+    let Some(top) = terms.iter().filter_map(lg).max() else {
+        return (0.0, 0.0, zero_e);
+    };
     // 2^k in two factors, so |k| up to 2046 stays finite.
-    let sc = |x: f64, k: i64| if k < -2046 { 0.0 } else { x * exp2i(k / 2) * exp2i(k - k / 2) };
-    let (re, im) = terms.iter().fold((0.0, 0.0), |(r, i), t| (r + sc(t.0, t.2 - top), i + sc(t.1, t.2 - top)));
+    let sc = |x: f64, k: i64| {
+        if k < -2046 {
+            0.0
+        } else {
+            x * exp2i(k / 2) * exp2i(k - k / 2)
+        }
+    };
+    let (re, im) = terms.iter().fold((0.0, 0.0), |(r, i), t| {
+        (r + sc(t.0, t.2 - top), i + sc(t.1, t.2 - top))
+    });
     (re, im, top)
 }
 
@@ -128,7 +164,11 @@ fn zero_step(w: (f64, f64, i64), a: (f64, f64, i64)) -> (f64, f64, i64) {
 #[cold]
 #[inline(never)]
 fn zero_step_dz(w: (f64, f64, i64), v: (f64, f64, i64)) -> (f64, f64, i64) {
-    let q = (2.0 * (w.0 * v.0 - w.1 * v.1), 2.0 * (w.0 * v.1 + w.1 * v.0), w.2 + v.2);
+    let q = (
+        2.0 * (w.0 * v.0 - w.1 * v.1),
+        2.0 * (w.0 * v.1 + w.1 * v.0),
+        w.2 + v.2,
+    );
     sum2(&[q, (1.0, 0.0, 0)], v.2)
 }
 
@@ -155,8 +195,21 @@ mod tests {
             let b = sample::<true, false>(&r, &[], None, ar, ai, 10_000, 1e20);
             match (a, b) {
                 (
-                    Outcome::Escaped { n: n1, zr: z1, dr: d1, di: e1, dexp, .. },
-                    Outcome::Escaped { n: n2, zr: z2, dr: d2, di: e2, .. },
+                    Outcome::Escaped {
+                        n: n1,
+                        zr: z1,
+                        dr: d1,
+                        di: e1,
+                        dexp,
+                        ..
+                    },
+                    Outcome::Escaped {
+                        n: n2,
+                        zr: z2,
+                        dr: d2,
+                        di: e2,
+                        ..
+                    },
                 ) => {
                     assert_eq!(n1, n2);
                     assert!((z1 - z2).abs() < 1e-6 * z2.abs());
@@ -176,7 +229,9 @@ mod tests {
         // ~1.25 bits per step and a 2^-3000 offset escapes after roughly 2400 steps.
         let r = Reference::new(0.0, 1.0, 100_000, 1e10);
         match scaled::<true>(&r, 1.0, 0.5, -3000, 100_000, 1e20) {
-            Outcome::Escaped { n, dexp, .. } => assert!(n > 1500 && n < 4000 && dexp > 2900, "{n} {dexp}"),
+            Outcome::Escaped { n, dexp, .. } => {
+                assert!(n > 1500 && n < 4000 && dexp > 2900, "{n} {dexp}")
+            }
             o => panic!("{o:?}"),
         }
     }
@@ -213,7 +268,10 @@ mod tests {
         let r = Reference::from_fixed(&cr, &ci, 6000);
         for (ar, ai) in [(1.0, 0.0), (0.0, 1.0)] {
             let result = scaled::<true>(&r, ar, ai, -1100, 6000, 1e20);
-            assert!(matches!(result, Outcome::Interior { .. } | Outcome::Unresolved), "{result:?}");
+            assert!(
+                matches!(result, Outcome::Interior { .. } | Outcome::Unresolved),
+                "{result:?}"
+            );
         }
     }
 
@@ -225,8 +283,22 @@ mod tests {
         // Pixel (5, 5) of a 96x54 frame 5000 minibrot sizes wide; mpmath at 1200
         // digits: escape (|z| > 1e10) at n = 133115, z = -2.7519423631080235e10 - ...,
         // log2 |dz/dc| = 3359.4391791173814.
-        match scaled::<true>(&r, -0.5737130423454617, 0.290231303774763, -3310, 140_000, 1e20) {
-            Outcome::Escaped { n, zr, dr, di, dexp, .. } => {
+        match scaled::<true>(
+            &r,
+            -0.5737130423454617,
+            0.290231303774763,
+            -3310,
+            140_000,
+            1e20,
+        ) {
+            Outcome::Escaped {
+                n,
+                zr,
+                dr,
+                di,
+                dexp,
+                ..
+            } => {
                 assert_eq!(n, 133_115);
                 assert!((zr / -27519423631.080235 - 1.0).abs() < 1e-6, "{zr}");
                 let l = dr.hypot(di).log2() + dexp as f64;
@@ -237,7 +309,14 @@ mod tests {
         // Pixel (48, 19), near the nucleus: after its eighth return |z| ~ 2^-557 is above
         // the old 1e-270 cut but its square is not, so a rebase to exponent 0 rounded
         // z^2 to 0 and the pixel never escaped. mpmath: escape at n = 139850.
-        match scaled::<true>(&r, 0.006749565204064256, 0.10124347806096384, -3310, 140_000, 1e20) {
+        match scaled::<true>(
+            &r,
+            0.006749565204064256,
+            0.10124347806096384,
+            -3310,
+            140_000,
+            1e20,
+        ) {
             Outcome::Escaped { n, .. } => assert_eq!(n, 139_850),
             o => panic!("{o:?}"),
         }
@@ -254,7 +333,11 @@ mod tests {
         let limbs = fd_fixed::limbs_for(3456);
         let cr = fd_fixed::Fixed::parse(f[2], limbs).unwrap();
         let ci = fd_fixed::Fixed::parse(f[3], limbs).unwrap();
-        (f[2].to_string(), f[3].to_string(), Reference::from_fixed(&cr, &ci, len))
+        (
+            f[2].to_string(),
+            f[3].to_string(),
+            Reference::from_fixed(&cr, &ci, len),
+        )
     }
 
     /// PROB-19's k = 7676 frame 500 minibrot sizes wide (480x270), pixel (184, 201):
@@ -264,7 +347,12 @@ mod tests {
     #[test]
     fn repelling_cycle_shadow_at_the_7676_rung_escapes() {
         let (re, im, r) = rung_7676(150_000);
-        let v = fd_samples::View { center_re: re, center_im: im, width: "5.050000000000E-998".into(), rotation: 0.0 };
+        let v = fd_samples::View {
+            center_re: re,
+            center_im: im,
+            width: "5.050000000000E-998".into(),
+            rotation: 0.0,
+        };
         let pl = crate::Plane::new(&v, 480, 270).unwrap();
         let (ux, uy) = pl.unit_offset(184, 201);
         match scaled::<true>(&r, ux * pl.h_m, uy * pl.h_m, pl.h_e, 644_640, 1e20) {

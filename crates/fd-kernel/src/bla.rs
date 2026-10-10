@@ -43,12 +43,20 @@ pub struct Block {
 impl Block {
     /// Fields in storage order: `a.re, a.im, b.re, b.im, r, alpha, beta`.
     pub fn to_array(&self) -> [f64; 7] {
-        [self.a.0, self.a.1, self.b.0, self.b.1, self.r, self.alpha, self.beta]
+        [
+            self.a.0, self.a.1, self.b.0, self.b.1, self.r, self.alpha, self.beta,
+        ]
     }
 
     /// Inverse of [`Block::to_array`].
     pub fn from_array(v: [f64; 7]) -> Block {
-        Block { a: (v[0], v[1]), b: (v[2], v[3]), r: v[4], alpha: v[5], beta: v[6] }
+        Block {
+            a: (v[0], v[1]),
+            b: (v[2], v[3]),
+            r: v[4],
+            alpha: v[5],
+            beta: v[6],
+        }
     }
 
     /// One step at `Z_k`: `A = 2 Z_k`, `B = 1`, `r = alpha = 2 eps |Z_k|`. Never valid
@@ -59,7 +67,13 @@ impl Block {
         if !(r > 0.0 && az <= 2.0) {
             return Block::default();
         }
-        Block { a: (2.0 * zr + 0.0, 2.0 * zi + 0.0), b: (1.0, 0.0), r, alpha: r, beta: 0.0 }
+        Block {
+            a: (2.0 * zr + 0.0, 2.0 * zi + 0.0),
+            b: (1.0, 0.0),
+            r,
+            alpha: r,
+            beta: 0.0,
+        }
     }
 
     /// `x` then `y` for any `|dc| <= c`. With `Ahat = |A_x| + alpha_x` and `Bhat = |B_x| +
@@ -74,8 +88,14 @@ impl Block {
         let bhat = x.b.0.hypot(x.b.1) + x.beta;
         let r = x.r.min((y.r - bhat * c) / ahat);
         let z = Block {
-            a: (y.a.0 * x.a.0 - y.a.1 * x.a.1 + 0.0, y.a.0 * x.a.1 + y.a.1 * x.a.0 + 0.0),
-            b: (y.a.0 * x.b.0 - y.a.1 * x.b.1 + y.b.0 + 0.0, y.a.0 * x.b.1 + y.a.1 * x.b.0 + y.b.1 + 0.0),
+            a: (
+                y.a.0 * x.a.0 - y.a.1 * x.a.1 + 0.0,
+                y.a.0 * x.a.1 + y.a.1 * x.a.0 + 0.0,
+            ),
+            b: (
+                y.a.0 * x.b.0 - y.a.1 * x.b.1 + y.b.0 + 0.0,
+                y.a.0 * x.b.1 + y.a.1 * x.b.0 + y.b.1 + 0.0,
+            ),
             r,
             alpha: ay * x.alpha + y.alpha * ahat,
             beta: ay * x.beta + y.alpha * bhat + y.beta,
@@ -113,8 +133,14 @@ impl Bla {
     pub fn build(r: &Reference, eps: f64, dc_max: f64) -> Result<Bla, String> {
         check(eps, dc_max)?;
         let steps = r.len().saturating_sub(2);
-        let merge = |l: &[Block]| -> Vec<Block> { (0..l.len() / 2).map(|i| Block::merge(&l[2 * i], &l[2 * i + 1], dc_max)).collect() };
-        let singles: Vec<Block> = (1..=steps).map(|k| Block::single(r.re[k], r.im[k], eps)).collect();
+        let merge = |l: &[Block]| -> Vec<Block> {
+            (0..l.len() / 2)
+                .map(|i| Block::merge(&l[2 * i], &l[2 * i + 1], dc_max))
+                .collect()
+        };
+        let singles: Vec<Block> = (1..=steps)
+            .map(|k| Block::single(r.re[k], r.im[k], eps))
+            .collect();
         let mut levels: Vec<Vec<Block>> = Vec::new();
         let mut next = merge(&singles);
         while next.iter().any(|b| b.r > 0.0) {
@@ -131,20 +157,40 @@ impl Bla {
         for (i, l) in levels.iter().enumerate() {
             let j = i + 1;
             if j >= 64 || l.len() as u64 != steps >> j {
-                return Err(format!("BLA level {j} has {} blocks; a {points}-point orbit needs {}", l.len(), steps >> j));
+                return Err(format!(
+                    "BLA level {j} has {} blocks; a {points}-point orbit needs {}",
+                    l.len(),
+                    steps >> j
+                ));
             }
-            if !l.iter().flat_map(Block::to_array).all(|v| v.is_finite()) || l.iter().any(|b| b.r < 0.0) {
-                return Err(format!("BLA level {j} holds a non-finite value or negative radius"));
+            if !l.iter().flat_map(Block::to_array).all(|v| v.is_finite())
+                || l.iter().any(|b| b.r < 0.0)
+            {
+                return Err(format!(
+                    "BLA level {j} holds a non-finite value or negative radius"
+                ));
             }
         }
-        let r2 = levels.iter().map(|l| l.iter().map(|b| b.r * b.r).collect()).collect();
-        Ok(Bla { eps, dc_max, points, levels, r2 })
+        let r2 = levels
+            .iter()
+            .map(|l| l.iter().map(|b| b.r * b.r).collect())
+            .collect();
+        Ok(Bla {
+            eps,
+            dc_max,
+            points,
+            levels,
+            r2,
+        })
     }
 
     /// Blocks stored, and how many of them are valid somewhere.
     pub fn counts(&self) -> (usize, usize) {
         let all = self.levels.iter().map(Vec::len).sum();
-        (all, self.levels.iter().flatten().filter(|b| b.r > 0.0).count())
+        (
+            all,
+            self.levels.iter().flatten().filter(|b| b.r > 0.0).count(),
+        )
     }
 
     /// The longest block starting at reference index `m` that is valid for
@@ -158,7 +204,9 @@ impl Bla {
         // Blocks of 2^j steps start at k = m - 1 divisible by 2^j (m = 0 wraps: odd).
         let k = m.wrapping_sub(1);
         let top = (k.trailing_zeros() as usize).min(self.levels.len());
-        let ok = |i: usize| (2u64 << i) <= budget && self.r2[i].get(k >> (i + 1)).is_some_and(|&r2| d2 < r2);
+        let ok = |i: usize| {
+            (2u64 << i) <= budget && self.r2[i].get(k >> (i + 1)).is_some_and(|&r2| d2 < r2)
+        };
         if top == 0 || !ok(0) {
             return None;
         }
@@ -179,7 +227,10 @@ mod tests {
         let (mut x, mut y) = d;
         for k in m..m + l {
             let (zr, zi) = (r.re[k], r.im[k]);
-            (x, y) = (2.0 * (zr * x - zi * y) + x * x - y * y + dc.0, 2.0 * (zr * y + zi * x + x * y) + dc.1);
+            (x, y) = (
+                2.0 * (zr * x - zi * y) + x * x - y * y + dc.0,
+                2.0 * (zr * y + zi * x + x * y) + dc.1,
+            );
         }
         (x, y)
     }
@@ -191,20 +242,40 @@ mod tests {
         let r = Reference::new(-0.743643887037158, 0.131825904205312, 5000, 1e10);
         let (eps, c) = (EPS_MAX, 1e-17);
         let t = Bla::build(&r, eps, c).unwrap();
-        assert!(r.len() == 5001 && t.levels.len() > 3, "points {} levels {}", r.len(), t.levels.len());
+        assert!(
+            r.len() == 5001 && t.levels.len() > 3,
+            "points {} levels {}",
+            r.len(),
+            t.levels.len()
+        );
         let mut checked = 0;
         for (j, level) in t.levels.iter().enumerate() {
-            for (i, b) in level.iter().enumerate().step_by(3).filter(|(_, b)| b.r > 0.0) {
+            for (i, b) in level
+                .iter()
+                .enumerate()
+                .step_by(3)
+                .filter(|(_, b)| b.r > 0.0)
+            {
                 let (m, l) = (1 + (i << (j + 1)), 2usize << j);
                 for (u, v, w) in [(0.9, 0.3, 1.0), (-0.5, 0.8, -0.7), (0.0, -0.99, 0.2)] {
                     let d = (u * b.r, v * b.r * 0.1);
                     let dc = (w * c * 0.7, 0.7 * c * 0.7);
                     let got = steps(&r, m, l, d, dc);
-                    let lin = (b.a.0 * d.0 - b.a.1 * d.1 + b.b.0 * dc.0 - b.b.1 * dc.1, b.a.0 * d.1 + b.a.1 * d.0 + b.b.0 * dc.1 + b.b.1 * dc.0);
+                    let lin = (
+                        b.a.0 * d.0 - b.a.1 * d.1 + b.b.0 * dc.0 - b.b.1 * dc.1,
+                        b.a.0 * d.1 + b.a.1 * d.0 + b.b.0 * dc.1 + b.b.1 * dc.0,
+                    );
                     let err = (got.0 - lin.0).hypot(got.1 - lin.1);
                     let bound = b.alpha * d.0.hypot(d.1) + b.beta * dc.0.hypot(dc.1);
-                    let round = 8.0 * l as f64 * f64::EPSILON * (b.a.0.hypot(b.a.1) * d.0.hypot(d.1) + b.b.0.hypot(b.b.1) * dc.0.hypot(dc.1));
-                    assert!(err <= bound + round, "level {j} block {i}: err {err} > bound {bound}");
+                    let round = 8.0
+                        * l as f64
+                        * f64::EPSILON
+                        * (b.a.0.hypot(b.a.1) * d.0.hypot(d.1)
+                            + b.b.0.hypot(b.b.1) * dc.0.hypot(dc.1));
+                    assert!(
+                        err <= bound + round,
+                        "level {j} block {i}: err {err} > bound {bound}"
+                    );
                     checked += 1;
                 }
             }
@@ -224,7 +295,13 @@ mod tests {
         }
         // Brute force: the longest block from m with d2 < r^2 and length <= budget.
         for m in (0..t.points as usize).step_by(3) {
-            for (d2, budget) in [(1e-40, u64::MAX), (1e-31, u64::MAX), (1e-34, 5), (1e-36, 2), (1e-40, 1)] {
+            for (d2, budget) in [
+                (1e-40, u64::MAX),
+                (1e-31, u64::MAX),
+                (1e-34, 5),
+                (1e-36, 2),
+                (1e-40, 1),
+            ] {
                 let k = m.wrapping_sub(1);
                 let want = (0..t.levels.len())
                     .take_while(|&i| m > 0 && k % (2 << i) == 0 && (2u64 << i) <= budget)
@@ -232,7 +309,11 @@ mod tests {
                     .take_while(|(_, b)| b.is_some_and(|b| d2 < b.r * b.r))
                     .last()
                     .map(|(i, b)| (*b.unwrap(), 2usize << i));
-                assert_eq!(t.find(m, d2, budget).map(|(b, l)| (*b, l)), want, "m {m} d2 {d2} budget {budget}");
+                assert_eq!(
+                    t.find(m, d2, budget).map(|(b, l)| (*b, l)),
+                    want,
+                    "m {m} d2 {d2} budget {budget}"
+                );
             }
         }
     }

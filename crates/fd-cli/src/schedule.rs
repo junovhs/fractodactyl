@@ -38,7 +38,9 @@ impl Policy {
             "slack" => Ok(Policy::Slack),
             "edf" => Ok(Policy::Edf),
             "first-use" => Ok(Policy::FirstUse),
-            x => Err(format!("--policy: expected slack, edf or first-use, got {x:?}")),
+            x => Err(format!(
+                "--policy: expected slack, edf or first-use, got {x:?}"
+            )),
         }
     }
 
@@ -89,7 +91,13 @@ pub(crate) struct Done {
 
 /// A built job: chunk id, encoded bytes, orbit points, compute seconds, and (orbit
 /// jobs) the orbit with its manifest id for dependents.
-type Built = (ChunkId, usize, usize, f64, Option<Arc<(Reference, ChunkId)>>);
+type Built = (
+    ChunkId,
+    usize,
+    usize,
+    f64,
+    Option<Arc<(Reference, ChunkId)>>,
+);
 
 /// Per frame: the orbit job it reads and its BLA table job, if any.
 pub(crate) type Uses = (usize, Option<usize>);
@@ -119,10 +127,19 @@ enum Status {
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation", "o"];
-    let extra = ["store", "slab", "fps", "lead", "workers", "policy", "bla", "on-miss"];
-    let known: Vec<&str> = FLAGS.iter().copied().filter(|f| !view_flags.contains(f)).chain(extra).collect();
+    let extra = [
+        "store", "slab", "fps", "lead", "workers", "policy", "bla", "on-miss",
+    ];
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .filter(|f| !view_flags.contains(f))
+        .chain(extra)
+        .collect();
     let a = Args::parse(argv, &known)?;
-    let [file] = a.positional.as_slice() else { return Err(USAGE.into()) };
+    let [file] = a.positional.as_slice() else {
+        return Err(USAGE.into());
+    };
     let p = params(&a)?;
     let slab: u32 = a.num("slab", 4096)?;
     let fps: f64 = a.num("fps", 30.0)?;
@@ -137,7 +154,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "frame" => Share::Frame,
         "group" => Share::Group,
         "none" => Share::None,
-        _ => return Err(format!("--bla: expected frame, group or none, got {bla_mode:?}")),
+        _ => {
+            return Err(format!(
+                "--bla: expected frame, group or none, got {bla_mode:?}"
+            ))
+        }
     };
     let fail = match a.str("on-miss").unwrap_or("fail") {
         "fail" => true,
@@ -158,7 +179,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let done = execute(&jobs, &frames, &p, &store, slab, workers, policy, t0)?;
 
     let count = |f: &dyn Fn(&Work) -> bool| jobs.iter().filter(|j| f(&j.work)).count();
-    println!("frames {}\nfps {fps}\nlead_seconds {lead_s}\nworkers {workers}\npolicy {}", frames.len(), policy.name());
+    println!(
+        "frames {}\nfps {fps}\nlead_seconds {lead_s}\nworkers {workers}\npolicy {}",
+        frames.len(),
+        policy.name()
+    );
     println!("bla_mode {bla_mode}\nbla_skipped_frames {skipped}");
     print_jobs(&jobs, &done);
     print_compare(&jobs, &done, workers, estimate_s, fps);
@@ -166,16 +191,28 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let estimated: Vec<f64> = jobs.iter().map(|j| j.est).collect();
     let m = outcome(&jobs, &done, fps);
     let (est_total, act_total): (f64, f64) = (estimated.iter().sum(), measured.iter().sum());
-    let mean_err = jobs.iter().zip(&measured).map(|(j, a)| ((j.est - a) / a).abs()).sum::<f64>() / jobs.len() as f64;
+    let mean_err = jobs
+        .iter()
+        .zip(&measured)
+        .map(|(j, a)| ((j.est - a) / a).abs())
+        .sum::<f64>()
+        / jobs.len() as f64;
     println!("jobs {}", jobs.len());
     println!("jobs.orbit {}", count(&|w| matches!(w, Work::Orbit { .. })));
     println!("jobs.bla {}", count(&|w| matches!(w, Work::Bla { .. })));
     println!("jobs.certificate 0");
     print_outcome(&jobs, &m);
     println!("estimate_seconds {estimate_s:.6}");
-    println!("store_cost.per_chunk_seconds {:.6}\nstore_cost.per_mib_seconds {:.6}", cost.per_chunk, cost.per_byte * f64::from(1u32 << 20));
+    println!(
+        "store_cost.per_chunk_seconds {:.6}\nstore_cost.per_mib_seconds {:.6}",
+        cost.per_chunk,
+        cost.per_byte * f64::from(1u32 << 20)
+    );
     println!("cost.estimated_seconds {est_total:.6}\ncost.actual_seconds {act_total:.6}");
-    println!("cost.total_error {:+.3}\ncost.mean_abs_error {mean_err:.3}", (est_total - act_total) / act_total);
+    println!(
+        "cost.total_error {:+.3}\ncost.mean_abs_error {mean_err:.3}",
+        (est_total - act_total) / act_total
+    );
     let after = store.stats().map_err(|e| e.to_string())?.bytes;
     println!("stored_bytes {}", after.saturating_sub(before));
     crate::chunk::report_target(&store)?;
@@ -202,7 +239,10 @@ pub(crate) fn outcome(jobs: &[Job], done: &[Done], fps: f64) -> Metrics {
 /// The `met`, `missed`, lateness, makespan and minimum-lead lines.
 pub(crate) fn print_outcome(jobs: &[Job], m: &Metrics) {
     println!("met {}\nmissed {}", jobs.len() - m.missed, m.missed);
-    println!("max_lateness_seconds {:.6}\nmakespan_seconds {:.6}\nmin_lead_seconds {:.6}", m.max_lateness, m.makespan, m.min_lead);
+    println!(
+        "max_lateness_seconds {:.6}\nmakespan_seconds {:.6}\nmin_lead_seconds {:.6}",
+        m.max_lateness, m.makespan, m.min_lead
+    );
 }
 
 /// One `job` line per job, in start order (SCHEDULE.md "Compile log").
@@ -239,7 +279,13 @@ pub(crate) fn print_jobs(jobs: &[Job], done: &[Done]) {
 
 /// The same jobs under each policy, simulated with this run's measured and estimated
 /// costs (list scheduling on `workers` workers, starting when the real first dispatch did).
-pub(crate) fn print_compare(jobs: &[Job], done: &[Done], workers: usize, estimate_s: f64, fps: f64) {
+pub(crate) fn print_compare(
+    jobs: &[Job],
+    done: &[Done],
+    workers: usize,
+    estimate_s: f64,
+    fps: f64,
+) {
     let measured: Vec<f64> = done.iter().map(|d| d.finish - d.start).collect();
     let estimated: Vec<f64> = jobs.iter().map(|j| j.est).collect();
     for pol in [Policy::Slack, Policy::Edf, Policy::FirstUse] {
@@ -269,7 +315,13 @@ fn kind(w: &Work) -> &'static str {
 /// tables over it as `share` says. Parents get lower indices than their dependents.
 /// Also returns, per frame, the orbit job and table job it reads, and the number of
 /// frames with no BLA table because they are on the scaled tier (BLA is unavailable there).
-pub(crate) fn derive(frames: &[(View, u32)], p: &Params, share: &Share, fps: f64, lead_s: f64) -> (Vec<Job>, Vec<Uses>, usize) {
+pub(crate) fn derive(
+    frames: &[(View, u32)],
+    p: &Params,
+    share: &Share,
+    fps: f64,
+    lead_s: f64,
+) -> (Vec<Job>, Vec<Uses>, usize) {
     let at = |f: usize| lead_s + f as f64 / fps;
     let mut jobs = Vec::new();
     let mut uses = vec![(0, None); frames.len()];
@@ -277,8 +329,19 @@ pub(crate) fn derive(frames: &[(View, u32)], p: &Params, share: &Share, fps: f64
     for (g, members) in groups(frames).iter().enumerate() {
         let orbit = jobs.len();
         let first = members[0];
-        let work = Work::Orbit { frame: lead(frames, members) };
-        jobs.push(Job { name: format!("orbit.{g}"), work, deps: vec![], first_use: first, deadline: at(first), effective: 0.0, est: 0.0, est_bytes: 0 });
+        let work = Work::Orbit {
+            frame: lead(frames, members),
+        };
+        jobs.push(Job {
+            name: format!("orbit.{g}"),
+            work,
+            deps: vec![],
+            first_use: first,
+            deadline: at(first),
+            effective: 0.0,
+            est: 0.0,
+            est_bytes: 0,
+        });
         // Table key -> (name, member frames with their dc_max), in order of first member.
         let mut tables: Vec<(i64, String, Users)> = Vec::new();
         for &f in members {
@@ -308,7 +371,16 @@ pub(crate) fn derive(frames: &[(View, u32)], p: &Params, share: &Share, fps: f64
                 uses[u].1 = Some(jobs.len());
             }
             let work = Work::Bla { orbit, dc_max };
-            jobs.push(Job { name, work, deps: vec![orbit], first_use: f, deadline: at(f), effective: 0.0, est: 0.0, est_bytes: 0 });
+            jobs.push(Job {
+                name,
+                work,
+                deps: vec![orbit],
+                first_use: f,
+                deadline: at(f),
+                effective: 0.0,
+                est: 0.0,
+                est_bytes: 0,
+            });
         }
     }
     (jobs, uses, skipped)
@@ -323,18 +395,32 @@ pub(crate) fn derive(frames: &[(View, u32)], p: &Params, share: &Share, fps: f64
 /// over the probe orbit, scale the time by the same length; bytes = 56 per block of the
 /// probe table's levels at the predicted length. Estimate = compute + chunks x per-chunk
 /// + bytes x per-byte. Not modelled: encoding, contention between workers.
-pub(crate) fn estimate(jobs: &mut [Job], frames: &[(View, u32)], p: &Params, cost: StoreCost, slab: u32) -> Result<(), String> {
+pub(crate) fn estimate(
+    jobs: &mut [Job],
+    frames: &[(View, u32)],
+    p: &Params,
+    cost: StoreCost,
+    slab: u32,
+) -> Result<(), String> {
     let mut probes: Vec<Option<(Reference, u64)>> = (0..jobs.len()).map(|_| None).collect();
-    let store_s = |chunks: u64, bytes: u64| chunks as f64 * cost.per_chunk + bytes as f64 * cost.per_byte;
+    let store_s =
+        |chunks: u64, bytes: u64| chunks as f64 * cost.per_chunk + bytes as f64 * cost.per_byte;
     for j in 0..jobs.len() {
         match jobs[j].work {
             Work::Orbit { frame } => {
-                let q = Params { max_iter: p.max_iter.min(PROBE), ..*p };
+                let q = Params {
+                    max_iter: p.max_iter.min(PROBE),
+                    ..*p
+                };
                 let t = Instant::now();
                 let (r, _) = reference(&frames[frame].0, &q)?;
                 let secs = t.elapsed().as_secs_f64();
                 let full = p.max_iter.min(Reference::MAX_LEN as u64 - 1) + 1;
-                let points = if (r.len() as u64) < q.max_iter + 1 { r.len() as u64 } else { full };
+                let points = if (r.len() as u64) < q.max_iter + 1 {
+                    r.len() as u64
+                } else {
+                    full
+                };
                 let chunks = points.div_ceil(u64::from(slab)) + 1;
                 let bytes = 16 * points + CHUNK_OVERHEAD * chunks;
                 jobs[j].est = secs / r.len() as f64 * points as f64 + store_s(chunks, bytes);
@@ -342,7 +428,9 @@ pub(crate) fn estimate(jobs: &mut [Job], frames: &[(View, u32)], p: &Params, cos
                 probes[j] = Some((r, points));
             }
             Work::Bla { orbit, dc_max } => {
-                let (r, points) = probes[orbit].as_ref().expect("an orbit job precedes its BLA jobs");
+                let (r, points) = probes[orbit]
+                    .as_ref()
+                    .expect("an orbit job precedes its BLA jobs");
                 let t = Instant::now();
                 let levels = Bla::build(r, EPS, dc_max)?.levels.len();
                 let secs = t.elapsed().as_secs_f64();
@@ -360,16 +448,26 @@ pub(crate) fn estimate(jobs: &mut [Job], frames: &[(View, u32)], p: &Params, cos
 /// no longer a live process (`/proc/PID` absent). Probes of live runs are left alone.
 fn remove_stale_probes(base: &str) {
     let path = std::path::Path::new(base);
-    let (Some(name), parent) = (path.file_name().and_then(|n| n.to_str()), path.parent()) else { return };
+    let (Some(name), parent) = (path.file_name().and_then(|n| n.to_str()), path.parent()) else {
+        return;
+    };
     let parent = match parent {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => std::path::Path::new("."),
     };
     let prefix = format!("{name}.schedule-probe-");
-    let Ok(entries) = std::fs::read_dir(parent) else { return };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
     for e in entries.flatten() {
         let file = e.file_name();
-        let Some(pid) = file.to_str().and_then(|f| f.strip_prefix(&prefix)).and_then(|p| p.parse::<u32>().ok()) else { continue };
+        let Some(pid) = file
+            .to_str()
+            .and_then(|f| f.strip_prefix(&prefix))
+            .and_then(|p| p.parse::<u32>().ok())
+        else {
+            continue;
+        };
         if pid != std::process::id() && !std::path::Path::new(&format!("/proc/{pid}")).exists() {
             let _ = std::fs::remove_dir_all(e.path());
         }
@@ -394,7 +492,13 @@ pub(crate) fn store_probe(dir: &str) -> Result<StoreCost, String> {
     let root = format!("{base}.schedule-probe-{}", std::process::id());
     let _ = std::fs::remove_dir_all(&root);
     let s = Store::open(&root).map_err(|e| format!("{root}: {e}"))?;
-    let contract = Contract { kind: Kind::SAMPLES, encoding: 1, formula: Formula::NONE, precision_bits: 0, rounding: Rounding::Exact };
+    let contract = Contract {
+        kind: Kind::SAMPLES,
+        encoding: 1,
+        formula: Formula::NONE,
+        precision_bits: 0,
+        rounding: Rounding::Exact,
+    };
     let time = |len: usize, k: u8| -> Result<f64, String> {
         let payload: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(31) ^ k).collect();
         let chunk = Chunk::new(contract, &payload);
@@ -410,7 +514,10 @@ pub(crate) fn store_probe(dir: &str) -> Result<StoreCost, String> {
     let (small, big) = (median(64), median(1 << 20));
     let _ = std::fs::remove_dir_all(&root);
     let (small, big) = (small?, big?);
-    Ok(StoreCost { per_chunk: small, per_byte: ((big - small) / f64::from(1u32 << 20)).max(0.0) })
+    Ok(StoreCost {
+        per_chunk: small,
+        per_byte: ((big - small) / f64::from(1u32 << 20)).max(0.0),
+    })
 }
 
 /// Effective deadlines, dependents first (they have higher indices): a job must finish
@@ -432,7 +539,9 @@ pub(crate) fn effective(jobs: &mut [Job]) {
 /// ties to the earlier effective deadline; edf: earliest effective deadline; first-use:
 /// earliest own deadline. Then index.
 fn pick(jobs: &[Job], status: &[Status], policy: Policy) -> Option<usize> {
-    let ready = (0..jobs.len()).filter(|&j| status[j] == Status::Waiting && jobs[j].deps.iter().all(|&d| status[d] == Status::Done));
+    let ready = (0..jobs.len()).filter(|&j| {
+        status[j] == Status::Waiting && jobs[j].deps.iter().all(|&d| status[d] == Status::Done)
+    });
     let key = |j: usize| match policy {
         Policy::Slack => (jobs[j].effective - jobs[j].est, jobs[j].effective),
         Policy::Edf => (jobs[j].effective, 0.0),
@@ -440,7 +549,9 @@ fn pick(jobs: &[Job], status: &[Status], policy: Policy) -> Option<usize> {
     };
     ready.min_by(|&x, &y| {
         let (a, b) = (key(x), key(y));
-        a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)).then(x.cmp(&y))
+        a.0.total_cmp(&b.0)
+            .then(a.1.total_cmp(&b.1))
+            .then(x.cmp(&y))
     })
 }
 
@@ -470,7 +581,9 @@ pub(crate) fn execute(
         let (mut running, mut finished) = (0, 0);
         while finished < n {
             while err.is_none() && !free.is_empty() {
-                let Some(j) = pick(jobs, &status, policy) else { break };
+                let Some(j) = pick(jobs, &status, policy) else {
+                    break;
+                };
                 let w = free.pop().expect("a free worker");
                 status[j] = Status::Running;
                 starts[j] = t0.elapsed().as_secs_f64();
@@ -484,8 +597,10 @@ pub(crate) fn execute(
                 sc.spawn(move || {
                     // A panicking builder reports an error instead of leaving the
                     // dispatcher waiting on `recv` forever.
-                    let r = std::panic::catch_unwind(AssertUnwindSafe(|| build(job, orbit, frames, p, store, slab)))
-                        .unwrap_or_else(|e| Err(format!("builder panicked: {}", panic_message(&*e))));
+                    let r = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                        build(job, orbit, frames, p, store, slab)
+                    }))
+                    .unwrap_or_else(|e| Err(format!("builder panicked: {}", panic_message(&*e))));
                     let _ = tx.send((j, w, t0.elapsed().as_secs_f64(), r));
                 });
             }
@@ -502,7 +617,15 @@ pub(crate) fn execute(
                 Ok((chunk, bytes, points, compute, orbit)) => {
                     status[j] = Status::Done;
                     orbits[j] = orbit;
-                    done[j] = Some(Done { start: starts[j], finish, worker: w, chunk, bytes, points, compute });
+                    done[j] = Some(Done {
+                        start: starts[j],
+                        finish,
+                        worker: w,
+                        chunk,
+                        bytes,
+                        points,
+                        compute,
+                    });
                     finished += 1;
                 }
                 Err(e) => err = Some(format!("{}: {e}", jobs[j].name)),
@@ -512,12 +635,17 @@ pub(crate) fn execute(
     if let Some(e) = err {
         return Err(e);
     }
-    done.into_iter().map(|d| d.ok_or_else(|| "a job was never scheduled".to_string())).collect()
+    done.into_iter()
+        .map(|d| d.ok_or_else(|| "a job was never scheduled".to_string()))
+        .collect()
 }
 
 /// The text of a panic payload.
 fn panic_message(e: &(dyn std::any::Any + Send)) -> String {
-    e.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| e.downcast_ref::<String>().cloned()).unwrap_or_else(|| "(no message)".into())
+    e.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| e.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "(no message)".into())
 }
 
 /// Build one job's chunk with the existing builders and store it: chunk id, encoded
@@ -546,8 +674,18 @@ fn build(
             let t = Instant::now();
             let bla = Bla::build(r, EPS, dc_max)?;
             let compute = t.elapsed().as_secs_f64();
-            let levels = bla.levels.iter().map(|l| l.iter().map(Block::to_array).collect()).collect();
-            let table = BlaTable { orbit, eps: EPS, dc_max, points: bla.points, levels };
+            let levels = bla
+                .levels
+                .iter()
+                .map(|l| l.iter().map(Block::to_array).collect())
+                .collect();
+            let table = BlaTable {
+                orbit,
+                eps: EPS,
+                dc_max,
+                points: bla.points,
+                levels,
+            };
             let chunk = table.to_chunk().map_err(|e| e.to_string())?;
             let (id, _) = store.put(&chunk).map_err(|e| e.to_string())?;
             Ok((id, chunk.bytes().len(), r.len(), compute, None))
@@ -563,11 +701,18 @@ fn simulate(jobs: &[Job], policy: Policy, workers: usize, cost: &[f64], mut t: f
     let mut running: Vec<(f64, usize)> = Vec::new();
     loop {
         while running.len() < workers {
-            let Some(j) = pick(jobs, &status, policy) else { break };
+            let Some(j) = pick(jobs, &status, policy) else {
+                break;
+            };
             status[j] = Status::Running;
             running.push((t + cost[j], j));
         }
-        let Some(k) = (0..running.len()).min_by(|&x, &y| running[x].0.total_cmp(&running[y].0).then(running[x].1.cmp(&running[y].1))) else {
+        let Some(k) = (0..running.len()).min_by(|&x, &y| {
+            running[x]
+                .0
+                .total_cmp(&running[y].0)
+                .then(running[x].1.cmp(&running[y].1))
+        }) else {
             break;
         };
         let (f, j) = running.swap_remove(k);
@@ -593,8 +738,15 @@ fn metrics(jobs: &[Job], finish: &[f64], fps: f64) -> Metrics {
     let missed = (0..jobs.len()).filter(|&j| late(j) > 0.0).count();
     let max_lateness = (0..jobs.len()).map(late).fold(f64::NEG_INFINITY, f64::max);
     let makespan = finish.iter().copied().fold(0.0, f64::max);
-    let min_lead = (0..jobs.len()).map(|j| finish[j] - jobs[j].first_use as f64 / fps).fold(0.0, f64::max);
-    Metrics { missed, max_lateness, makespan, min_lead }
+    let min_lead = (0..jobs.len())
+        .map(|j| finish[j] - jobs[j].first_use as f64 / fps)
+        .fold(0.0, f64::max);
+    Metrics {
+        missed,
+        max_lateness,
+        makespan,
+        min_lead,
+    }
 }
 
 #[cfg(test)]
@@ -603,20 +755,36 @@ mod tests {
 
     fn job(deadline: f64, est: f64, deps: Vec<usize>) -> Job {
         let work = Work::Orbit { frame: 0 };
-        Job { name: String::new(), work, deps, first_use: 0, deadline, effective: 0.0, est, est_bytes: 0 }
+        Job {
+            name: String::new(),
+            work,
+            deps,
+            first_use: 0,
+            deadline,
+            effective: 0.0,
+            est,
+            est_bytes: 0,
+        }
     }
 
     fn lateness(jobs: &[Job], policy: Policy, workers: usize) -> f64 {
         let cost: Vec<f64> = jobs.iter().map(|j| j.est).collect();
         let finish = simulate(jobs, policy, workers, &cost, 0.0);
-        (0..jobs.len()).map(|j| finish[j] - jobs[j].deadline).fold(f64::NEG_INFINITY, f64::max)
+        (0..jobs.len())
+            .map(|j| finish[j] - jobs[j].deadline)
+            .fold(f64::NEG_INFINITY, f64::max)
     }
 
     #[test]
     fn effective_deadline_leaves_room_for_dependents() {
         // An orbit due at 1.0 whose 0.5 s table is also due at 1.0 must be done by 0.5;
         // a grandchild tightens it further through its parent.
-        let mut jobs = vec![job(1.0, 0.2, vec![]), job(1.0, 0.5, vec![0]), job(2.0, 0.1, vec![]), job(0.9, 0.3, vec![2])];
+        let mut jobs = vec![
+            job(1.0, 0.2, vec![]),
+            job(1.0, 0.5, vec![0]),
+            job(2.0, 0.1, vec![]),
+            job(0.9, 0.3, vec![2]),
+        ];
         effective(&mut jobs);
         assert_eq!(jobs[0].effective, 0.5);
         assert_eq!(jobs[1].effective, 1.0);
@@ -630,7 +798,11 @@ mod tests {
     fn least_slack_starts_the_long_job_first_on_two_workers() {
         // First-use runs the two short, earlier-due jobs first and the long one misses;
         // least slack starts the long one at once and every job is on time.
-        let mut jobs = vec![job(1.0, 1.0, vec![]), job(0.9, 0.1, vec![]), job(0.95, 0.1, vec![])];
+        let mut jobs = vec![
+            job(1.0, 1.0, vec![]),
+            job(0.9, 0.1, vec![]),
+            job(0.95, 0.1, vec![]),
+        ];
         effective(&mut jobs);
         assert!(lateness(&jobs, Policy::FirstUse, 2) > 0.09);
         assert!(lateness(&jobs, Policy::Slack, 2) <= 0.0);

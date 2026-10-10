@@ -37,19 +37,31 @@ impl BlaTable {
     /// a non-finite value, a negative radius or a bad `eps`/`dc_max`.
     pub fn to_chunk(&self) -> Result<Chunk, Error> {
         let steps = self.points.saturating_sub(2);
-        let shape = self.levels.len() < 63 && self.levels.iter().enumerate().all(|(i, l)| l.len() as u64 == steps >> (i + 1));
+        let shape = self.levels.len() < 63
+            && self
+                .levels
+                .iter()
+                .enumerate()
+                .all(|(i, l)| l.len() as u64 == steps >> (i + 1));
         // An invalid block (r = 0) is all zero, and every level holds a valid block (a
         // table ends before its first level without one): one canonical form per table.
-        let values = self.levels.iter().flatten().all(|b| b.iter().all(|v| v.is_finite()) && (b[4] > 0.0 || b.iter().all(|&v| v == 0.0)));
+        let values = self.levels.iter().flatten().all(|b| {
+            b.iter().all(|v| v.is_finite()) && (b[4] > 0.0 || b.iter().all(|&v| v == 0.0))
+        });
         let used = self.levels.iter().all(|l| l.iter().any(|b| b[4] > 0.0));
-        let scalars = self.eps > 0.0 && self.eps < 1.0 && self.dc_max > 0.0 && self.dc_max.is_finite();
+        let scalars =
+            self.eps > 0.0 && self.eps < 1.0 && self.dc_max > 0.0 && self.dc_max.is_finite();
         if !(shape && values && used && scalars) {
             return Err(malformed(
                 "BLA table needs (points - 2) >> j finite blocks on level j = 1.., each level with a valid block, r > 0 or an all-zero block, 0 < eps < 1, dc_max > 0",
             ));
         }
         let mut b = Builder::new(Self::CONTRACT);
-        b.raw(&self.orbit.0).f64(self.eps).f64(self.dc_max).u64(self.points).u64(self.levels.len() as u64);
+        b.raw(&self.orbit.0)
+            .f64(self.eps)
+            .f64(self.dc_max)
+            .u64(self.points)
+            .u64(self.levels.len() as u64);
         for level in &self.levels {
             for f in 0..7 {
                 for block in level {
@@ -63,11 +75,17 @@ impl BlaTable {
     /// Decode a BLA table chunk, refusing anything not in canonical form.
     pub fn from_chunk(chunk: &Chunk) -> Result<BlaTable, Error> {
         if *chunk.contract() != Self::CONTRACT || chunk.minor() != 0 {
-            return Err(malformed("not a v1 BLA table chunk (kind, encoding, formula, precision or rounding)"));
+            return Err(malformed(
+                "not a v1 BLA table chunk (kind, encoding, formula, precision or rounding)",
+            ));
         }
         let p = chunk.payload();
         let end = || malformed("BLA table payload ends early");
-        let word = |i: usize| p.get(i..i + 8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).ok_or_else(end);
+        let word = |i: usize| {
+            p.get(i..i + 8)
+                .map(|b| u64::from_le_bytes(b.try_into().unwrap()))
+                .ok_or_else(end)
+        };
         let orbit = ChunkId(p.get(..32).ok_or_else(end)?.try_into().unwrap());
         let (eps, dc_max) = (f64::from_bits(word(32)?), f64::from_bits(word(40)?));
         let (points, n) = (word(48)?, word(56)?);
@@ -91,7 +109,13 @@ impl BlaTable {
             }
             levels.push(level);
         }
-        let t = BlaTable { orbit, eps, dc_max, points, levels };
+        let t = BlaTable {
+            orbit,
+            eps,
+            dc_max,
+            points,
+            levels,
+        };
         if t.to_chunk()?.bytes() != chunk.bytes() {
             return Err(malformed("BLA table is not in canonical form"));
         }
@@ -108,13 +132,27 @@ mod tests {
     use super::*;
 
     fn table() -> BlaTable {
-        let block = |k: usize| [k as f64, -0.5, 1.0, 0.25, 1e-12 / (k + 1) as f64, 3e-13, 0.0];
+        let block = |k: usize| {
+            [
+                k as f64,
+                -0.5,
+                1.0,
+                0.25,
+                1e-12 / (k + 1) as f64,
+                3e-13,
+                0.0,
+            ]
+        };
         BlaTable {
             orbit: ChunkId([7; 32]),
             eps: 2f64.powi(-40),
             dc_max: 1e-20,
             points: 11,
-            levels: vec![(0..4).map(block).collect(), (0..2).map(block).collect(), (0..1).map(block).collect()],
+            levels: vec![
+                (0..4).map(block).collect(),
+                (0..2).map(block).collect(),
+                (0..1).map(block).collect(),
+            ],
         }
     }
 
@@ -124,8 +162,26 @@ mod tests {
         let c = t.to_chunk().unwrap();
         assert_eq!(c.contract().kind, Kind::BLA);
         assert_eq!(BlaTable::from_chunk(&c).unwrap(), t);
-        assert_ne!(BlaTable { dc_max: 2e-20, ..t.clone() }.to_chunk().unwrap().id(), c.id());
-        assert_ne!(BlaTable { orbit: ChunkId([8; 32]), ..t }.to_chunk().unwrap().id(), c.id());
+        assert_ne!(
+            BlaTable {
+                dc_max: 2e-20,
+                ..t.clone()
+            }
+            .to_chunk()
+            .unwrap()
+            .id(),
+            c.id()
+        );
+        assert_ne!(
+            BlaTable {
+                orbit: ChunkId([8; 32]),
+                ..t
+            }
+            .to_chunk()
+            .unwrap()
+            .id(),
+            c.id()
+        );
     }
 
     #[test]
@@ -149,6 +205,8 @@ mod tests {
         // Claiming one more level than the payload holds.
         let mut bytes = table().to_chunk().unwrap().bytes().to_vec();
         bytes[32 + 56] = 4;
-        assert!(Chunk::from_bytes(bytes).and_then(|c| BlaTable::from_chunk(&c)).is_err());
+        assert!(Chunk::from_bytes(bytes)
+            .and_then(|c| BlaTable::from_chunk(&c))
+            .is_err());
     }
 }

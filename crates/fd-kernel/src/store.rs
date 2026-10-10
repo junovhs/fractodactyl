@@ -44,20 +44,45 @@ pub(crate) struct Store {
 
 impl Store {
     pub(crate) fn new(plane: &Plane, ss: u32) -> Store {
-        Store { plane: *plane, px_m: plane.h_m * ss as f64, px_e: plane.h_e }
+        Store {
+            plane: *plane,
+            px_m: plane.h_m * ss as f64,
+            px_e: plane.h_e,
+        }
     }
 
     #[inline]
     pub(crate) fn put(&self, row: &mut Row, i: usize, o: Outcome) {
-        let Outcome::Escaped { n, zr, zi, dr, di, dexp, ez, ed } = o else {
-            let kind = if o == Outcome::Unresolved { Kind::Unresolved } else { Kind::Interior };
+        let Outcome::Escaped {
+            n,
+            zr,
+            zi,
+            dr,
+            di,
+            dexp,
+            ez,
+            ed,
+        } = o
+        else {
+            let kind = if o == Outcome::Unresolved {
+                Kind::Unresolved
+            } else {
+                Kind::Interior
+            };
             row.class[i] = Class::new(kind, Evidence::Heuristic);
             return;
         };
         let z2 = zr * zr + zi * zi;
         let log2z = 0.5 * z2.log2();
         let b = bounds(n, z2.sqrt(), ez, dr.hypot(di), ed);
-        row.class[i] = Class::new(Kind::Escaped, if b.is_some() { Evidence::Bounded } else { Evidence::Heuristic });
+        row.class[i] = Class::new(
+            Kind::Escaped,
+            if b.is_some() {
+                Evidence::Bounded
+            } else {
+                Evidence::Heuristic
+            },
+        );
         if let Some(nu) = row.nu.as_deref_mut() {
             nu[i] = n as f64 + 1.0 - log2z.log2();
         }
@@ -89,11 +114,15 @@ fn bounds(n: u64, az: f64, ez: f64, ad: f64, ed: f64) -> Option<(f64, f64)> {
     let (lnz, llo, lhi) = (az.ln(), lo.ln(), (az + ez).ln());
     // nu = n + 1 - log2(ln|z| / ln 2): |z| within ez moves it by at most
     // log2(ln|z| / ln(|z| - ez)); plus the rounding of nu itself.
-    let nu = (-(-ez / az).ln_1p() / llo).ln_1p() / std::f64::consts::LN_2 + 8.0 * U * (n as f64 + 8.0);
+    let nu =
+        (-(-ez / az).ln_1p() / llo).ln_1p() / std::f64::consts::LN_2 + 8.0 * U * (n as f64 + 8.0);
     // Koebe: distance >= e^-G de / 4 with G <= ln|z| 2^-n; (1 - 4/|z|^2) covers the
     // finite-n estimate of G and G' (|c| <= 4).
     let g = lhi * (-(n as f64)).exp2();
-    let de_lo = (lo * llo) / (az * lnz) * ad / (ad + ed) * (-g).exp() * (1.0 - 4.0 / (lo * lo)) * (1.0 - 1e-6);
+    let de_lo = (lo * llo) / (az * lnz) * ad / (ad + ed)
+        * (-g).exp()
+        * (1.0 - 4.0 / (lo * lo))
+        * (1.0 - 1e-6);
     let de_hi = ((az + ez) * lhi) / (az * lnz) * ad / (ad - ed) * (1.0 + 1e-6);
     Some((de_lo, nu * de_hi / de_lo * (1.0 + 1e-6)))
 }

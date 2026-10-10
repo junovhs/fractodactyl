@@ -18,19 +18,31 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut r = Reader::open(Path::new(input)).map_err(|e| format!("{input}: {e}"))?;
     // Only the columns the rule reads; absent ones make Bounded samples refine.
     let have = r.header.columns;
-    let want = [Column::De, Column::Bound].into_iter().filter(|&c| have.has(c)).fold(ColumnSet::default(), ColumnSet::with);
+    let want = [Column::De, Column::Bound]
+        .into_iter()
+        .filter(|&c| have.has(c))
+        .fold(ColumnSet::default(), ColumnSet::with);
     let s = r.read(want).map_err(|e| format!("{input}: {e}"))?;
     let report = tiles(&r.header, &s, tile_px, max_px);
     let count = |st| report.iter().filter(|t| t.2.state == st).count();
     let accepted = report.iter().filter(|t| t.2.accept).count();
     println!("tile_px {tile_px}\nmax_px {max_px}\ntiles {}", report.len());
     println!("accepted {accepted}\nrefine {}", report.len() - accepted);
-    for st in [State::CertifiedUniform, State::CertifiedApproximate, State::UnresolvedBoundary] {
+    for st in [
+        State::CertifiedUniform,
+        State::CertifiedApproximate,
+        State::UnresolvedBoundary,
+    ] {
         println!("state.{} {}", st.name(), count(st));
     }
     for (tx, ty, v) in &report {
         let decision = if v.accept { "accept" } else { "refine" };
-        println!("tile {tx} {ty} {} e_px {} {decision} {}", v.state.name(), v.e_px, v.reason);
+        println!(
+            "tile {tx} {ty} {} e_px {} {decision} {}",
+            v.state.name(),
+            v.e_px,
+            v.reason
+        );
     }
     Ok(())
 }

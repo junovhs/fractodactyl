@@ -71,7 +71,10 @@ impl Reference {
             let (round, defect) = match fixed {
                 Some(d) => (2.0 * U * s + f64::MIN_POSITIVE, d),
                 // f64: rounding of x^2 - y^2 + c and 2xy + c, plus the centre's rounding.
-                None => (0.0, 8.0 * U * (s * s + c1) + 2.0 * U * c1 + f64::MIN_POSITIVE),
+                None => (
+                    0.0,
+                    8.0 * U * (s * s + c1) + 2.0 * U * c1 + f64::MIN_POSITIVE,
+                ),
             };
             q.push(a + round);
             a = (a * (2.0 * (s + round) + a) + defect) * (1.0 + 8.0 * U);

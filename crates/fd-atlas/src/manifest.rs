@@ -25,8 +25,11 @@ impl Evidence {
     pub const BOUNDED: Evidence = Evidence(2);
     /// Certificates are available.
     pub const CERTIFIED: Evidence = Evidence(4);
-    const NAMES: [(Evidence, &'static str); 3] =
-        [(Evidence::HEURISTIC, "heuristic"), (Evidence::BOUNDED, "bounded"), (Evidence::CERTIFIED, "certified")];
+    const NAMES: [(Evidence, &'static str); 3] = [
+        (Evidence::HEURISTIC, "heuristic"),
+        (Evidence::BOUNDED, "bounded"),
+        (Evidence::CERTIFIED, "certified"),
+    ];
     const KNOWN: u8 = 7;
 }
 
@@ -34,17 +37,33 @@ impl std::str::FromStr for Evidence {
     type Err = String;
     /// Comma-separated names, e.g. `heuristic,certified`; empty or `none` for none.
     fn from_str(s: &str) -> Result<Evidence, String> {
-        s.split(',').filter(|n| !n.is_empty() && *n != "none").try_fold(Evidence(0), |acc, n| {
-            let (e, _) = Evidence::NAMES.iter().find(|(_, name)| *name == n).ok_or_else(|| format!("unknown evidence {n:?}"))?;
-            Ok(Evidence(acc.0 | e.0))
-        })
+        s.split(',')
+            .filter(|n| !n.is_empty() && *n != "none")
+            .try_fold(Evidence(0), |acc, n| {
+                let (e, _) = Evidence::NAMES
+                    .iter()
+                    .find(|(_, name)| *name == n)
+                    .ok_or_else(|| format!("unknown evidence {n:?}"))?;
+                Ok(Evidence(acc.0 | e.0))
+            })
     }
 }
 
 impl fmt::Display for Evidence {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let names: Vec<&str> = Evidence::NAMES.iter().filter(|(e, _)| self.0 & e.0 != 0).map(|(_, n)| *n).collect();
-        f.write_str(if names.is_empty() { "none".to_string() } else { names.join(",") }.as_str())
+        let names: Vec<&str> = Evidence::NAMES
+            .iter()
+            .filter(|(e, _)| self.0 & e.0 != 0)
+            .map(|(_, n)| *n)
+            .collect();
+        f.write_str(
+            if names.is_empty() {
+                "none".to_string()
+            } else {
+                names.join(",")
+            }
+            .as_str(),
+        )
     }
 }
 
@@ -78,7 +97,9 @@ impl TileManifest {
         let mut refs = self.refs.clone();
         refs.sort();
         refs.dedup();
-        let mask = (0..4).filter(|&q| self.children[q].is_some()).fold(0u8, |m, q| m | (1 << q));
+        let mask = (0..4)
+            .filter(|&q| self.children[q].is_some())
+            .fold(0u8, |m, q| m | (1 << q));
         let mut b = Builder::new(Self::CONTRACT);
         b.str(&self.tile.to_string()).u8(self.evidence.0).u8(mask);
         for id in self.children.iter().flatten() {
@@ -108,8 +129,15 @@ impl TileManifest {
             }
         }
         let n = r.u64()?;
-        let refs = (0..n).map(|_| Ok((Kind(r.u16()?), r.id()?))).collect::<Result<Vec<_>, Error>>()?;
-        let m = TileManifest { tile, evidence, children, refs };
+        let refs = (0..n)
+            .map(|_| Ok((Kind(r.u16()?), r.id()?)))
+            .collect::<Result<Vec<_>, Error>>()?;
+        let m = TileManifest {
+            tile,
+            evidence,
+            children,
+            refs,
+        };
         canonical(chunk, &m.to_chunk(), r)?;
         Ok(m)
     }
@@ -153,16 +181,28 @@ impl FrameManifest {
     /// Canonical chunk: tiles sorted and deduplicated. Refuses non-finite or
     /// non-positive camera values and empty sizes.
     pub fn to_chunk(&self) -> Result<Chunk, Error> {
-        let finite = [self.offset.0, self.offset.1, self.width, self.rotation].iter().all(|v| v.is_finite());
+        let finite = [self.offset.0, self.offset.1, self.width, self.rotation]
+            .iter()
+            .all(|v| v.is_finite());
         if !finite || self.width <= 0.0 || self.size.0 == 0 || self.size.1 == 0 || self.ss == 0 {
-            return Err(malformed("frame camera must be finite with positive width, size and ss"));
+            return Err(malformed(
+                "frame camera must be finite with positive width, size and ss",
+            ));
         }
         let mut tiles = self.tiles.clone();
         tiles.sort();
         tiles.dedup();
         let mut b = Builder::new(Self::CONTRACT);
-        b.str(&self.anchor.to_string()).f64(self.offset.0).f64(self.offset.1).f64(self.width).f64(self.rotation);
-        b.u32(self.size.0).u32(self.size.1).u32(self.ss).u64(self.max_iter).u32(self.columns);
+        b.str(&self.anchor.to_string())
+            .f64(self.offset.0)
+            .f64(self.offset.1)
+            .f64(self.width)
+            .f64(self.rotation);
+        b.u32(self.size.0)
+            .u32(self.size.1)
+            .u32(self.ss)
+            .u64(self.max_iter)
+            .u32(self.columns);
         b.u64(tiles.len() as u64);
         for id in &tiles {
             b.raw(&id.0);
@@ -181,7 +221,17 @@ impl FrameManifest {
         let (ss, max_iter, columns) = (r.u32()?, r.u64()?, r.u32()?);
         let n = r.u64()?;
         let tiles = (0..n).map(|_| r.id()).collect::<Result<Vec<_>, Error>>()?;
-        let m = FrameManifest { anchor, offset, width, rotation, size, ss, max_iter, columns, tiles };
+        let m = FrameManifest {
+            anchor,
+            offset,
+            width,
+            rotation,
+            size,
+            ss,
+            max_iter,
+            columns,
+            tiles,
+        };
         canonical(chunk, &m.to_chunk()?, r)?;
         Ok(m)
     }
@@ -220,7 +270,9 @@ impl OrbitManifest {
             return Err(malformed("orbit manifest needs at least one slab"));
         }
         let mut b = Builder::new(Self::contract(self.precision_bits));
-        b.str(&self.center_re).str(&self.center_im).u64(self.slabs.len() as u64);
+        b.str(&self.center_re)
+            .str(&self.center_im)
+            .u64(self.slabs.len() as u64);
         for id in &self.slabs {
             b.raw(&id.0);
         }
@@ -236,7 +288,12 @@ impl OrbitManifest {
         let center_im = r.str()?.to_string();
         let n = r.u64()?;
         let slabs = (0..n).map(|_| r.id()).collect::<Result<Vec<_>, Error>>()?;
-        let m = OrbitManifest { center_re, center_im, precision_bits, slabs };
+        let m = OrbitManifest {
+            center_re,
+            center_im,
+            precision_bits,
+            slabs,
+        };
         canonical(chunk, &m.to_chunk()?, r)?;
         Ok(m)
     }
@@ -310,7 +367,11 @@ fn tile_closure(
         if !sizes.contains_key(rid) {
             let c = store.get(rid)?;
             if c.contract().kind != *kind || is_manifest(*kind) {
-                return Err(Error::Malformed(format!("tile {} ref {rid}: kind {} does not match", m.tile, c.contract().kind)));
+                return Err(Error::Malformed(format!(
+                    "tile {} ref {rid}: kind {} does not match",
+                    m.tile,
+                    c.contract().kind
+                )));
             }
             sizes.insert(*rid, c.bytes().len() as u64);
         }
@@ -320,7 +381,10 @@ fn tile_closure(
         if let Some(cid) = child {
             let (ctile, creach) = tile_closure(store, cid, tiles, sizes, w)?;
             if ctile != m.tile.child(q as u8) {
-                return Err(Error::Malformed(format!("tile {} child {q} is tile {ctile}", m.tile)));
+                return Err(Error::Malformed(format!(
+                    "tile {} child {q} is tile {ctile}",
+                    m.tile
+                )));
             }
             reach.extend(creach);
         }
@@ -342,7 +406,10 @@ fn malformed(m: &str) -> Error {
 fn expect(chunk: &Chunk, want: Contract) -> Result<(), Error> {
     let c = chunk.contract();
     if *c != want || chunk.minor() != 0 {
-        return Err(Error::Malformed(format!("expected a {} v{} chunk, got {} v{}", want.kind, want.encoding, c.kind, c.encoding)));
+        return Err(Error::Malformed(format!(
+            "expected a {} v{} chunk, got {} v{}",
+            want.kind, want.encoding, c.kind, c.encoding
+        )));
     }
     Ok(())
 }
@@ -404,7 +471,11 @@ mod tests {
             tile: "3/1/6".parse().unwrap(),
             evidence: Evidence(Evidence::HEURISTIC.0 | Evidence::CERTIFIED.0),
             children: [None, Some(id(9)), None, None],
-            refs: vec![(Kind::BLA, id(2)), (Kind::ORBIT_SLAB, id(1)), (Kind::BLA, id(2))],
+            refs: vec![
+                (Kind::BLA, id(2)),
+                (Kind::ORBIT_SLAB, id(1)),
+                (Kind::BLA, id(2)),
+            ],
         }
     }
 
@@ -413,12 +484,21 @@ mod tests {
         let m = tile();
         let c = m.to_chunk();
         let back = TileManifest::from_chunk(&c).unwrap();
-        assert_eq!(back.refs, vec![(Kind::ORBIT_SLAB, id(1)), (Kind::BLA, id(2))]);
+        assert_eq!(
+            back.refs,
+            vec![(Kind::ORBIT_SLAB, id(1)), (Kind::BLA, id(2))]
+        );
         assert_eq!(back.to_chunk(), c);
-        let reordered = TileManifest { refs: vec![(Kind::ORBIT_SLAB, id(1)), (Kind::BLA, id(2))], ..m };
+        let reordered = TileManifest {
+            refs: vec![(Kind::ORBIT_SLAB, id(1)), (Kind::BLA, id(2))],
+            ..m
+        };
         assert_eq!(reordered.to_chunk().id(), c.id());
         assert_eq!(back.evidence.to_string(), "heuristic,certified");
-        assert_eq!("heuristic,certified".parse::<Evidence>().unwrap(), back.evidence);
+        assert_eq!(
+            "heuristic,certified".parse::<Evidence>().unwrap(),
+            back.evidence
+        );
     }
 
     #[test]
@@ -439,21 +519,43 @@ mod tests {
         assert_eq!(back.tiles, vec![id(4), id(5)]);
         assert_eq!(back.offset, (0.25, 0.0));
         assert!(TileManifest::from_chunk(&c).is_err());
-        assert!(FrameManifest { width: 0.0, ..f.clone() }.to_chunk().is_err());
+        assert!(FrameManifest {
+            width: 0.0,
+            ..f.clone()
+        }
+        .to_chunk()
+        .is_err());
         // Unsorted tile refs written by hand are not canonical.
         let mut b = Builder::new(FrameManifest::CONTRACT);
-        b.str("40/3/5").f64(0.25).f64(0.0).f64(0.5).f64(0.0).u32(64).u32(36).u32(1).u64(1000).u32(3);
+        b.str("40/3/5")
+            .f64(0.25)
+            .f64(0.0)
+            .f64(0.5)
+            .f64(0.0)
+            .u32(64)
+            .u32(36)
+            .u32(1)
+            .u64(1000)
+            .u32(3);
         b.u64(2).raw(&id(5).0).raw(&id(4).0);
         assert!(FrameManifest::from_chunk(&b.finish()).is_err());
     }
 
     #[test]
     fn orbit_round_trip_binds_centre_and_precision() {
-        let m = OrbitManifest { center_re: "-0.75".into(), center_im: "0.1".into(), precision_bits: 233, slabs: vec![id(1), id(2)] };
+        let m = OrbitManifest {
+            center_re: "-0.75".into(),
+            center_im: "0.1".into(),
+            precision_bits: 233,
+            slabs: vec![id(1), id(2)],
+        };
         let c = m.to_chunk().unwrap();
         assert_eq!(c.contract().kind, Kind::ORBIT_MANIFEST);
         assert_eq!(OrbitManifest::from_chunk(&c).unwrap(), m);
-        let moved = OrbitManifest { center_im: "0.10".into(), ..m.clone() };
+        let moved = OrbitManifest {
+            center_im: "0.10".into(),
+            ..m.clone()
+        };
         assert_ne!(moved.to_chunk().unwrap().id(), c.id());
         assert!(OrbitManifest { slabs: vec![], ..m }.to_chunk().is_err());
         assert!(FrameManifest::from_chunk(&c).is_err());

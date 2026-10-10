@@ -27,17 +27,31 @@ impl Pass for Umber {
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
         let nu = s.nu.as_deref().expect("umber look needs the Nu column");
         let de = s.de.as_deref().expect("umber look needs the De column");
-        let nm = s.normal.as_deref().expect("umber look needs the Normal column");
+        let nm = s
+            .normal
+            .as_deref()
+            .expect("umber look needs the Normal column");
         let k = 1.0 / (1.0 + HEIGHT * HEIGHT).sqrt();
         let (bands, phase) = (BANDS * a.density(), a.phase());
         resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
-                let w = 0.5 - 0.5 * (std::f32::consts::TAU * (bands * nu[i].max(1.0).ln() as f32 + phase)).cos();
-                let base = mix(mix(DARK, MID, (2.0 * w).min(1.0)), LIGHT, (2.0 * w - 1.0).max(0.0));
+                let w = 0.5
+                    - 0.5
+                        * (std::f32::consts::TAU * (bands * nu[i].max(1.0).ln() as f32 + phase))
+                            .cos();
+                let base = mix(
+                    mix(DARK, MID, (2.0 * w).min(1.0)),
+                    LIGHT,
+                    (2.0 * w - 1.0).max(0.0),
+                );
                 let (x, y) = Samples::unit(nm[i]);
                 let flat = HEIGHT * k * SUN[2];
                 let lit = ((x * SUN[0] + y * SUN[1]) * k + flat).clamp(0.0, 1.0);
-                let lit = if a.aa { flat + (lit - flat) * a.relief_gain(de[i], h.ss) } else { lit };
+                let lit = if a.aa {
+                    flat + (lit - flat) * a.relief_gain(de[i], h.ss)
+                } else {
+                    lit
+                };
                 let edge = 0.45 + 0.55 * (de[i] * 0.35).tanh();
                 let v = (0.55 + 0.6 * lit) * edge;
                 base.map(|c| c * v)

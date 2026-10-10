@@ -36,7 +36,9 @@ impl Nat {
 
     /// Number of significant bits (0 for zero).
     pub fn bits(&self) -> u64 {
-        self.0.last().map_or(0, |&top| 64 * self.0.len() as u64 - top.leading_zeros() as u64)
+        self.0.last().map_or(0, |&top| {
+            64 * self.0.len() as u64 - top.leading_zeros() as u64
+        })
     }
 
     /// The low `k <= 64` bits.
@@ -98,7 +100,10 @@ impl Nat {
         let n = self.0.len().max(o.0.len());
         let (mut v, mut c) = (Vec::with_capacity(n + 1), false);
         for i in 0..n {
-            let (a, b) = (self.0.get(i).copied().unwrap_or(0), o.0.get(i).copied().unwrap_or(0));
+            let (a, b) = (
+                self.0.get(i).copied().unwrap_or(0),
+                o.0.get(i).copied().unwrap_or(0),
+            );
             let (s1, o1) = a.overflowing_add(b);
             let (s2, o2) = s1.overflowing_add(c as u64);
             v.push(s2);
@@ -219,7 +224,8 @@ impl Nat {
     /// Inverse of `to_hex`; rejects anything non-canonical (leading zeros, uppercase).
     pub fn from_hex(s: &str) -> Option<Nat> {
         let ok = !s.is_empty()
-            && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            && s.bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             && (s == "0" || !s.starts_with('0'));
         if !ok {
             return None;
@@ -244,7 +250,10 @@ impl PartialOrd for Nat {
 
 impl Ord for Nat {
     fn cmp(&self, o: &Nat) -> Ordering {
-        self.0.len().cmp(&o.0.len()).then_with(|| self.0.iter().rev().cmp(o.0.iter().rev()))
+        self.0
+            .len()
+            .cmp(&o.0.len())
+            .then_with(|| self.0.iter().rev().cmp(o.0.iter().rev()))
     }
 }
 
@@ -272,7 +281,10 @@ mod tests {
         assert_eq!(c.plus(&b), a);
         assert!(b.minus(&a).is_none());
         assert_eq!(Nat::small(3).mul_pow5(30).div_pow5(30), Nat::small(3));
-        assert_eq!(Nat::small(1).mul_pow10(25).to_decimal(), format!("1{}", "0".repeat(25)));
+        assert_eq!(
+            Nat::small(1).mul_pow10(25).to_decimal(),
+            format!("1{}", "0".repeat(25))
+        );
         assert_eq!(Nat::from_digits(&[0, 0, 1, 2]), Nat::small(12));
         assert_eq!(Nat::zero().to_decimal(), "0");
     }

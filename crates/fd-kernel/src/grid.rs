@@ -121,10 +121,17 @@ pub fn render_bla(
         return Err("BLA tables need f64 deltas: not available on the scaled tier".into());
     }
     if p.columns.has(Column::Bound) {
-        return Err("--columns bound certifies every step; BLA remainders are not certified (ACC-02)".into());
+        return Err(
+            "--columns bound certifies every step; BLA remainders are not certified (ACC-02)"
+                .into(),
+        );
     }
     if bla.points != orbit.0.len() as u64 {
-        return Err(format!("BLA table covers a {}-point orbit, not this {}-point one", bla.points, orbit.0.len()));
+        return Err(format!(
+            "BLA table covers a {}-point orbit, not this {}-point one",
+            bla.points,
+            orbit.0.len()
+        ));
     }
     if p.escape_radius.is_nan() || p.escape_radius < 4.0 {
         return Err(format!(
@@ -134,7 +141,10 @@ pub fn render_bla(
     }
     let dc = dc_max(&plane, p);
     if dc.is_nan() || dc > bla.dc_max {
-        return Err(format!("view reaches |dc| = {dc:e}, beyond the BLA table's dc_max {:e}", bla.dc_max));
+        return Err(format!(
+            "view reaches |dc| = {dc:e}, beyond the BLA table's dc_max {:e}",
+            bla.dc_max
+        ));
     }
     run(view, p, Some(orbit), Some(bla))
 }
@@ -165,10 +175,16 @@ fn run(
     let reference = match supplied {
         Some((_, bits)) if bits != need && (tier == Tier::F64 || bits < need) => {
             let at_least = if tier == Tier::F64 { "" } else { "at least " };
-            return Err(format!("supplied reference has {bits} bits; this view needs {at_least}{need}"));
+            return Err(format!(
+                "supplied reference has {bits} bits; this view needs {at_least}{need}"
+            ));
         }
-        Some((r, _)) if r.is_empty() || r.re.len() != r.im.len() || r.re[0] != 0.0 || r.im[0] != 0.0 => {
-            return Err("supplied reference orbit must start at Z_0 = 0 with equal re/im lengths".into())
+        Some((r, _))
+            if r.is_empty() || r.re.len() != r.im.len() || r.re[0] != 0.0 || r.im[0] != 0.0 =>
+        {
+            return Err(
+                "supplied reference orbit must start at Z_0 = 0 with equal re/im lengths".into(),
+            )
         }
         Some((r, bits)) => {
             plane.bits = bits.into();
@@ -193,12 +209,16 @@ fn run(
                     let (mut its, mut b, mut shift) = (0, BlaStats::default(), 0.0f64);
                     loop {
                         // let-else drops the lock guard before the row is filled.
-                        let Some(row) = queue.lock().unwrap().next() else { break };
+                        let Some(row) = queue.lock().unwrap().next() else {
+                            break;
+                        };
                         let sh = &mut shift;
                         its += match (deriv, bounded, blas) {
                             (_, true, _) => job.fill::<true, true, false>(row, &mut b, sh),
                             (true, false, false) => job.fill::<true, false, false>(row, &mut b, sh),
-                            (false, false, false) => job.fill::<false, false, false>(row, &mut b, sh),
+                            (false, false, false) => {
+                                job.fill::<false, false, false>(row, &mut b, sh)
+                            }
                             (true, false, true) => job.fill::<true, false, true>(row, &mut b, sh),
                             (false, false, true) => job.fill::<false, false, true>(row, &mut b, sh),
                         };
@@ -214,19 +234,30 @@ fn run(
             }
         });
     }
-    let stats = Stats { reference_len: reference.len(), reference_seconds, iterations: iterations.into_inner() };
+    let stats = Stats {
+        reference_len: reference.len(),
+        reference_seconds,
+        iterations: iterations.into_inner(),
+    };
     let mut h = header(view, p, cols, &plane, tier);
     if bla.is_some() {
         h.kernel.push_str(" bla/1");
     }
     let (mut b, shift) = total.into_inner().unwrap();
     // Output pixel = ss samples of spacing h.
-    b.shift_px = (bla.is_some() && cols.needs_derivative()).then(|| shift / (plane.h() * f64::from(p.ss)));
+    b.shift_px =
+        (bla.is_some() && cols.needs_derivative()).then(|| shift / (plane.h() * f64::from(p.ss)));
     Ok((h, s, stats, b))
 }
 
 /// The header of a render of `view` with `cols`.
-pub(crate) fn header(view: &View, p: &Params, cols: ColumnSet, plane: &Plane, tier: Tier) -> Header {
+pub(crate) fn header(
+    view: &View,
+    p: &Params,
+    cols: ColumnSet,
+    plane: &Plane,
+    tier: Tier,
+) -> Header {
     Header {
         minor: MINOR,
         columns: cols,
@@ -257,7 +288,13 @@ pub(crate) struct Job<'a> {
 
 impl<'a> Job<'a> {
     /// Per-render sample constants for columns `cols` (bounds tracked iff `Bound` is in it).
-    pub(crate) fn new(r: &'a Reference, plane: &'a Plane, tier: Tier, p: &Params, cols: ColumnSet) -> Job<'a> {
+    pub(crate) fn new(
+        r: &'a Reference,
+        plane: &'a Plane,
+        tier: Tier,
+        p: &Params,
+        cols: ColumnSet,
+    ) -> Job<'a> {
         let q = match (cols.has(Column::Bound), tier) {
             (false, _) | (_, Tier::Scaled) => Vec::new(),
             (true, Tier::F64) => r.error_radius(None, plane.c_re, plane.c_im),
@@ -265,7 +302,17 @@ impl<'a> Job<'a> {
         };
         let deriv = cols.needs_derivative() || !q.is_empty();
         let (store, r2) = (Store::new(plane, p.ss), p.escape_radius * p.escape_radius);
-        Job { r, plane, tier, store, max_iter: p.max_iter, r2, q, deriv, bla: None }
+        Job {
+            r,
+            plane,
+            tier,
+            store,
+            max_iter: p.max_iter,
+            r2,
+            q,
+            deriv,
+            bla: None,
+        }
     }
 
     /// Outcome of sample `(i, j)`, with the same kernel choice as [`render`] (no BLA).
@@ -279,7 +326,12 @@ impl<'a> Job<'a> {
     }
 
     #[inline]
-    fn one<const D: bool, const B: bool, const L: bool>(&self, i: usize, j: usize, skip: &mut Skip) -> Outcome {
+    fn one<const D: bool, const B: bool, const L: bool>(
+        &self,
+        i: usize,
+        j: usize,
+        skip: &mut Skip,
+    ) -> Outcome {
         let pl = self.plane;
         let h = pl.h();
         let (ux, uy) = pl.unit_offset(i, j);
@@ -287,17 +339,49 @@ impl<'a> Job<'a> {
             Tier::F64 => {
                 let (ar, ai) = (ux * h, uy * h);
                 let c = Some((pl.c_re + ar, pl.c_im + ai));
-                perturb::<D, B, L>(self.r, &self.q, self.bla, skip, c, ar, ai, self.max_iter, self.r2)
+                perturb::<D, B, L>(
+                    self.r,
+                    &self.q,
+                    self.bla,
+                    skip,
+                    c,
+                    ar,
+                    ai,
+                    self.max_iter,
+                    self.r2,
+                )
             }
-            Tier::Fixed => perturb::<D, B, L>(self.r, &self.q, self.bla, skip, None, ux * h, uy * h, self.max_iter, self.r2),
-            Tier::Scaled => scaled::<D>(self.r, ux * pl.h_m, uy * pl.h_m, pl.h_e, self.max_iter, self.r2),
+            Tier::Fixed => perturb::<D, B, L>(
+                self.r,
+                &self.q,
+                self.bla,
+                skip,
+                None,
+                ux * h,
+                uy * h,
+                self.max_iter,
+                self.r2,
+            ),
+            Tier::Scaled => scaled::<D>(
+                self.r,
+                ux * pl.h_m,
+                uy * pl.h_m,
+                pl.h_e,
+                self.max_iter,
+                self.r2,
+            ),
         }
     }
 
     /// Fill one row, adding its BLA work to `b` and raising `shift` (in `c` units) to
     /// the row's largest shift estimate; returns the iterates spent (one per applied
     /// block).
-    fn fill<const D: bool, const B: bool, const L: bool>(&self, mut row: Row, b: &mut BlaStats, shift: &mut f64) -> u64 {
+    fn fill<const D: bool, const B: bool, const L: bool>(
+        &self,
+        mut row: Row,
+        b: &mut BlaStats,
+        shift: &mut f64,
+    ) -> u64 {
         let mut its = 0;
         for i in 0..row.class.len() {
             let mut skip = Skip::default();
@@ -326,13 +410,21 @@ pub(crate) fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
     let plane = Plane::new(view, p.nx, p.ny)?;
     let tier = p.tier.unwrap_or(plane.tier);
     if !plane.allows(tier) {
-        return Err(format!("{tier:?} tier is not valid at this depth (cheapest valid: {:?})", plane.tier));
+        return Err(format!(
+            "{tier:?} tier is not valid at this depth (cheapest valid: {:?})",
+            plane.tier
+        ));
     }
     Ok((plane, tier))
 }
 
 /// Compute the reference orbit for `tier`.
-pub(crate) fn compute(view: &View, plane: &Plane, tier: Tier, p: &Params) -> Result<Reference, String> {
+pub(crate) fn compute(
+    view: &View,
+    plane: &Plane,
+    tier: Tier,
+    p: &Params,
+) -> Result<Reference, String> {
     Ok(match tier {
         Tier::F64 => Reference::new(plane.c_re, plane.c_im, p.max_iter, p.escape_radius),
         _ => {

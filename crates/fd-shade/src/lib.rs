@@ -54,8 +54,16 @@ pub struct Appearance {
 
 impl Appearance {
     /// No animation, no anti-aliasing, unresolved samples marked.
-    pub const STILL: Appearance =
-        Appearance { time: 0.0, flow: 0.0, breathe: 0.0, brate: 0.0, drift: 0.0, aa: false, unresolved_interior: false, dither: false };
+    pub const STILL: Appearance = Appearance {
+        time: 0.0,
+        flow: 0.0,
+        breathe: 0.0,
+        brate: 0.0,
+        drift: 0.0,
+        aa: false,
+        unresolved_interior: false,
+        dither: false,
+    };
 
     /// Band phase offset at this time, in cycles.
     pub fn phase(&self) -> f32 {
@@ -102,7 +110,9 @@ pub fn by_name(name: &str) -> Option<Box<dyn Pass>> {
         "umber" => Some(Box::new(umber::Umber)),
         "palette" => Some(Box::new(palette::Palette)),
         "relief" => Some(Box::new(relief::Relief)),
-        "studio" => Some(Box::new(Studio(Look::builtin("ice").expect("ice is built in")))),
+        "studio" => Some(Box::new(Studio(
+            Look::builtin("ice").expect("ice is built in"),
+        ))),
         _ => None,
     }
 }
@@ -131,8 +141,10 @@ mod tests {
                 _ => Kind::Escaped,
             };
             s.class[i] = Class::new(kind, Evidence::Heuristic);
-            s.nu.as_mut().unwrap()[i] = 1.0 + (x * 0.37 + y * 1.3).exp() + 5000.0 * (i as f64 / n as f64);
-            s.de.as_mut().unwrap()[i] = (1e-4 * (1.0 + x * y * 0.7)) as f32 * (1.0 + (i % 7) as f32 * 30.0);
+            s.nu.as_mut().unwrap()[i] =
+                1.0 + (x * 0.37 + y * 1.3).exp() + 5000.0 * (i as f64 / n as f64);
+            s.de.as_mut().unwrap()[i] =
+                (1e-4 * (1.0 + x * y * 0.7)) as f32 * (1.0 + (i % 7) as f32 * 30.0);
             s.normal.as_mut().unwrap()[i] = Samples::angle((x * 0.3).cos(), (y * 0.2).sin());
         }
         let h = Header {
@@ -143,7 +155,12 @@ mod tests {
             ss: 2,
             max_iter: 1000,
             escape_radius: 1e10,
-            view: View { center_re: "0".into(), center_im: "0".into(), width: "1".into(), rotation: 0.0 },
+            view: View {
+                center_re: "0".into(),
+                center_im: "0".into(),
+                width: "1".into(),
+                rotation: 0.0,
+            },
             kernel: "test".into(),
         };
         (h, s)
@@ -151,13 +168,18 @@ mod tests {
 
     /// FNV-1a of an image.
     pub(crate) fn fnv(b: &[u8]) -> u64 {
-        b.iter().fold(0xcbf29ce484222325u64, |h, &x| (h ^ u64::from(x)).wrapping_mul(0x100000001b3))
+        b.iter().fold(0xcbf29ce484222325u64, |h, &x| {
+            (h ^ u64::from(x)).wrapping_mul(0x100000001b3)
+        })
     }
 
     /// Image fingerprints of the looks before appearance existed (FX-01): computed with
     /// the pre-FX-01 fd-shade on this fixture.
-    const GOLDEN: [(&str, u64); 3] =
-        [("umber", 0x4ed011cfed07d299), ("palette", 0xb4f7c8b22c6325f6), ("relief", 0x35c254217df5b0a1)];
+    const GOLDEN: [(&str, u64); 3] = [
+        ("umber", 0x4ed011cfed07d299),
+        ("palette", 0xb4f7c8b22c6325f6),
+        ("relief", 0x35c254217df5b0a1),
+    ];
 
     #[test]
     fn still_appearance_is_byte_identical_to_the_old_looks() {
@@ -165,23 +187,48 @@ mod tests {
         for (name, want) in GOLDEN {
             let pass = super::by_name(name).unwrap();
             assert_eq!(fnv(&pass.shade(&h, &s).data), want, "{name}");
-            let still = Appearance { time: 12.5, ..Appearance::STILL };
-            assert_eq!(fnv(&pass.shade_with(&h, &s, &still).data), want, "{name}: time alone must not change a still look");
+            let still = Appearance {
+                time: 12.5,
+                ..Appearance::STILL
+            };
+            assert_eq!(
+                fnv(&pass.shade_with(&h, &s, &still).data),
+                want,
+                "{name}: time alone must not change a still look"
+            );
         }
     }
 
     #[test]
     fn flow_moves_the_bands_and_relief_ignores_time() {
         let (h, s) = fixture();
-        let at = |t: f64| Appearance { time: t, flow: 0.25, breathe: 0.2, brate: 0.1, drift: 0.05, ..Appearance::STILL };
+        let at = |t: f64| Appearance {
+            time: t,
+            flow: 0.25,
+            breathe: 0.2,
+            brate: 0.1,
+            drift: 0.05,
+            ..Appearance::STILL
+        };
         for name in ["umber", "palette"] {
             let p = super::by_name(name).unwrap();
-            let (a, b) = (p.shade_with(&h, &s, &at(0.0)).data, p.shade_with(&h, &s, &at(1.0)).data);
+            let (a, b) = (
+                p.shade_with(&h, &s, &at(0.0)).data,
+                p.shade_with(&h, &s, &at(1.0)).data,
+            );
             assert_ne!(a, b, "{name}: bands should move");
             // Exactly one cycle of flow (4 s at 0.25 c/s), with breathing and drift
             // switched off, returns to the same image.
-            let cyc = |t: f64| Appearance { time: t, flow: 0.25, ..Appearance::STILL };
-            assert_eq!(p.shade_with(&h, &s, &cyc(0.0)).data, p.shade_with(&h, &s, &cyc(4.0)).data, "{name}");
+            let cyc = |t: f64| Appearance {
+                time: t,
+                flow: 0.25,
+                ..Appearance::STILL
+            };
+            assert_eq!(
+                p.shade_with(&h, &s, &cyc(0.0)).data,
+                p.shade_with(&h, &s, &cyc(4.0)).data,
+                "{name}"
+            );
         }
         let r = super::by_name("relief").unwrap();
         assert_eq!(fnv(&r.shade_with(&h, &s, &at(3.0)).data), GOLDEN[2].1);
@@ -189,11 +236,23 @@ mod tests {
 
     #[test]
     fn aa_fades_relief_only_next_to_sub_sample_filaments() {
-        let a = Appearance { aa: true, ..Appearance::STILL };
+        let a = Appearance {
+            aa: true,
+            ..Appearance::STILL
+        };
         assert_eq!(Appearance::STILL.relief_gain(1e-6, 1), 1.0);
-        assert!(a.relief_gain(10.0, 1) > 0.999, "far from the boundary the relief is untouched");
-        assert!(a.relief_gain(1e-3, 1) < 0.01, "on a filament the lighting is flat");
-        assert!(a.relief_gain(0.1, 4) > a.relief_gain(0.1, 1), "supersampling resolves more of it");
+        assert!(
+            a.relief_gain(10.0, 1) > 0.999,
+            "far from the boundary the relief is untouched"
+        );
+        assert!(
+            a.relief_gain(1e-3, 1) < 0.01,
+            "on a filament the lighting is flat"
+        );
+        assert!(
+            a.relief_gain(0.1, 4) > a.relief_gain(0.1, 1),
+            "supersampling resolves more of it"
+        );
         assert_eq!(a.relief_gain(f32::NAN, 1), 0.0);
         // On the fixture (de down to 1e-4 px), AA changes the lit looks, never palette.
         let (h, s) = fixture();
@@ -211,18 +270,45 @@ mod tests {
         let shade = |l: crate::Look| fnv(&crate::Studio(l).shade(&h, &s).data);
         let ice = crate::Look::builtin("ice").unwrap();
         let base = shade(ice.clone());
-        assert_ne!(base, shade(crate::Look { lines: 0.0, ..ice.clone() }), "terrain lines draw");
-        assert_ne!(base, shade(crate::Look { terrace: 0.0, ..ice.clone() }), "terraces draw");
-        assert_ne!(base, shade(crate::Look { light: 315.0, ..ice.clone() }), "light direction matters");
+        assert_ne!(
+            base,
+            shade(crate::Look {
+                lines: 0.0,
+                ..ice.clone()
+            }),
+            "terrain lines draw"
+        );
+        assert_ne!(
+            base,
+            shade(crate::Look {
+                terrace: 0.0,
+                ..ice.clone()
+            }),
+            "terraces draw"
+        );
+        assert_ne!(
+            base,
+            shade(crate::Look {
+                light: 315.0,
+                ..ice.clone()
+            }),
+            "light direction matters"
+        );
         assert_ne!(base, shade(crate::Look::builtin("coral").unwrap()));
         // `by_name("studio")` is the ice preset.
-        assert_eq!(fnv(&super::by_name("studio").unwrap().shade(&h, &s).data), base);
+        assert_eq!(
+            fnv(&super::by_name("studio").unwrap().shade(&h, &s).data),
+            base
+        );
     }
 
     #[test]
     fn unresolved_can_be_drawn_as_interior() {
         let (h, mut s) = fixture();
-        let inside = Appearance { unresolved_interior: true, ..Appearance::STILL };
+        let inside = Appearance {
+            unresolved_interior: true,
+            ..Appearance::STILL
+        };
         for name in super::NAMES {
             let p = super::by_name(name).unwrap();
             let marked = p.shade_with(&h, &s, &inside).data;
@@ -241,9 +327,18 @@ mod tests {
     fn depends_on_samples_only() {
         let toml = include_str!("../Cargo.toml");
         let deps = toml.split("[dependencies]").nth(1).unwrap_or("");
-        let names: Vec<&str> =
-            deps.lines().take_while(|l| !l.starts_with('[')).filter_map(|l| l.split('=').next()).map(str::trim).filter(|n| !n.is_empty()).collect();
-        assert_eq!(names, ["fd-samples"], "fd-shade must not depend on anything that can iterate");
+        let names: Vec<&str> = deps
+            .lines()
+            .take_while(|l| !l.starts_with('['))
+            .filter_map(|l| l.split('=').next())
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .collect();
+        assert_eq!(
+            names,
+            ["fd-samples"],
+            "fd-shade must not depend on anything that can iterate"
+        );
     }
 
     #[test]

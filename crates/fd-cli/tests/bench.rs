@@ -3,25 +3,47 @@
 use std::process::Command;
 
 fn fd(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_fd")).args(args).output().unwrap()
+    Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(args)
+        .output()
+        .unwrap()
 }
 
 /// The number after `"key":` in a flat scan of the report.
 fn num(json: &str, key: &str) -> f64 {
-    let at = json.find(&format!("\"{key}\":")).unwrap_or_else(|| panic!("no {key} in {json}"));
+    let at = json
+        .find(&format!("\"{key}\":"))
+        .unwrap_or_else(|| panic!("no {key} in {json}"));
     let rest = &json[at + key.len() + 3..];
     let end = rest.find([',', '}', ']']).unwrap();
-    rest[..end].parse().unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
+    rest[..end]
+        .parse()
+        .unwrap_or_else(|_| panic!("{key}: {}", &rest[..end]))
 }
 
 #[test]
 fn reports_baseline_metrics() {
-    let view = ["--re", "-0.7453", "--im", "0.1127", "--width", "0.0065", "--size", "32x18", "--ss", "2"];
-    let out = fd(&[&["bench"][..], &view, &["--iter", "5000", "--runs", "3", "--threads", "2"]].concat());
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let view = [
+        "--re", "-0.7453", "--im", "0.1127", "--width", "0.0065", "--size", "32x18", "--ss", "2",
+    ];
+    let out = fd(&[
+        &["bench"][..],
+        &view,
+        &["--iter", "5000", "--runs", "3", "--threads", "2"],
+    ]
+    .concat());
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let json = String::from_utf8(out.stdout).unwrap();
     let json = json.trim();
-    assert!(json.starts_with("{\"schema\":\"fd-bench/1\"") && json.ends_with('}') && !json.contains('\n'));
+    assert!(
+        json.starts_with("{\"schema\":\"fd-bench/1\"")
+            && json.ends_with('}')
+            && !json.contains('\n')
+    );
     for s in [
         "\"run\":1,\"state\":\"cold\"",
         "\"run\":3,\"state\":\"warm\"",
@@ -47,13 +69,23 @@ fn reports_baseline_metrics() {
 
 #[test]
 fn iterations_do_not_depend_on_threads() {
-    let base = ["bench", "--re", "0", "--im", "1", "--width", "1e-300", "--size", "24x12", "--iter", "20000", "--runs", "1"];
+    let base = [
+        "bench", "--re", "0", "--im", "1", "--width", "1e-300", "--size", "24x12", "--iter",
+        "20000", "--runs", "1",
+    ];
     let run = |t: &str| {
         let out = fd(&[&base[..], &["--threads", t]].concat());
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let json = String::from_utf8(out.stdout).unwrap();
         assert!(json.contains("\"kernel\":\"pert-fx-scaled/1"), "{json}");
-        assert!(json.contains("\"warm_seconds\":null,\"warm_statistic\":null"), "{json}");
+        assert!(
+            json.contains("\"warm_seconds\":null,\"warm_statistic\":null"),
+            "{json}"
+        );
         num(&json, "total")
     };
     assert_eq!(run("1"), run("3"));
@@ -61,6 +93,16 @@ fn iterations_do_not_depend_on_threads() {
 
 #[test]
 fn oracle_needs_an_output_file() {
-    let out = fd(&["bench", "--re", "0", "--im", "0", "--width", "4", "--oracle", "tools/oracle.py"]);
+    let out = fd(&[
+        "bench",
+        "--re",
+        "0",
+        "--im",
+        "0",
+        "--width",
+        "4",
+        "--oracle",
+        "tools/oracle.py",
+    ]);
     assert_eq!(out.status.code(), Some(2));
 }

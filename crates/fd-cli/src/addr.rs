@@ -16,8 +16,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         Some("show") => {
             let t = key(&Args::parse(rest, &[])?)?;
             println!("key {t}\nlevel {}", t.level);
-            println!("re {}\nim {}\nside {}", t.center_re(), t.center_im(), t.side());
-            println!("parent {}", t.parent().map_or("-".into(), |p| p.to_string()));
+            println!(
+                "re {}\nim {}\nside {}",
+                t.center_re(),
+                t.center_im(),
+                t.side()
+            );
+            println!(
+                "parent {}",
+                t.parent().map_or("-".into(), |p| p.to_string())
+            );
             let kids: Vec<String> = (0..4).map(|q| t.child(q).to_string()).collect();
             println!("children {}", kids.join(" "));
             Ok(())
@@ -26,7 +34,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let a = Args::parse(rest, &["grid", "at"])?;
             let t = key(&a)?;
             let (i, j) = a.need("at")?.split_once(',').ok_or("--at needs I,J")?;
-            let parse = |v: &str| v.trim().parse::<u32>().map_err(|_| format!("--at: bad index {v:?}"));
+            let parse = |v: &str| {
+                v.trim()
+                    .parse::<u32>()
+                    .map_err(|_| format!("--at: bad index {v:?}"))
+            };
             let c = t.sample(a.num("grid", 0)?, parse(i)?, parse(j)?)?;
             println!("key {c}\nre {}\nim {}", c.center_re(), c.center_im());
             Ok(())

@@ -94,12 +94,27 @@ impl Header {
         let (nx, ny, ss) = (i.u32()?, i.u32()?, i.u32()?);
         i.u32()?;
         let (max_iter, escape_radius, rotation) = (i.u64()?, i.f64()?, i.f64()?);
-        let view = View { center_re: i.str()?, center_im: i.str()?, width: i.str()?, rotation };
+        let view = View {
+            center_re: i.str()?,
+            center_im: i.str()?,
+            width: i.str()?,
+            rotation,
+        };
         let kernel = i.str()?;
         if ss == 0 || !nx.is_multiple_of(ss) || !ny.is_multiple_of(ss) {
             return Err(bad("grid is not a whole number of pixels"));
         }
-        let h = Header { minor, columns, nx, ny, ss, max_iter, escape_radius, view, kernel };
+        let h = Header {
+            minor,
+            columns,
+            nx,
+            ny,
+            ss,
+            max_iter,
+            escape_radius,
+            view,
+            kernel,
+        };
         Ok((h, align8(i.pos)))
     }
 }

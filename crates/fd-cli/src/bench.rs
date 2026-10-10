@@ -18,7 +18,11 @@ use std::process::Command;
 use std::time::Instant;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let known: Vec<&str> = FLAGS.iter().copied().chain(["runs", "oracle", "k", "python"]).collect();
+    let known: Vec<&str> = FLAGS
+        .iter()
+        .copied()
+        .chain(["runs", "oracle", "k", "python"])
+        .collect();
     let a = Args::parse(argv, &known)?;
     let (view, p) = job(&a)?;
     let runs: usize = a.num("runs", 3)?;
@@ -131,7 +135,11 @@ pub(crate) fn measure<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<
                     deterministic: true,
                     samples: s.class.len(),
                     sample_bytes: sample_bytes(&s),
-                    classes: [count(Kind::Escaped), count(Kind::Interior), count(Kind::Unresolved)],
+                    classes: [
+                        count(Kind::Escaped),
+                        count(Kind::Interior),
+                        count(Kind::Unresolved),
+                    ],
                     peak_rss: peak_rss(),
                     peak_rss_scope: if reset { "run" } else { "process" },
                     atlas: None,
@@ -170,7 +178,12 @@ impl Frame<'_> {
     /// Append the shared fields, from `"view"` through `"classes"`. Run 1 is `cold`,
     /// later runs are labelled `later`, and `warm` is the median reported for them
     /// (`warm_seconds` and `warm_statistic` are null when there is none).
-    pub(crate) fn body(&self, j: &mut String, later: &str, warm: Option<f64>) -> Result<(), String> {
+    pub(crate) fn body(
+        &self,
+        j: &mut String,
+        later: &str,
+        warm: Option<f64>,
+    ) -> Result<(), String> {
         let (view, p, st, times) = (self.view, self.p, &self.stats, &self.times);
         let n = self.samples as f64;
         let pixels = self.pixels();
@@ -212,7 +225,9 @@ impl Frame<'_> {
                 _ => later,
             };
             let sep = if i == 0 { "" } else { "," };
-            let load = a.map_or(String::new(), |a| format!(",\"load_seconds\":{}", a.load_seconds));
+            let load = a.map_or(String::new(), |a| {
+                format!(",\"load_seconds\":{}", a.load_seconds)
+            });
             let _ = write!(j, "{sep}{{\"run\":{},\"state\":\"{state}\",\"seconds\":{secs},\"reference_seconds\":{rsecs}{load}}}", i + 1);
         }
         // An atlas frame is one run, either cold or warm: the other is null.
@@ -248,7 +263,10 @@ impl Frame<'_> {
         match a {
             // No atlas: nothing is looked up, so these are zero by construction, not unmeasured.
             None => {
-                let _ = write!(j, ",\"bytes\":{{\"fds_bytes\":{fds},\"atlas_bytes_read\":0}}");
+                let _ = write!(
+                    j,
+                    ",\"bytes\":{{\"fds_bytes\":{fds},\"atlas_bytes_read\":0}}"
+                );
                 // A table built in-frame (`--bla per-frame`) is not an atlas: no tiles.
                 let blocks = self.own_bla.map_or(0, |b| b.blocks);
                 let _ = write!(
@@ -256,7 +274,9 @@ impl Frame<'_> {
                     ",\"atlas_work\":{{\"tiles_touched\":0,\"microblocks_touched\":0,\"macro_operators_per_pixel\":{}}}",
                     blocks as f64 / pixels
                 );
-                let fb = self.own_bla.map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
+                let fb = self
+                    .own_bla
+                    .map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
                 let _ = write!(
                     j,
                     ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
@@ -280,7 +300,9 @@ impl Frame<'_> {
                     blocks as f64 / pixels
                 );
                 // Fallback pixels: samples that applied no block (without a table, all).
-                let fb = a.bla.map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
+                let fb = a
+                    .bla
+                    .map_or(n, |b| (b.fallback_samples + b.closed_form_samples) as f64);
                 let _ = write!(
                     j,
                     ",\"fallback\":{{\"pixel_fraction\":{},\"iterations_per_pixel\":{},\"unresolved_fraction\":{}}}",
@@ -301,10 +323,16 @@ pub(crate) fn run_oracle(a: &Args, script: &str, out: &str) -> Result<(String, b
     let python = a.str("python").unwrap_or("python3");
     let k = a.str("k").unwrap_or("8");
     let t = Instant::now();
-    let o = Command::new(python).args([script, out, "--k", k]).output().map_err(|e| format!("{python} {script}: {e}"))?;
+    let o = Command::new(python)
+        .args([script, out, "--k", k])
+        .output()
+        .map_err(|e| format!("{python} {script}: {e}"))?;
     let report = String::from_utf8_lossy(&o.stdout).trim().to_string();
     if !(report.starts_with('{') && report.ends_with('}')) {
-        return Err(format!("oracle printed no JSON report: {}", String::from_utf8_lossy(&o.stderr)));
+        return Err(format!(
+            "oracle printed no JSON report: {}",
+            String::from_utf8_lossy(&o.stderr)
+        ));
     }
     Ok((report, o.status.success(), t.elapsed().as_secs_f64()))
 }
@@ -332,7 +360,11 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
     }
     v.sort_by(f64::total_cmp);
     let m = v.len() / 2;
-    Some(if v.len().is_multiple_of(2) { (v[m - 1] + v[m]) / 2.0 } else { v[m] })
+    Some(if v.len().is_multiple_of(2) {
+        (v[m - 1] + v[m]) / 2.0
+    } else {
+        v[m]
+    })
 }
 
 /// Reset this process's peak RSS (`VmHWM`) to its current RSS, so the next reading

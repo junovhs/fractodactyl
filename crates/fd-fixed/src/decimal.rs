@@ -30,18 +30,28 @@ impl Decimal {
             None => (t, 0),
         };
         let (int, frac) = mant.split_once('.').unwrap_or((mant, ""));
-        let digits: Vec<u8> = int.bytes().chain(frac.bytes()).map(|b| b.wrapping_sub(b'0')).collect();
+        let digits: Vec<u8> = int
+            .bytes()
+            .chain(frac.bytes())
+            .map(|b| b.wrapping_sub(b'0'))
+            .collect();
         if digits.is_empty() || digits.iter().any(|&d| d > 9) {
             return Err(bad());
         }
         let exp10 = exp.checked_sub(frac.len() as i64).ok_or_else(bad)?;
         let zero = digits.iter().all(|&d| d == 0);
-        Ok(Decimal { neg: neg && !zero, digits, exp10 })
+        Ok(Decimal {
+            neg: neg && !zero,
+            digits,
+            exp10,
+        })
     }
 
     /// log2 of the absolute value (−inf for zero), accurate to ~1e-15 relative.
     pub fn log2_abs(&self) -> f64 {
-        let Some(first) = self.digits.iter().position(|&d| d != 0) else { return f64::NEG_INFINITY };
+        let Some(first) = self.digits.iter().position(|&d| d != 0) else {
+            return f64::NEG_INFINITY;
+        };
         let sig = &self.digits[first..];
         let head = sig.iter().take(17).fold(0f64, |v, &d| v * 10.0 + d as f64);
         let rest = sig.len().saturating_sub(17) as f64;
@@ -102,7 +112,10 @@ mod tests {
     fn log2_estimate() {
         let d = Decimal::parse("1e-1000").unwrap();
         assert!((d.log2_abs() + 1000.0 * std::f64::consts::LOG2_10).abs() < 1e-9);
-        assert_eq!(Decimal::parse("0.000").unwrap().log2_abs(), f64::NEG_INFINITY);
+        assert_eq!(
+            Decimal::parse("0.000").unwrap().log2_abs(),
+            f64::NEG_INFINITY
+        );
     }
 
     #[test]

@@ -72,7 +72,18 @@ impl Plane {
         };
         let bits = (128 - h_e).max(128) as u64;
         let (sin, cos) = v.rotation.sin_cos();
-        Ok(Plane { c_re, c_im, h_m, h_e, tier, bits, cos, sin, half_x: nx as f64 / 2.0, half_y: ny as f64 / 2.0 })
+        Ok(Plane {
+            c_re,
+            c_im,
+            h_m,
+            h_e,
+            tier,
+            bits,
+            cos,
+            sin,
+            half_x: nx as f64 / 2.0,
+            half_y: ny as f64 / 2.0,
+        })
     }
 
     /// Kernel id written to the header for `tier`.
@@ -96,7 +107,10 @@ impl Plane {
     /// Exact-centre fixed-point coordinates for the reference orbit.
     pub fn center_fixed(v: &View, bits: u64) -> Result<(Fixed, Fixed), String> {
         let l = fd_fixed::limbs_for(bits);
-        Ok((Fixed::parse(&v.center_re, l)?, Fixed::parse(&v.center_im, l)?))
+        Ok((
+            Fixed::parse(&v.center_re, l)?,
+            Fixed::parse(&v.center_im, l)?,
+        ))
     }
 
     /// Offset of sample `(i, j)` from the centre in units of `h` (multiply by `h`).
@@ -125,7 +139,12 @@ mod tests {
     use super::*;
 
     fn view(re: &str, width: &str, rot: f64) -> View {
-        View { center_re: re.into(), center_im: "0.25".into(), width: width.into(), rotation: rot }
+        View {
+            center_re: re.into(),
+            center_im: "0.25".into(),
+            width: width.into(),
+            rotation: rot,
+        }
     }
 
     #[test]

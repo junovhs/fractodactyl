@@ -33,13 +33,26 @@ pub struct Budget {
 
 impl Budget {
     /// DEC-03 default: 2.5 GiB target, 3 GiB hard cap.
-    pub const DEFAULT: Budget = Budget { target: 5 << 29, cap: 3 << 30 };
+    pub const DEFAULT: Budget = Budget {
+        target: 5 << 29,
+        cap: 3 << 30,
+    };
 
     /// Parse the BUDGET file; anything but exactly the canonical two lines is refused.
     fn parse(text: &str) -> Option<Budget> {
         let mut lines = text.lines();
-        let mut field = |name: &str| -> Option<u64> { lines.next()?.strip_prefix(name)?.strip_prefix(' ')?.parse().ok() };
-        let b = Budget { target: field("target")?, cap: field("cap")? };
+        let mut field = |name: &str| -> Option<u64> {
+            lines
+                .next()?
+                .strip_prefix(name)?
+                .strip_prefix(' ')?
+                .parse()
+                .ok()
+        };
+        let b = Budget {
+            target: field("target")?,
+            cap: field("cap")?,
+        };
         let canonical = format!("target {}\ncap {}\n", b.target, b.cap);
         (text == canonical && b.target <= b.cap).then_some(b)
     }
@@ -93,10 +106,18 @@ impl Store {
         let marker = root.join(MARKER);
         match fs::read_to_string(&marker) {
             Ok(text) if text == MARKER_TEXT => {}
-            Ok(_) => return Err(Error::Malformed(format!("{}: unsupported store marker", marker.display()))),
+            Ok(_) => {
+                return Err(Error::Malformed(format!(
+                    "{}: unsupported store marker",
+                    marker.display()
+                )))
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 if fs::read_dir(&root).is_ok_and(|mut d| d.next().is_some()) {
-                    return Err(Error::Malformed(format!("{}: not empty and not an atlas store", root.display())));
+                    return Err(Error::Malformed(format!(
+                        "{}: not empty and not an atlas store",
+                        root.display()
+                    )));
                 }
                 fs::create_dir_all(&root)?;
                 fs::write(&marker, MARKER_TEXT)?;
@@ -106,12 +127,17 @@ impl Store {
         fs::create_dir_all(root.join("chunks"))?;
         fs::create_dir_all(root.join("tmp"))?;
         let budget = match fs::read_to_string(root.join(BUDGET)) {
-            Ok(text) => Budget::parse(&text)
-                .ok_or_else(|| Error::Malformed(format!("{}: bad budget file", root.join(BUDGET).display())))?,
+            Ok(text) => Budget::parse(&text).ok_or_else(|| {
+                Error::Malformed(format!("{}: bad budget file", root.join(BUDGET).display()))
+            })?,
             Err(e) if e.kind() == ErrorKind::NotFound => Budget::DEFAULT,
             Err(e) => return Err(e.into()),
         };
-        Ok(Store { root, budget, used: Mutex::new(None) })
+        Ok(Store {
+            root,
+            budget,
+            used: Mutex::new(None),
+        })
     }
 
     /// The byte budget in force: the BUDGET file, else [`Budget::DEFAULT`].
@@ -123,10 +149,16 @@ impl Store {
     /// current usage is allowed: existing chunks stay, new ones are refused.
     pub fn set_budget(&mut self, budget: Budget) -> Result<(), Error> {
         if budget.target > budget.cap {
-            return Err(Error::Malformed(format!("budget target {} exceeds cap {}", budget.target, budget.cap)));
+            return Err(Error::Malformed(format!(
+                "budget target {} exceeds cap {}",
+                budget.target, budget.cap
+            )));
         }
         let text = format!("target {}\ncap {}\n", budget.target, budget.cap);
-        let tmp = self.root.join("tmp").join(format!("{BUDGET}.{}", std::process::id()));
+        let tmp = self
+            .root
+            .join("tmp")
+            .join(format!("{BUDGET}.{}", std::process::id()));
         write_then_rename(&tmp, &self.root.join(BUDGET), text.as_bytes())?;
         self.budget = budget;
         Ok(())
@@ -167,7 +199,11 @@ impl Store {
         };
         let len = chunk.bytes().len() as u64;
         if outcome == Put::Stored && total.saturating_add(len) > self.budget.cap {
-            return Err(Error::OverBudget { need: len, used: total, cap: self.budget.cap });
+            return Err(Error::OverBudget {
+                need: len,
+                used: total,
+                cap: self.budget.cap,
+            });
         }
         let dest = self.path(&id);
         fs::create_dir_all(dest.parent().expect("chunk path has a parent"))?;
@@ -204,7 +240,10 @@ impl Store {
     /// Unique chunk count and bytes on disk.
     pub fn stats(&self) -> Result<Stats, Error> {
         let files = self.files()?;
-        Ok(Stats { chunks: files.len() as u64, bytes: files.iter().map(|(_, len)| len).sum() })
+        Ok(Stats {
+            chunks: files.len() as u64,
+            bytes: files.iter().map(|(_, len)| len).sum(),
+        })
     }
 
     /// Unique chunks and bytes per kind, sorted by kind code. The kind is read from each
@@ -256,7 +295,10 @@ impl Store {
             for file in fs::read_dir(dir.path())? {
                 let file = file?;
                 let name = file.file_name().to_string_lossy().into_owned();
-                if let (Ok(id), true) = (format!("{prefix}{name}").parse::<ChunkId>(), file.file_type()?.is_file()) {
+                if let (Ok(id), true) = (
+                    format!("{prefix}{name}").parse::<ChunkId>(),
+                    file.file_type()?.is_file(),
+                ) {
                     out.push((id, file.metadata()?.len()));
                 }
             }
@@ -268,7 +310,9 @@ impl Store {
     fn staging(&self, id: &ChunkId) -> PathBuf {
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
-        self.root.join("tmp").join(format!("{id}.{}.{n}", std::process::id()))
+        self.root
+            .join("tmp")
+            .join(format!("{id}.{}.{n}", std::process::id()))
     }
 }
 
@@ -314,7 +358,10 @@ mod tests {
         s.put(&chunk(b"two")).unwrap();
         let st = s.stats().unwrap();
         assert_eq!(st.chunks, 2);
-        assert_eq!(st.bytes, (chunk(b"one").bytes().len() + chunk(b"two").bytes().len()) as u64);
+        assert_eq!(
+            st.bytes,
+            (chunk(b"one").bytes().len() + chunk(b"two").bytes().len()) as u64
+        );
         assert_eq!(s.get(&a).unwrap().payload(), b"one");
         assert!(fs::read_dir(dir.join("tmp")).unwrap().next().is_none());
         fs::remove_dir_all(&dir).unwrap();
@@ -343,15 +390,31 @@ mod tests {
         let mut s = Store::open(&dir).unwrap();
         assert_eq!(s.budget(), Budget::DEFAULT);
         let one = chunk(b"one").bytes().len() as u64;
-        s.set_budget(Budget { target: one, cap: one * 2 }).unwrap();
+        s.set_budget(Budget {
+            target: one,
+            cap: one * 2,
+        })
+        .unwrap();
         s.put(&chunk(b"one")).unwrap();
         s.put(&chunk(b"two")).unwrap();
-        assert!(matches!(s.put(&chunk(b"six")), Err(Error::OverBudget { .. })));
+        assert!(matches!(
+            s.put(&chunk(b"six")),
+            Err(Error::OverBudget { .. })
+        ));
         assert_eq!(s.put(&chunk(b"one")).unwrap().1, Put::Deduplicated);
         assert_eq!(s.stats().unwrap().bytes, one * 2);
         let reopened = Store::open(&dir).unwrap();
         assert_eq!(reopened.budget().cap, one * 2);
-        assert_eq!(reopened.stats_by_kind().unwrap(), vec![(Kind::CERTIFICATE, Stats { chunks: 2, bytes: one * 2 })]);
+        assert_eq!(
+            reopened.stats_by_kind().unwrap(),
+            vec![(
+                Kind::CERTIFICATE,
+                Stats {
+                    chunks: 2,
+                    bytes: one * 2
+                }
+            )]
+        );
         assert!(s.set_budget(Budget { target: 3, cap: 2 }).is_err());
         fs::write(dir.join(BUDGET), "target 1\ncap 2\nextra\n").unwrap();
         assert!(matches!(Store::open(&dir), Err(Error::Malformed(_))));
