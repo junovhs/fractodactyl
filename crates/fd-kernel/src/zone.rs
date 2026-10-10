@@ -33,6 +33,8 @@ use fd_samples::{Column, Header, Samples, View};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
+mod mid;
+
 /// Tail patch polynomial length (tail_patches.py `D`).
 const PATCH_D: usize = 16;
 /// Critical-orbit steps from a return to the Koenigs chart (the zone's `q - 1`).
@@ -51,6 +53,10 @@ impl Cx {
     #[inline(always)]
     fn add(self, o: Cx) -> Cx {
         Cx(self.0 + o.0, self.1 + o.1)
+    }
+    #[inline(always)]
+    fn sub(self, o: Cx) -> Cx {
+        Cx(self.0 - o.0, self.1 - o.1)
     }
     #[inline(always)]
     fn mul(self, o: Cx) -> Cx {
@@ -289,6 +295,7 @@ pub struct Zone {
     leaves: Vec<Leaf>,
     /// Exact-range constants, set when the f64 ones are unusable (a deep ladder rung).
     deep: Option<Deep>,
+    mid: Option<mid::Mid>,
 }
 
 /// A deep zone's biseries, Koenigs entry offset and `phi` as mantissa + exponent
@@ -334,7 +341,9 @@ impl Zone {
             nodes: Vec::new(),
             leaves: Vec::new(),
             deep: None,
+            mid: None,
         };
+        let mut mid = mid::Mid::default();
         let mut raw = vec![];
         let (mut raw_x, mut z24ma_x) = (vec![], None);
         for (ln, line) in text
@@ -424,8 +433,8 @@ impl Zone {
                         coef,
                     });
                 }
-                // Lean-baseline reference orbit of the research bench: not used here.
-                "ref" => {}
+                "ref" => mid.reference(n(1)? as usize, cx(2)?).map_err(|e| bad(&e))?,
+                other if other.starts_with("mid_") => mid.add(&f).map_err(|e| bad(&e))?,
                 other => return Err(bad(&format!("unknown constant {other:?}"))),
             }
         }
@@ -501,6 +510,7 @@ impl Zone {
         if z.max_dc.mant == 0.0 {
             z.max_dc = z.guard;
         }
+        z.mid = mid.finish(z.period)?;
         Ok(z)
     }
 }
@@ -596,22 +606,33 @@ impl Zone {
 /// Whether `zone` may render `view` (DEC-10 validity), decided before rendering
 /// (DEC-19): every sample within `max_dc` of the nucleus and, for a zone with `diag`
 /// lines, a first-return truncation shift of at most [`SHIFT_PX`].
-pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String> {
-    let (plane, _) = setup(view, p)?;
-    let off = centre_offset(view, zone, &plane)?;
+fn deep_covers(plane: &Plane, p: &Params, zone: &Zone, off: CentreOffset) -> bool {
     let diagonal = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
     let spacing = ZoneSize {
         mant: plane.h_m,
         exp2: plane.h_e,
     }
     .over(zone.scale);
-    let inside = if zone.f64_geometry(&plane) {
+    let inside = if zone.f64_geometry(plane) {
         off.absolute.abs() + plane.h() * diagonal <= zone.max_dc.to_f64()
     } else {
         off.scaled.abs() + spacing * diagonal <= zone.max_dc.over(zone.scale)
     };
     let shift = zone.truncation_shift(off.scaled.abs() + spacing * diagonal, spacing);
-    Ok(inside && shift.is_none_or(|s| s <= SHIFT_PX))
+    inside && shift.is_none_or(|s| s <= SHIFT_PX)
+}
+
+fn mid_covers(plane: &Plane, p: &Params, zone: &Zone, off: CentreOffset) -> bool {
+    let diagonal = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
+    zone.mid.as_ref().is_some_and(|m| {
+        plane.h() > 0.0 && m.covers(off.absolute.abs() + plane.h() * diagonal, p.escape_radius)
+    })
+}
+
+pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String> {
+    let (plane, _) = setup(view, p)?;
+    let off = centre_offset(view, zone, &plane)?;
+    Ok(deep_covers(&plane, p, zone, off) || mid_covers(&plane, p, zone, off))
 }
 
 /// Render `view` with the zone pipeline. Refused when the zone does not cover the view
@@ -633,6 +654,7 @@ pub fn render_zone(
     }
     let (plane, tier) = setup(view, p)?;
     let off = centre_offset(view, zone, &plane)?;
+    let use_mid = !deep_covers(&plane, p, zone, off) && mid_covers(&plane, p, zone, off);
     let legacy = zone.f64_geometry(&plane);
     // Deep zones: v = (centre offset + pixel offset) / scale, all in Fx.
     let inv_scale = Fx::new(Cx(1.0 / zone.scale.mant, 0.0), -zone.scale.exp2);
@@ -666,6 +688,27 @@ pub fn render_zone(
                         };
                         for i in 0..row.class.len() {
                             let (ux, uy) = plane.unit_offset(i, row.j);
+                            if use_mid {
+                                let dc = Cx(
+                                    off.absolute.0 + ux * plane.h(),
+                                    off.absolute.1 + uy * plane.h(),
+                                );
+                                let m = zone.mid.as_ref().unwrap();
+                                let (o, w, jumped) = if deriv {
+                                    mid::pixel::<true>(m, zone.c, dc, p.max_iter, r2, plane.h())
+                                } else {
+                                    mid::pixel::<false>(m, zone.c, dc, p.max_iter, r2, plane.h())
+                                };
+                                if jumped {
+                                    st.jumps += 1;
+                                    st.plain += w.saturating_sub(25);
+                                } else {
+                                    st.plain += w;
+                                }
+                                its += w;
+                                store.put(&mut row, i, o);
+                                continue;
+                            }
                             if let Some(deep) = &zone.deep {
                                 let v = off
                                     .exact
@@ -706,7 +749,11 @@ pub fn render_zone(
         });
     }
     let mut hd = header(view, p, cols, &plane, tier);
-    hd.kernel = format!("zone-koenigs/1 P={}", zone.period);
+    hd.kernel = if use_mid {
+        format!("zone-mid-koenigs/1 P={}", zone.period)
+    } else {
+        format!("zone-koenigs/1 P={}", zone.period)
+    };
     let stats = Stats {
         reference_len: 0,
         reference_seconds: 0.0,
@@ -1274,6 +1321,26 @@ mod tests {
                 checked > a.class.len() / 2,
                 "{w}: only {checked} samples checked"
             );
+        }
+    }
+
+    #[test]
+    fn mid_frame_gate_rejects_failing_views_without_losing_passing_ones() {
+        // Fixture uses the checked v0 nucleus/scale; Mid::covers only needs
+        // the operator's parameter domain, not the generated chart contents.
+        let mut z = v0();
+        z.mid = Some(mid::Mid::default());
+        let mut p = params(&[Column::Nu, Column::De, Column::Normal]);
+        p.nx = 960;
+        p.ny = 540;
+        p.max_iter = 100_000;
+        for width in ["2.37e-8", "5.35e-10", "1.99e-28"] {
+            let v = view(width);
+            assert!(!zone_covers(&v, &p, &z).unwrap(), "{width}");
+            assert!(render_zone(&v, &p, &z).is_err(), "{width}");
+        }
+        for width in ["1.05e-6", "1.21e-11", "1.88e-26", "1.02e-31"] {
+            assert!(zone_covers(&view(width), &p, &z).unwrap(), "{width}");
         }
     }
 

@@ -862,3 +862,130 @@ Neither approximate recurrence nor a multiplier sign supplies a
 Koenigs convergence domain, an error bound, or a general pixel jump.
 A later production shortcut must decline outside its validated domain,
 fall back to exact iteration, and pass whole-frame every-pixel checks.
+
+### KERN-02: production mid-band handover (2026-10-10; Ryzen full-path gate)
+
+The v0 `make_zone.sh` appends PROB-14's 100-digit `Z_0..Z_24`,
+`U0`, `s0`, `lambda0`, `p(C)`, `k_n`, `k_n'` and
+`lambda0^j` table as `mid_*` records. The existing `ref` records supply
+full-period perturbation fallback. Old zones without `mid_*` are unchanged;
+other nuclei do not gain mid constants (PROB-12). Frames use the conventional
+return-map path when its frame guard accepts, else the mid operator when the
+whole camera lies within 1e-6 of the v0 nucleus and escape radius is 1e10;
+otherwise fd takes over. Each individual mid jump checks its own chart state,
+parameter offset, multiplier, index and remaining iteration budget, falling back
+to a direct perturbation of the pixel's own parameter when declined. The post-jump
+finish at `c = C + dc` and the complete `dz/dc` transport follow PROB-14.
+The earlier sampled PROB-14 results were not production validation.
+The completed 750-frame control and 1080p60 film measurements are recorded
+under the round-2 heading below; no numerical error certification is implied.
+
+### KERN-02 review round 1: a guarded mid-band interval (2026-10-10)
+
+Owner's 14-frame 960x540, 100000-iteration, 24-thread subset against fresh
+`--bla per-frame`, with `nu,de,normal` and `fd compare`: 11 passed, 3 failed.
+Every frame had **0 class mismatches** and **0 nonfinite samples**.
+Failing frames before this guard: frame 125 (width 2.37e-8: 112 de over 0.2%,
+max 0.31%); frame 150 (5.35e-10: 713 nu over 1e-3 px, max 0.016 px;
+20,294 de over 0.2%, max 13.2%; 14,483 normal over 0.2 degrees, max
+7.476 degrees); frame 430 (1.99e-28: 4 de over 0.2%, 1 normal over
+0.2 degrees, maxima 0.315% / 0.236 degrees). Passing anchors:
+frame 100 (1.05e-6, 1.5x), 175 (1.21e-11, 4.2x),
+200..400 (5.9-9.6x), and 480 (1.02e-31, 24.2x).
+These are **pre-fix owner measurements**. The round-2 owner run of
+`scripts/kern02_subset.sh` passed all 14/14 after the guard change.
+
+**DEC-10/17/19 prospective abstention, not a proof of numerical error bounds:**
+the mid operator's empirically admitted parameter offsets are
+`|dc| <= 7e-12` or `1e-7 <= |dc| <= 1e-6`. Mid jumps outside these
+sets return the pixel to unaccelerated reference perturbation.
+The whole-frame dispatcher only selects mid when the **outermost**
+parameter radius falls in one of these regimes. It also refuses the
+mid path when that radius is below `5e-27`, where minibrot returns
+need the separate guarded deep operator; if deep declines, fd's
+per-frame BLA/plain perturbation renders the frame instead.
+This preserves the tested fast-path regime at 175..400 and the broad
+outer regime while deliberately sacrificing coverage in the
+unvalidated 125/150 annulus and near the deep handover.
+The domain is attached to the operator, not hard-coded frame indices,
+path depths, or CLI entry points. These cutoffs were chosen from the owner subset and subsequently
+checked on the 750-frame v0 path (round 2); they remain **empirical**,
+not a PROB-13 certificate, and must not be generalized to new nuclei/paths.
+
+### KERN-02 review round 2: whole-path and 1080p60 measurements (2026-10-10)
+
+**Owner-run hardware and contract:** Ryzen 9 3900X, 24 threads, fresh v0
+zone from `make_zone.sh`, `scripts/kern02_subset.sh` **14/14 passed**,
+then `THREADS=24 bash scripts/kern02_gate.sh`. Control rendered **all 750**
+`bench/path-atlas-v0.txt` frames at **960x540**, 100,000 iterations,
+`nu,de,normal`, single run, compared every pixel to independent
+`--bla per-frame` (`fd compare` thresholds: 1e-3 px,
+0.002 de relative error, 0.2 degrees normal). All 388,800,000
+samples were checked. Seconds below are summed single-run control
+frame wall timings on the **same machine**, not film end-to-end seconds.
+
+| Path regime | Frames | BLA (s) | KERN-02 route (s) | Speed-up | Actionable failures |
+|---|---:|---:|---:|---:|---:|
+| Mid `zone-mid-koenigs` | 246 | 98.4996 | 12.6906 | **7.762x** | **0** |
+| Deep `zone-koenigs` (existing KERN-01) | 315 | 218.1264 | 8.9516 | **24.367x** | **0** (38 strict-comparator class frames, FIX-04/main below) |
+| Outside zone / BLA-perturbation fallback | 189 | 35.3195 | 35.7131 | **0.989x** | **0** |
+| **Full 750-frame path** | **750** | **351.9455** | **57.3553** | **6.136x** | **0** under the separately stated existing-baseline exceptions |
+
+**Raw correctness, with no suppressed evidence:** `fd compare`'s
+unchanged strict criterion exited **1**, flagging 38 deep-path frames,
+indices **712..749**, for **206,603** class differences:
+**206,602 `unresolved_to_interior`** (FIX-04: reference BLA runs
+out of its 100,000-iteration budget; the existing deep zone identifies
+interior) and **1 `escaped_to_unresolved`** at frame **748**.
+The owner rendered frame 748 with **main `d051685`** and that main
+revision's own zone and reproduced exactly the same 39,900
+differences (39,899 `unresolved_to_interior` and the one
+`escaped_to_unresolved`) against the very same BLA .fds.
+Therefore the one escaping mismatch is an explicitly documented,
+**pre-existing main-baseline discrepancy**, not an effect introduced
+by KERN-02. There were **0 other class changes**, **0 nonfinite
+samples**, and **0 samples exceeding the ν/de/normal tolerances**
+over the full path. Maximum reported ν displacement was
+**7.0591e-5 px**; maximum scored de relative difference was
+**8.5425e-4**. The full raw comparator results remain in
+`out/kern02/compare.jsonl`. This distinction is **not** a claim that
+strict `fd compare` passes or that FIX-04 is resolved.
+
+**Gate policy:** `scripts/kern02_gate.sh` continues to retain the
+unmodified raw comparison; it separately reports the FIX-04
+`unresolved_to_interior` counts only on `zone-koenigs/` deep
+frames, exempts **at most one** `escaped_to_unresolved`
+sample **only at deep frame 748**, and fails on every other
+classification change, missing/corrupt frame, nonfinite sample
+or ν/de/normal tolerance breach. The production kernel and the
+strict `fd compare` executable are unchanged. In particular,
+the deep-only exemption does **not** silently admit these classes
+in the KERN-02 mid operator.
+
+**Empirical handover (DEC-17/19, not certified by PROB-13):**
+the mid co-moving jump abstains per pixel for parameter offsets
+`7e-12 < |dc| < 1e-7`, reverting to full reference perturbation.
+It also declines frame routing when the camera's maximum offset
+falls below `5e-27`, so the separately guarded deep return
+operator takes over if eligible, else the normal BLA/plain
+fallback. Other cameras outside the admitted zone also fall
+back. These validity islands are empirical for v0 and should not
+be interpreted as general error bounds or extrapolated to
+different nuclei.
+
+**1080p60 film (production `fd film --keyframes 2`):**
+a **25 s / 1,500-frame** v0 zone film, 1920x1080, 60 fps,
+100,000 iterations, completed in **655.096 s wall**, with
+**209.966 s rendering** (122 zoned keyframes, 7 BLA, 36
+perturbation), **436.572 s shading**, and **4.985 s encode wait**.
+Shading is now the dominant stage; see **FX-05**. No complete
+zone-free 1,500-frame film was run, so **6.136x** above applies
+to the 960x540 control path, **not** 1080p60 end-to-end film.
+
+**Matched deep keyframe clip** (`--frames 1200..1250`, 50 output
+frames, 7 rendered keyframes, 1920x1080):
+per-frame BLA needed **123.112 s render**, **140.364 s wall**;
+the zone needed **3.113 s render**, **21.585 s wall**.
+That is **39.5x render speed-up** and about **6.50x end-to-end
+wall speed-up** for this clip (including shading), not a claim
+about the complete film.

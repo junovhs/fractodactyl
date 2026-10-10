@@ -40,3 +40,12 @@ for line in path.read_text().splitlines():
     lines.append(line)
 path.write_text("\n".join(lines) + "\n")
 PY
+
+# v0 only: the co-moving two-cycle operator carries its own validity gate in fd.
+# Keep the existing reference orbit (ref lines) for declined mid-band pixels.
+if [ "${#centre[@]}" -eq 0 ]; then
+    mid=$(mktemp)
+    trap 'rm -f "$mid"' EXIT
+    python3 mid_consts.py "$mid"
+    awk '/^(u|s|p|sign|lambda|z|k|kp|t) / {print "mid_" $0}' "$mid" >> "$out"
+fi
