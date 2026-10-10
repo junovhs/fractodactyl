@@ -15,7 +15,7 @@ This directory holds Fractodactyl's October 9 research and handoffs. **The pre-e
 
 ## New investigations preserved from the conversation
 
-[**Agent investigations received October 10**](agent-investigations-10-10/README.md) — original full reports on automatic dynamical compilation, near-parabolic acceleration, and factored high-period return maps; Agent 1 follow-up transcript and the separate native prototype results.
+[**Agent investigations received October 10**](agent-investigations-10-10/README.md) — original full reports on automatic dynamical compilation, near-parabolic acceleration, factored high-period return maps, and compiled mathematical film reuse; Agent 1 follow-up transcript and native prototype results.
 
 ## Earlier source research already in the repository
 

@@ -8,6 +8,10 @@ These are preserved source reports from the owner's Fractodactyl research conver
 2. [Near-parabolic transit acceleration](02-near-parabolic-transit-agent-report.md) — real-cusp analytic fast-forward with error estimates; complex-domain and BLA comparisons remain open.
 3. [Factored deep-ladder return maps](03-factored-ladder-return-maps-agent-report.md) — building high-period operators from a short-cycle factorization, aimed especially at the period-16,116, ~1e-1000 Misiurewicz ladder.
 
+6. [Compiled mathematical films and cross-frame reuse](06-compiled-mathematical-film-agent-report.md) — continuous parameter-dependent maps, reusable analytic exterior fields, certification and amortized film construction; proposes matched same-math film benchmarks. This is a research proposal, not a measured compiled-film victory.
+
+**Related:** [Agent 4 analytic exterior-field prototype](../../10-10-26/mandelbrot_exterior_field_research.md) — empirical single-frame field measurements and source code are kept in their existing October 10 location; not duplicated here.
+
 ## Agent 1 follow-up and verified implementation
 
 - [Automatic compiler follow-up session](01-automatic-compiler-followup-session.txt) — a **partial pasted session transcript**, including intermediate findings, experiments, and progress entries. It is not a self-contained final report. The raw upload text is preserved without editorial cleanup.
