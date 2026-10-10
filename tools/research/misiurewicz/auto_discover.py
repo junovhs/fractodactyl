@@ -331,7 +331,7 @@ def score(ref,ours,px=1e-3):
 
 def high_precision_spotcheck(re, im, width, nx, ny, rot, maxiter, fd, ours, indices):
     """Independent orbit-and-derivative oracle for worst disagreement pixels."""
-    mp.mp.dps = min(1200,max(90,int(-math.log10(float(width)))+60))
+    mp.mp.dps = min(1200,max(90,2*int(-math.log10(float(width)))+60))
     c0=mp.mpc(re,im)
     h=mp.mpf(width)/nx
     phase=mp.exp(mp.j*mp.mpf(rot))
@@ -406,7 +406,17 @@ def main():
         result["render_seconds"]=render_time
         result["total_candidate_seconds"]=compile_time+render_time
         result["speedup_vs_fd_cold"]=cold/(compile_time+render_time)
-        result["full_frame"]=score(load_fd(out/"baseline"/"frame-00000.fds",nx*ny),ours)
+        fd_data=load_fd(out/"baseline"/"frame-00000.fds",nx*ny)
+        result["full_frame"]=score(fd_data,ours)
+        mask=(fd_data[0]==0)&ours["escaped"]
+        indices=np.flatnonzero(mask)
+        if len(indices):
+            rel=np.abs(ours["de"][mask]/np.maximum(fd_data[2][mask],1e-30)-1)
+            b_ang=fd_data[3][mask]*math.tau/65536
+            angle=np.abs(np.angle(np.exp(1j*(ours["normal"][mask]-b_ang))))
+            worst=[indices[0],indices[np.argmax(rel)],indices[np.argmax(angle)]]
+            result["oracle_spots"]=high_precision_spotcheck(
+                a.re,a.im,a.width,nx,ny,a.rotation,a.iter,fd_data,ours,worst)
         result["decision"]="accept_candidate" if (result["full_frame"]["ok"] and
             compile_time+render_time<cold) else "reject_candidate"
         result["reason"]=("full-frame correctness and end-to-end profitability pass"
