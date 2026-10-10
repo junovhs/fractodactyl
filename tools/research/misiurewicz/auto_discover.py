@@ -145,7 +145,30 @@ def discover(re, im, width, maxiter, qmax=64, pmax=128, order=14):
                 continue
             if any(abs(x)>=mp.mpf("1.9") for x in phases):
                 continue
+            if abs(lam) < mp.mpf("1.5"):
+                return None, {"decision":"decline",
+                    "reason":"weakly repelling multiplier outside validated derivative-jump domain",
+                    "q":q,"p":p,"multiplier":[float(mp.re(lam)),float(mp.im(lam))],
+                    "discovery_seconds":time.perf_counter()-t0}
             dp = b/(1-lam)
+            # Cheap optimistic profitability bound before calculating any Koenigs jet.
+            # The final jump radius is <= 0.002, so failing this bound guarantees
+            # the current operator-cost heuristic cannot approve the candidate.
+            zz=mp.mpc(0); deriv=mp.mpc(0)
+            for _ in range(q):
+                deriv=2*zz*deriv+1
+                zz=zz*zz+c
+            seed=abs(z[q]-s)+abs(deriv-dp)*mp.mpf(width)/2
+            if seed<=0:
+                seed=mp.mpf(width)
+            optimistic=max(0,int(mp.floor(mp.log(mp.mpf("0.002")/seed)/mp.log(abs(lam)))))
+            cost=90+4*order+q
+            if p*optimistic<cost:
+                return None, {"decision":"decline",
+                    "reason":"even optimistic operator savings cannot amortize the jump",
+                    "q":q,"p":p,"predicted_skipped_upper":p*optimistic,
+                    "operator_equivalent_steps":cost,
+                    "discovery_seconds":time.perf_counter()-t0}
             dlam = d*dp+e
             a, da = coefficients_return(c,s,p,dp,order)
             if abs(a[1]-lam)>mp.mpf("1e-20")*max(1,abs(lam)):
