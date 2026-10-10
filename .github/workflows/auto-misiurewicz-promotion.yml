@@ -4,6 +4,7 @@ on:
     branches: [research/auto-misiurewicz-discovery]
     paths:
       - ".github/workflows/auto-misiurewicz-promotion.yml"
+      - "tools/research/misiurewicz/auto_discover.py"
   workflow_dispatch:
 jobs:
   promotion:
