@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "fd-samples"
+version = "0.1.0"
+
+[[package]]
 name = "koenigs-bench"
 version = "0.1.0"
+dependencies = [
+ "fd-samples",
+]

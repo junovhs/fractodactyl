@@ -9,6 +9,8 @@
 //! against C's periodic reference orbit with Zhuoran rebasing (BLA does not beat plain
 //! perturbation at these depths: METHOD.md, FIX-09).
 //! Usage: koenigs-bench MODE CONSTS OUT_DIR NXxNY MAX_ITER THREADS RUNS WIDTH...   (MODE: koenigs | perturb)
+mod mid;
+
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -312,6 +314,10 @@ fn phi_d(k: &Consts, h: Cx) -> (Cx, Cx) {
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
+    if a.get(1).is_some_and(|s| s == "--mid") {
+        mid::run(&a[1..]);
+        return;
+    }
     assert!(a.len() >= 9, "usage: koenigs-bench MODE CONSTS OUT_DIR NXxNY MAX_ITER THREADS RUNS WIDTH...");
     let f: fn(&Consts, Cx, u64, f64) -> (bool, f64) = match a[1].as_str() {
         "koenigs" => pixel,

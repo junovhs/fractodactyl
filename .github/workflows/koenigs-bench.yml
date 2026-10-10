@@ -5,6 +5,10 @@ name: koenigs-bench
 on:
   workflow_dispatch:
     inputs:
+      mid:
+        description: PROB-14 mid-band whole frames
+        type: boolean
+        default: false
       threads:
         description: render threads (same for every contestant)
         default: "4"
@@ -35,6 +39,7 @@ env:
 
 jobs:
   bench:
+    if: github.event_name == 'workflow_dispatch' && inputs.mid != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,3 +65,35 @@ jobs:
             out/koenigs/*.jsonl
             out/koenigs/*-score.txt
             out/koenigs/consts.txt
+
+  mid:
+    if: inputs.mid == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath gmpy2 numpy
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --manifest-path tools/research/misiurewicz/koenigs_bench/Cargo.toml
+      - run: cargo clippy --manifest-path tools/research/misiurewicz/koenigs_bench/Cargo.toml --all-targets -- -D warnings
+      - run: cargo build --release -j 4
+      - name: machine
+        run: nproc && lscpu | grep -E 'Model name|^CPU\(s\)'
+      - name: mid-band timing and scoring
+        run: |
+          THREADS=${{ inputs.threads || '4' }} RUNS=${{ inputs.runs || '3' }} SIZE=${{ inputs.size || '480x270' }} \
+            bash tools/research/misiurewicz/koenigs_bench/run_mid.sh target/release/fd out/mid-band
+          cat out/mid-band/score.jsonl >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mid-band
+          path: |
+            out/mid-band/*.jsonl
+            out/mid-band/path.txt
