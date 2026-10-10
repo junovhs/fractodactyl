@@ -118,6 +118,10 @@ def discover(re, im, width, maxiter, qmax=64, pmax=128, order=14):
         return None, {"decision":"decline", "reason":"no critical-orbit recurrence at camera scale",
                       "discovery_seconds":time.perf_counter()-t0}
     for _,q,p in sorted(hits):
+        # A repelling cycle outside this local disk cannot be jumped without
+        # crossing the intermediate escape/near-escape region. Reject cheaply.
+        if abs(z[q]) >= mp.mpf('1.9'):
+            continue
         try:
             s = z[q]
             for _ in range(32):
