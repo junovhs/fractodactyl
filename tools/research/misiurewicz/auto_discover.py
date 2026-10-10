@@ -309,7 +309,7 @@ def score(ref,ours,px=1e-3):
     mismatch=int(np.count_nonzero((cls==0)!=ours["escaped"]))
     mask=(cls==0)&ours["escaped"]
     if not np.any(mask):
-        return {"class_mismatches":mismatch,"escaped_compared":0,"ok":mismatch==0}
+        return {"class_mismatches":mismatch,"escaped_compared":0,"ok":bool(mismatch==0)}
     disp=np.abs(nu[mask]-ours["nu"][mask])*math.log(2)*de[mask]/2
     de_err=np.abs(ours["de"][mask]-de[mask])/np.maximum(1e-30,de[mask])
     # fd stores screen normal as a quantized angle. Candidate stores a continuous
@@ -321,7 +321,7 @@ def score(ref,ours,px=1e-3):
             "max_displacement_px":float(np.max(disp)),
             "max_de_relative_error":float(np.max(de_err)),
             "max_normal_error_rad":float(np.max(ang)),
-            "ok":mismatch==0 and not np.any(disp>px) and np.max(de_err)<1e-3 and np.max(ang)<1e-3}
+            "ok":bool(mismatch==0 and not np.any(disp>px) and np.max(de_err)<1e-3 and np.max(ang)<1e-3)}
 
 
 def main():
