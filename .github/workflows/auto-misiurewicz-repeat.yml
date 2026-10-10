@@ -1,0 +1,65 @@
+name: auto-misiurewicz-repeat
+on:
+  push:
+    branches: [research/auto-misiurewicz-discovery]
+    paths:
+      - ".github/workflows/auto-misiurewicz-repeat.yml"
+  workflow_dispatch:
+jobs:
+  repeated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath numpy
+      - run: cargo build --release -j 4
+      - run: cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Three independent cold-frame trials per location
+        shell: bash
+        run: |
+          set +e
+          mkdir -p out/auto-repeat
+          failures=0
+          run() {
+            local family="$1" re="$2" im="$3"
+            for n in 1 2 3; do
+              python tools/research/misiurewicz/auto_discover.py \
+                --fd target/release/fd \
+                --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+                --re "$re" --im "$im" --width 1e-95 --size 960x540 \
+                --iter 20000 --threads 4 --out "out/auto-repeat/$family-$n"
+              test $? -eq 0 || failures=$((failures+1))
+            done
+          }
+          run i 0 1
+          run unknown-q3p2 \
+            0.4196433776070805662759262823266433002120893730487961233893793197021016110409832128692177097141535071 \
+            0.606290729207199369259342197028023002949570668386421712214899686318868275281145662031327930379402341
+          python - <<'PY'
+          import json,pathlib,statistics
+          cases={}
+          for f in pathlib.Path('out/auto-repeat').glob('*/report.json'):
+              j=json.loads(f.read_text())
+              name=f.parent.name.rsplit('-',1)[0]
+              cases.setdefault(name,[]).append(j)
+          for name,records in sorted(cases.items()):
+              speed=[r['speedup_vs_fd_cold'] for r in records]
+              print(name,'runs',len(records),'median_speedup',statistics.median(speed),
+                    'min_speedup',min(speed),'max_speedup',max(speed),
+                    'all_accepted',all(r['decision']=='accept_candidate' for r in records),
+                    'class_mismatches',sum(r['full_frame']['class_mismatches'] for r in records),
+                    'over_pixel_tolerance',sum(r['full_frame']['over_1e_3_px'] for r in records))
+              assert len(records)==3
+              assert all(r['full_frame']['ok'] for r in records)
+              assert statistics.median(speed)>1.0
+          PY
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-misiurewicz-repeat
+          path: out/auto-repeat/**/report.json
