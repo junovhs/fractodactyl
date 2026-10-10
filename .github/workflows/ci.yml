@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
-          components: clippy
+          components: clippy, rustfmt
       - name: clippy + tests
         run: JOBS=4 bash scripts/check.sh
 

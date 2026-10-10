@@ -203,6 +203,55 @@ Key findings from 2026-10-09 (all in the METHOD.md results log):
 - Deep-research reports: `docs/research/<date>/`. Process: before a new investigation,
   the agent drafts 2-3 questions, the owner runs them, and the answers are filed there.
 
+## Removed code (CLEAN-01)
+
+Only disconnected one-off or rejected work was removed. Historical source remains available at [the last commit containing every item](https://github.com/junovhs/fractodactyl/tree/83c908dcc7833e0b70c12224be59342a8d074f90); no `.ishoo/` content was changed.
+
+| Removed item | Abandoned/superseded evidence | Last containing commit |
+|---|---|---|
+| `.github/workflows/f3-bench.yml` | BENC-04: completed Windows-only head-to-head; METHOD.md BENC-04 rows | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/.github/workflows/f3-bench.yml) |
+| `.github/workflows/prob17.yml` | PROB-17: branch-specific one-off; METHOD.md says superseded by PROB-19 | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/.github/workflows/prob17.yml) |
+| `scripts/explore_look_parity.sh` | EXPL-05: finished manual Chrome parity run; studio look shipped (STATE.md) | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/scripts/explore_look_parity.sh) |
+| `tools/research/sampling/hex_sample_lattice_probe.py` | 2026-10-09 METHOD.md: hex lattice killed (no sample-efficiency win) | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/sampling/hex_sample_lattice_probe.py) |
+| `tools/research/misiurewicz/naive_z2_map.py` | Research README: first failed quadratic parameter-map hypothesis | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/naive_z2_map.py) |
+| `tools/research/misiurewicz/tanlei_one_return.py` | Research README: earlier one-return map fails deeper; replaced by returns_exit_tail | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/tanlei_one_return.py) |
+| `tools/research/misiurewicz/compare_fds_basic.py` | Research README: earlier comparator; fd compare now scores complete frames | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/compare_fds_basic.py) |
+| `tools/research/misiurewicz/de_histogram.py` | Research README: analytic patch hypothesis killed; DEC-15 | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/de_histogram.py) |
+| `tools/research/misiurewicz/float32_stages.py` | PROB-14 F: all-float32 misses the 1e-3 px bar (METHOD.md) | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/float32_stages.py) |
+| `tools/research/misiurewicz/f32_frame.py` | PROB-14 F follow-up: all-float frame not eligible for DEC-17 promotion | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/f32_frame.py) |
+| `tools/research/misiurewicz/f32_compare.py` | Only the removed all-float frame comparison consumes it (PROB-14 F) | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/f32_compare.py) |
+| `tools/research/looks/proto.py` | FX-02: appearance prototype superseded by shipped fd shade studio | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/looks/proto.py) |
+| `tools/research/looks/fds.py` | Only the superseded looks/proto.py imports this prototype reader | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/looks/fds.py) |
+| `tools/research/misiurewicz/koenigs_bench/f3_bench.sh` | BENC-04 finished; invoked only by removed f3-bench workflow | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/koenigs_bench/f3_bench.sh) |
+| `tools/research/misiurewicz/koenigs_bench/compare_f3.py` | BENC-04 one-off jittered EXR comparator, called by f3_bench.sh | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/koenigs_bench/compare_f3.py) |
+| `tools/research/misiurewicz/koenigs_bench/report_f3.py` | BENC-04 one-off reporter, called by f3_bench.sh | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/koenigs_bench/report_f3.py) |
+| `tools/research/misiurewicz/koenigs_bench/truth_f3.py` | BENC-04 one-off adjudication; result preserved in METHOD.md | [`83c908d`](https://github.com/junovhs/fractodactyl/blob/83c908dcc7833e0b70c12224be59342a8d074f90/tools/research/misiurewicz/koenigs_bench/truth_f3.py) |
+
+### Atlas v0 usage (owner decision; no deletion)
+
+All eight parked Atlas commands remain available through `fd` and its tests. “Not on the live frame/film path” means the path is opt-in, **not** that its command is dead. Gate C was 0.996x (BENC-01; DEC-15).
+
+| Atlas v0 piece | Reachable today | Not on the live frame/film path |
+|---|---|---|
+| `crates/fd-atlas` chunk/store/slab/BLA | `fd chunk`, `fd orbit`, stored `fd render`, `fd compile`/`play`; tested by CI | `fd film` does not consume an Atlas v0 store |
+| `fd chunk` | Public CLI for store put/get/verify/stats/budget; also internal store users above | Not automatically called by `fd film` |
+| `fd manifest` | CLI tile/frame/show/walk; CI walks compiler output | No manifest playback in `fd film` |
+| `fd plan` | CLI and integration tests for path planning | No call from normal `render`, `control`, or `film` |
+| `fd reuse` | CLI, exercised on `bench/path-valley.txt` by CI (REF-02) | No call from `fd film` |
+| `fd schedule` | CLI and CI deadline test (SCHE-02) | No call from `fd film` |
+| `fd compile` | CLI and CI v0 path compile (VIDE-01) | Separate ahead-of-time route, not `fd film` |
+| `fd lod` | CLI inspection and integration tests | `fd render --refine` has its own live path; `fd film` does not call `fd lod` |
+| `fd play` | CLI, integration tests, and owner-facing `fd play --mp4` (STATE.md) | `fd film` directly renders/shades/encodes instead |
+| `fd addr` / `fd orbit` | CLI and stored-orbit render/CI paths | Not required by default independent `fd render` or `fd film` |
+
+### Considered but kept
+
+- **Rust surface:** workspace dispatch and cross-crate call review found no provably dead independent CLI/module to delete. All `fd` subcommands remain dispatched; public Atlas APIs are retained for the owner instead of inferring dead code from test-only callers.
+- **Bench inputs:** `bench/path-atlas-v0.txt` feeds the v0 compiler and film checks; `bench/path-valley.txt` and `bench/locations.txt` feed CI; `bench/zones/v0-core.zone` is embedded by kernel/film tests; `bench/benc-01-results.json` preserves the BENC-01 baseline (METHOD.md). None is an unused disposable fixture.
+- **Live/future research:** `make_zone.sh`, `koenigs_bench`, `auto_cycle_bench`, `auto_discover.py`, `run_rungs.sh`, `factored_return.py`, `gpu_bench.py`, and the corresponding workflows stay for PROB-14/19, AUTO-01/02, FACT-02, and GPU-03/04/05. BENC-08 `single_precision.py` stays as a GPU-05 baseline, not an approved shortcut.
+- **CI and manual parity:** `.github/workflows/ci.yml` and `scripts/{check,bench,locations}.sh` guard shipped paths; `koenigs-bench.yml` and `auto-misiurewicz.yml` exercise active research. The browser-driving tool remains for live explorer investigations.
+- **Historical reports:** METHOD.md and `docs/research/` retain measured results and historical commands. Removed sources remain in the Git parent above, even when old historical reproduction commands now require that revision.
+
 ## Known loose ends
 
 - On Windows, the `bench.rs`/`control.rs` tests expect Linux peak-RSS fields (FIX-10).
