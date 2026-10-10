@@ -102,3 +102,27 @@ They import each other; run them from that folder.
   locations (share of each orbit in spiral laps, minibrot loops, near-parabolic gates) is
   the next measurement; it needs a list of coordinates.
 - PROB-13: the four research answers as input; working radius from an a-posteriori bound.
+
+## Added later the same evening: the ladder (probe G)
+
+v0 is rung 0 of a ladder of minibrots converging on M(24,2): periods 764 + 2k, distance
+to m shrinking by 1/|ρ| and size by 1/|ρ|² per rung. Rungs at sizes 9.2e-101 (k = 409,
+period 1,582) and 1.0e-1000 (k = 7676, period 16,116) were found by Newton in 0.7 s and
+12 s; coordinates are in `tools/research/misiurewicz/ladder_rungs.txt`, the theory and
+the check in `misiurewicz-ladders.md`, the script is `ladder.py`.
+
+Why it matters: every rung is a v0-style destination (same 2-cycle, same λ(c) = 4(c + 1),
+same K series), so the fast path should apply at any depth with only the reference orbit
+and the minibrot loop map rebuilt. That is untested.
+
+Next, after the whole-frame bench:
+
+6. **Render a new rung.** Generalise `make_zone.sh` / `koenigs_bench_consts.py` to take a
+   centre and period, build the zone for k = 409, and render its landing with `--zone`,
+   every pixel scored. Then k = 7676. This is the test of flat cost with depth.
+7. **Other spiral centres.** The same construction at any Misiurewicz point; period-2
+   landing points are dense in the boundary (about 2^Q with preperiod ≤ Q). This is the
+   "destination catalogue" for FEATURE-MAP.md / `fd trip`.
+
+File with Ishoo: a new issue for item 6 (PROB-12 family), and a note on FEATURE-MAP.md
+that ladders give exact, formula-addressed minibrot destinations at any depth.
