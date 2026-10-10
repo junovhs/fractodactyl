@@ -154,12 +154,17 @@ are organised by outcome, with dependency edges. In priority order:
 5. **Feature map and trip design.** MAP-01 → MAP-03 → MAP-02 → MAP-04. Waits on PROB-12.
 6. **Proving suite.** The gate issues above, then TRUT-01 → PROB-01 → FILM-08 → FIX-10 →
    BENC-02 → BENC-03.
-7. **Cold renderer.** FIX-09 → FIX-03 (scaled-tier BLA; also the fair opponent at
-   1e-1000) → RESE-02.
+7. **BLA must-haves: fallback and honest opponent** (was "Cold renderer"). TRUT-01 →
+   PROB-01, FIX-09 (cheap form: per-frame plain-or-BLA pick) → FIX-03 (scaled-tier BLA;
+   the fallback for every declined pixel below 1e-300 and the fair opponent at 1e-1000;
+   until it lands, 1e-1000 speed-ups are against plain perturbation) → RESE-02.
 8. **Credibility.** BENC-08 (FractalShark; its float32 part moved to GPU-05), BENC-05,
    BENC-07, BENC-06.
-9. **Parked: atlas ideas.** ATLA-04, PROB-05, PROB-02, ACC-02, ACC-03, REF-05, LOD-03,
-   LOD-04, LOD-06. Revisit only if a probe earns it.
+9. **BLA extras: maybe later.** ACC-03 (higher-order BLA), ACC-02 (certified BLA bounds).
+   Start only if a probe shows BLA fallback is still a material share of film time after
+   the fast path and the must-haves land.
+10. **Parked: atlas ideas.** ATLA-04, PROB-05, PROB-02, REF-05, LOD-03, LOD-04, LOD-06.
+   Revisit only if a probe earns it.
 
 Retired on 2026-10-10 (kept in Ishoo as knowledge): RET-01, RET-02 → FACT-01; GPU-01 →
 GPU-04; BENC-09 → GPU-03; CERT-01 → PROB-13; PROB-06 → AUTO-01. Declined as atlas-era
