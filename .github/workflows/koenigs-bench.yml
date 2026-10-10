@@ -5,6 +5,22 @@ name: koenigs-bench
 on:
   workflow_dispatch:
     inputs:
+      path:
+        description: PROB-10 v0 full-path guard-band benchmark
+        type: boolean
+        default: false
+      path_file:
+        description: camera path (exact centre, width, optional rotation)
+        default: "bench/path-atlas-v0.txt"
+      path_size:
+        description: full video frame size for path mode
+        default: "1280x720"
+      path_runs:
+        description: runs for every path frame (including outside band)
+        default: "1"
+      path_maxit:
+        description: iteration limit for path frames
+        default: "100000"
       mid:
         description: PROB-14 mid-band whole frames
         type: boolean
@@ -39,7 +55,7 @@ env:
 
 jobs:
   bench:
-    if: github.event_name == 'workflow_dispatch' && inputs.mid != true
+    if: github.event_name == 'workflow_dispatch' && inputs.mid != true && inputs.path != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +83,7 @@ jobs:
             out/koenigs/consts.txt
 
   mid:
-    if: inputs.mid == true
+    if: github.event_name == 'workflow_dispatch' && inputs.mid == true && inputs.path != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -97,3 +113,42 @@ jobs:
           path: |
             out/mid-band/*.jsonl
             out/mid-band/path.txt
+
+  path:
+    if: github.event_name == 'push' || inputs.path == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath gmpy2 numpy
+      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --manifest-path tools/research/misiurewicz/koenigs_bench/Cargo.toml
+      - run: cargo clippy --manifest-path tools/research/misiurewicz/koenigs_bench/Cargo.toml --all-targets -- -D warnings
+      - run: python -m unittest discover -s tools/research/misiurewicz/koenigs_bench -p 'test_path_mode.py'
+      - run: cargo build --release -j 4
+      - name: machine
+        run: nproc && lscpu | grep -E 'Model name|^CPU\(s\)'
+      - name: full-path timing and scoring
+        run: |
+          THREADS=${{ inputs.threads || '4' }} RUNS=${{ inputs.path_runs || '1' }} SIZE=${{ inputs.path_size || '1280x720' }} \
+          MAXIT=${{ inputs.path_maxit || '100000' }} \
+          bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/koenigs-path "${{ inputs.path_file || 'bench/path-atlas-v0.txt' }}"
+          cat out/koenigs-path/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: koenigs-path
+          path: |
+            out/koenigs-path/report.md
+            out/koenigs-path/*-path.txt
+            out/koenigs-path/times.jsonl
+            out/koenigs-path/scores.jsonl
+            out/koenigs-path/outside.jsonl
+            out/koenigs-path/chunk-compare.jsonl
