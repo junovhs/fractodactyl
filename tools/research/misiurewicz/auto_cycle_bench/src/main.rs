@@ -125,7 +125,7 @@ fn pixel(m:&Model,dc:Cx,h:f64, max_iter:u64,rot:f64)->Record {
             return Record {class:0,nu,de,normal:ang,jump,skipped,plain};
         }
     }
-    Record {class:1,jump,skipped,plain,..Record::default()}
+    Record {class:2,jump,skipped,plain,..Record::default()}
 }
 fn main() {
     let args:Vec<String>=std::env::args().collect();
