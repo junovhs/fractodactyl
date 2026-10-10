@@ -21,6 +21,7 @@ jobs:
       - name: Full-frame discovery gate against fd per-frame BLA
         shell: bash
         run: |
+          set +e
           set -uo pipefail
           mkdir -p out/auto-mis
           script=tools/research/misiurewicz/auto_discover.py
