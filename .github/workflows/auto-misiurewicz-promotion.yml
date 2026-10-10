@@ -18,6 +18,7 @@ jobs:
           python-version: "3.12"
       - run: pip install mpmath numpy
       - run: cargo build --release -j 4
+      - run: cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
       - name: End-to-end full-frame comparisons
         shell: bash
         run: |
@@ -27,7 +28,7 @@ jobs:
           probe() {
             local name="$1" re="$2" im="$3" width="$4" sz="$5"
             python tools/research/misiurewicz/auto_discover.py \
-              --fd target/release/fd --re "$re" --im "$im" \
+              --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles --re "$re" --im "$im" \
               --width "$width" --size "$sz" --iter 20000 --threads 4 \
               --out "out/auto-promotion/$name"
             rc=$?
