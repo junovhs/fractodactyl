@@ -368,6 +368,33 @@ def high_precision_spotcheck(re, im, width, nx, ny, rot, maxiter, fd, ours, indi
             "candidate_normal_error_rad":circ(float(ours["normal"][idx]),ang)})
     return checks
 
+
+def write_native_model(k, path):
+    """Serialize discovered (not hand-authored) Koenigs operators for native execution."""
+    def pair(z): return f"{z.real:.17g} {z.imag:.17g}"
+    lines=[
+        "c "+pair(complex(*k["c"])),
+        "q "+str(k["q"]), "p "+str(k["p"]),
+        "radius "+repr(k["radius"]),
+        "bias "+pair(k["bias"]), "point "+pair(k["cycle"]),
+        "dp "+pair(k["dp"]), "dlam "+pair(k["dlam"]), "rho "+pair(k["rho"])]
+    lines += [f"ref {j} {pair(z)}" for j,z in enumerate(k["zref"])]
+    lines += [f"k {j+1} {pair(z)}" for j,z in enumerate(k["k"])]
+    lines += [f"dk {j+1} {pair(z)}" for j,z in enumerate(k["dk"])]
+    path.write_text("\n".join(lines)+"\n")
+
+
+def read_native(path,n):
+    b=path.read_bytes()
+    if len(b)!=n*(1+8*3):
+        raise ValueError("native result buffer wrong length")
+    o=n
+    cls=np.frombuffer(b,dtype="u1",count=n,offset=0).copy()
+    nu=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy();o+=n*8
+    de=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy();o+=n*8
+    normal=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy()
+    return {"escaped":cls==0,"nu":nu,"de":de,"normal":normal}
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name,required in [("re",True),("im",True),("width",True)]:
@@ -379,6 +406,7 @@ def main():
     p.add_argument("--out",required=True)
     p.add_argument("--rotation",type=float,default=0.0)
     p.add_argument("--force",action="store_true",help="test a detected cycle even when predicted unprofitable")
+    p.add_argument("--native",help="compiled native-cycles executable (optional)")
     a=p.parse_args()
     nx,ny=map(int,a.size.split("x"))
     out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
@@ -395,12 +423,24 @@ def main():
     cold=baseline["timing"]["cold_seconds"]
     t=time.perf_counter()
     k,info=discover(a.re,a.im,a.width,a.iter)
+    if k is not None and a.native:
+        write_native_model(k,out/"model.txt")
     compile_time=time.perf_counter()-t
     result=dict(info,frame_pixels=nx*ny,baseline_seconds=cold,
                 baseline_process_seconds=baseline_wall,compile_seconds=compile_time)
     if k is not None and (k["decision"]=="accelerate" or a.force):
         t=time.perf_counter()
-        ours=frame(k,a.width,nx,ny,a.iter,rotation=a.rotation)
+        if a.native:
+            cmd=[a.native,str(out/"model.txt"),str(out/"native.bin"),a.size,
+                 a.width,str(a.iter),str(a.threads),str(a.rotation)]
+            native=subprocess.run(cmd,capture_output=True,text=True)
+            if native.returncode:
+                raise RuntimeError(native.stderr+"\n"+native.stdout)
+            ours=read_native(out/"native.bin",nx*ny)
+            ours.update(json.loads(native.stdout.strip().splitlines()[-1]))
+            ours["fallback_samples"]=nx*ny-ours["jumps"]
+        else:
+            ours=frame(k,a.width,nx,ny,a.iter,rotation=a.rotation)
         render_time=time.perf_counter()-t
         result.update(ours if False else {x:ours[x] for x in ("jumps","skipped","fallback_samples","finish_steps")})
         result["render_seconds"]=render_time
