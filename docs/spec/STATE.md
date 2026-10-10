@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-08, afternoon)
+# Where We Are (updated 2026-10-09, evening)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -29,6 +29,19 @@ with 0 wrong pixels out of 777,600**. It is a per-frame technique (DEC-15). The
 interpolated exit table (PROB-04) stays rejected; the Koenigs jump replaced it. Full
 write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`. Conversation context:
 `PHILO-HANDOFF.md`.
+
+## Mid bands (2026-10-09, evening): a strong sampled lead
+
+Read `docs/research/10-9-26/HANDOFF-mid-band-jump.md` before working on PROB-14.
+
+- Measuring each pixel's offset from its **own** cycle point p(c) (a closed-form shift)
+  fixes the shared-tail failure. A mid-band pixel becomes 24 perturbation steps, one
+  Koenigs jump and about 40 plain steps: about 64 steps at every width from 1e-6 to
+  1e-24, against 172-747 direct, in doubles, with ν, de and normal.
+- **Sampled only** (250 random pixels per width, Python). The next step is the whole-frame
+  Rust bench against `fd --bla per-frame`; until then this is not a kept result.
+- Estimate if it holds: 5-10x on the whole v0 film against per-frame BLA (2.5x today).
+- It was written in a cloud session without Ishoo: the handoff lists the issues to file.
 
 ## Films (2026-10-08, afternoon): what exists now
 

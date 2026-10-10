@@ -60,17 +60,18 @@ ARMS=[('all double (baseline)',arm()),
       ('MIX: float 1-6 (table), double add + finish',{1:F,3:F,4:F,5:F,6:F,7:D,'add':D,'jump':'table'}),
       ('ALL float (table jump)',{1:F,3:F,4:F,5:F,6:F,7:F,'add':F,'jump':'table'})]
 for a in ARMS: a[1].pop('1',None)
-random.seed(17)
-print(f'{NPIX} pixels per width; error in px of a 1920-px frame; columns: max, median, count over 1e-3, count over 1e-2')
-for wexp in (9,15,24):
-    w=mpf(10)**(-wexp); res={n:[] for n,_ in ARMS}
-    for _ in range(NPIX):
-        off=w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16)
-        nu_t,s_t,zT,dzT=S.P.escape(mpc(0),S.C+off,0,mpc(0))
-        if nu_t is None: continue
-        de_px=float(2*abs(zT)*log(abs(zT))/abs(dzT)/(w/1920))
-        for n,p in ARMS:
-            nu=pixel(complex(off),p); res[n].append(float('inf') if nu is None else abs(nu-float(nu_t))*math.log(2)*de_px)
-    print(f'width 1e-{wexp}')
-    for n,e in res.items():
-        e.sort(); print(f'   {n:44s} max {e[-1]:.1e}  p50 {e[len(e)//2]:.1e}  >1e-3: {sum(x>1e-3 for x in e):3d}  >1e-2: {sum(x>1e-2 for x in e):3d}  of {len(e)}',flush=True)
+if __name__=='__main__':
+    random.seed(17)
+    print(f'{NPIX} pixels per width; error in px of a 1920-px frame; columns: max, median, count over 1e-3, count over 1e-2')
+    for wexp in (9,15,24):
+        w=mpf(10)**(-wexp); res={n:[] for n,_ in ARMS}
+        for _ in range(NPIX):
+            off=w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16)
+            nu_t,s_t,zT,dzT=S.P.escape(mpc(0),S.C+off,0,mpc(0))
+            if nu_t is None: continue
+            de_px=float(2*abs(zT)*log(abs(zT))/abs(dzT)/(w/1920))
+            for n,p in ARMS:
+                nu=pixel(complex(off),p); res[n].append(float('inf') if nu is None else abs(nu-float(nu_t))*math.log(2)*de_px)
+        print(f'width 1e-{wexp}')
+        for n,e in res.items():
+            e.sort(); print(f'   {n:44s} max {e[-1]:.1e}  p50 {e[len(e)//2]:.1e}  >1e-3: {sum(x>1e-3 for x in e):3d}  >1e-2: {sum(x>1e-2 for x in e):3d}  of {len(e)}',flush=True)

@@ -14,6 +14,8 @@ code.
 | `misiurewicz/compare_fds_basic.py` | An earlier comparator (ν offset, de ratio, normal shift). | `python compare_fds_basic.py A.fds B.fds` |
 | `misiurewicz/de_histogram.py` | The share of escaped pixels and iterations at ≥32/64/128/256 px from the set (this killed the analytic-patch idea). | `python de_histogram.py *.fds` |
 | `explore/drive_explorer_cdp.mjs` | Drives `fd explore` in headless Chrome over DevTools (wheel, drag, preset key) and takes screenshots. | `node drive_explorer_cdp.mjs <chrome.exe> <profile dir> <out dir>` with `fd explore` running |
+| `misiurewicz/own_c_koenigs.py`, `shared_consts_double.py`, `jump_derivative_double.py`, `float32_stages.py`, `f32_frame.py`, `f32_compare.py`, `general_cycle_jump.py` | The 2026-10-09 PROB-14 probes (mid-band Koenigs jump at the pixel's own c; doubles; derivative; float32; long cycles). They import each other. | see `docs/research/10-9-26/HANDOFF-mid-band-jump.md` |
+| `sampling/hex_sample_lattice_probe.py` | Square vs hex vs jittered sample patterns (killed). | `python hex_sample_lattice_probe.py 0.5` |
 | `twist_zoom_path.py` | Writes an eased, rotating zoom path (the 10 s demo video). | `python twist_zoom_path.py RE IM > path.txt` |
 
 The v0 target and the M(24,2) constants are embedded in the scripts. The `.fds`
