@@ -101,15 +101,24 @@ fn per_frame_bla_control_matches_plain_control() {
 
 /// Write one 2x1 frame (both samples escaped) into `dir` as `frame-00000.fds`.
 fn synth(dir: &Path, width: &str, nu: [f64; 2], de: [f32; 2]) {
+    synth_n(dir, width, nu, de, None);
+}
+
+/// As `synth`, with a normal column when `normal` is given.
+fn synth_n(dir: &Path, width: &str, nu: [f64; 2], de: [f32; 2], normal: Option<[u16; 2]>) {
     use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View};
     std::fs::create_dir_all(dir).unwrap();
-    let columns = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
+    let mut columns = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
+    if normal.is_some() {
+        columns = columns.with(Column::Normal);
+    }
     let view = View { center_re: "-0.75".into(), center_im: "0.1".into(), width: width.into(), rotation: 0.0 };
     let h = Header { minor: fd_samples::MINOR, columns, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
     let mut s = Samples::alloc(2, columns);
     s.class = vec![Class::new(Kind::Escaped, Evidence::Heuristic); 2];
     s.nu = Some(nu.to_vec());
     s.de = Some(de.to_vec());
+    s.normal = normal.map(|n| n.to_vec());
     fd_samples::write(std::fs::File::create(dir.join("frame-00000.fds")).unwrap(), &h, &s).unwrap();
 }
 
@@ -157,5 +166,91 @@ fn non_finite_values_and_deep_widths_fail() {
         assert_eq!(num(totals, "class_mismatches"), 0.0, "{name}: {totals}");
         assert!(totals.ends_with("\"ok\":false}"), "{name}: {totals}");
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The JSON object after `"key":` in a flat line, up to its matching brace.
+fn section<'a>(json: &'a str, key: &str) -> &'a str {
+    let at = json.find(&format!("\"{key}\":{{")).unwrap_or_else(|| panic!("no {key} in {json}"));
+    let rest = &json[at..];
+    let mut depth = 0;
+    for (i, ch) in rest.char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &rest[..=i];
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unbalanced {key} in {json}")
+}
+
+#[test]
+fn de_and_normal_are_scored() {
+    let dir = std::env::temp_dir().join(format!("fd-compare-de-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let nu = [10.5, 11.25];
+    let run = |name: &str, a_de: [f32; 2], b_de: [f32; 2], b_normal: [u16; 2], extra: &[&str]| {
+        let (a, b) = (dir.join(name).join("A"), dir.join(name).join("B"));
+        synth_n(&a, "1e-40", nu, a_de, Some([1000, 65500]));
+        synth_n(&b, "1e-40", nu, b_de, Some(b_normal));
+        let o = fd(&[&["compare", a.to_str().unwrap(), b.to_str().unwrap()][..], extra].concat());
+        let text = String::from_utf8(o.stdout.clone()).unwrap();
+        (o.status.code(), text.lines().last().unwrap().to_string())
+    };
+    let de = [1.0, 2.0];
+    let one_degree = (65536.0f64 / 360.0).round() as u16; // 182 steps = 1.0 degree
+
+    // Identical: both columns scored, nothing over.
+    let (code, t) = run("same", de, de, [1000, 65500], &[]);
+    assert_eq!(code, Some(0), "{t}");
+    assert_eq!(num(section(&t, "de"), "compared"), 2.0, "{t}");
+    assert_eq!(num(section(&t, "normal"), "frames_scored"), 1.0, "{t}");
+
+    // de scaled by 1.027 (probe D's ride-through error): nu passes, de fails.
+    let (code, t) = run("de", de, [1.027, 2.054], [1000, 65500], &[]);
+    assert_eq!(code, Some(1), "{t}");
+    assert_eq!(num(section(&t, "nu"), "over_px"), 0.0, "{t}");
+    assert_eq!(num(section(&t, "de"), "over_tol"), 2.0, "{t}");
+    assert!((num(section(&t, "de"), "rel_max") - 0.027).abs() < 1e-6, "{t}");
+    assert_eq!(num(section(&t, "normal"), "over_tol"), 0.0, "{t}");
+    // A looser --de-tol accepts it.
+    assert_eq!(run("de-tol", de, [1.027, 2.054], [1000, 65500], &["--de-tol", "0.03"]).0, Some(0));
+
+    // Normals rotated by 1 degree (one wraps past 0): normal fails.
+    let (code, t) = run("normal", de, de, [1000 + one_degree, 65500u16.wrapping_add(one_degree)], &[]);
+    assert_eq!(code, Some(1), "{t}");
+    assert_eq!(num(section(&t, "normal"), "over_tol"), 2.0, "{t}");
+    assert!((num(section(&t, "normal"), "deg_max") - 1.0).abs() < 0.01, "{t}");
+
+    // Within 1e-3 px of the boundary: reported, never failing.
+    let (code, t) = run("near", [1e-4, 2.0], [2e-4, 2.0], [1000 + 5 * one_degree, 65500], &[]);
+    assert_eq!(code, Some(0), "{t}");
+    let n = section(&t, "de");
+    assert_eq!(num(section(n, "near_boundary"), "samples"), 1.0, "{t}");
+    assert_eq!(num(n, "compared"), 1.0, "{t}");
+
+    // A file without de/normal in B: not scored, nothing fails.
+    let (a, b) = (dir.join("nu-only").join("A"), dir.join("nu-only").join("B"));
+    synth_n(&a, "1e-40", nu, de, Some([1000, 65500]));
+    {
+        use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View};
+        std::fs::create_dir_all(&b).unwrap();
+        let columns = ColumnSet::of(&[Column::Class, Column::Nu]);
+        let view = View { center_re: "-0.75".into(), center_im: "0.1".into(), width: "1e-40".into(), rotation: 0.0 };
+        let h = Header { minor: fd_samples::MINOR, columns, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+        let mut s = Samples::alloc(2, columns);
+        s.class = vec![Class::new(Kind::Escaped, Evidence::Heuristic); 2];
+        s.nu = Some(nu.to_vec());
+        fd_samples::write(std::fs::File::create(b.join("frame-00000.fds")).unwrap(), &h, &s).unwrap();
+    }
+    let t = ok(&fd(&["compare", a.to_str().unwrap(), b.to_str().unwrap()]));
+    let t = t.lines().last().unwrap();
+    assert_eq!(num(section(t, "de"), "frames_scored"), 0.0, "{t}");
+    assert_eq!(num(section(t, "normal"), "frames_scored"), 0.0, "{t}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -3,6 +3,10 @@
 Error per escaped pixel in px: |nu_candidate - nu_fd| * ln2 * de_px, with fd's de column
 (output pixels). Wrong: above 1e-3 px. Class mismatch: escaped in one, not the other.
 Usage: python compare.py FD_DIR BENCH_DIR NXxNY WIDTH...   (fd frames in WIDTH order)
+
+GATE-02: koenigs_bench writes class and nu only, so this script cannot gate de or normal
+(slope lighting). Its verdict says so. A whole-frame gate on de/normal needs .fds output
+scored with `fd compare` (de within 0.2%, normal within 0.2 degrees, as in KERN-01).
 """
 import array, json, math, sys
 
@@ -33,7 +37,7 @@ def main():
         ok &= wrong == 0 and mism == 0
         print(json.dumps(dict(width=w, pixels=n, compared=len(errs), class_mismatches=mism, wrong_px_gt_1e3=wrong,
                               max_px=errs[-1], p99_px=errs[int(.99*len(errs))], p50_px=errs[len(errs)//2])))
-    print('CORRECTNESS', 'PASS' if ok else 'FAIL')
+    print('CORRECTNESS', 'PASS' if ok else 'FAIL', '(class and nu only; de/normal NOT scored, see GATE-02)')
 
 
 if __name__ == '__main__':

@@ -13,18 +13,39 @@
 //! or differs in grid or view. Widths are compared as exact decimals at any depth (DEC-21):
 //! they may differ by a relative 1e-15 (the player derives its width from the manifests);
 //! `width_rel` reports it.
+//!
+//! When both files carry `de` (or `normal`), they are scored too on samples both class as
+//! escaped (GATE-02): `de` relative error and normal angle error, failing above `--de-tol`
+//! (default 0.2%) or `--normal-tol` (default 0.2 degrees), on samples whose reference `de`
+//! exceeds 1e-3 px. Samples within 1e-3 px of the boundary, where both are ill-conditioned
+//! (BENC-04), are reported under `near_boundary` but never fail.
 use crate::args::Args;
 use crate::bench::q;
 use fd_samples::{Column, ColumnSet, Kind, Reader, Samples};
 use std::fmt::Write as _;
 use std::path::Path;
 
-const USAGE: &str = "usage: fd compare A_DIR B_DIR [--px P] [--frames A..B]";
+const USAGE: &str = "usage: fd compare A_DIR B_DIR [--px P] [--de-tol R] [--normal-tol DEG] [--frames A..B]";
+
+/// Reference `de` (output px) at or below which de/normal differences are only reported.
+const NEAR_PX: f32 = 1e-3;
+
+/// Failure thresholds.
+#[derive(Clone, Copy)]
+struct Tol {
+    /// `nu` displacement, output px.
+    px: f64,
+    /// `de` relative error.
+    de: f64,
+    /// Normal angle error, degrees.
+    normal: f64,
+}
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["px", "frames"])?;
+    let a = Args::parse(argv, &["px", "de-tol", "normal-tol", "frames"])?;
     let [da, db] = a.positional.as_slice() else { return Err(USAGE.into()) };
-    let px: f64 = a.num("px", 1e-3)?;
+    let tol = Tol { px: a.num("px", 1e-3)?, de: a.num("de-tol", 2e-3)?, normal: a.num("normal-tol", 0.2)? };
+    let px = tol.px;
     let mut names: Vec<String> = std::fs::read_dir(da)
         .map_err(|e| format!("{da}: {e}"))?
         .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
@@ -44,7 +65,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut t = Sum::default();
     for name in &names {
         let f: usize = name[6..name.len() - 4].parse().map_err(|_| format!("{name}: bad frame number"))?;
-        let j = match frame(&Path::new(da).join(name), &Path::new(db).join(name), px) {
+        let j = match frame(&Path::new(da).join(name), &Path::new(db).join(name), tol) {
             Ok(c) => {
                 let j = c.json(f, name);
                 t.add(&c);
@@ -58,7 +79,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         println!("{j}");
     }
     let ok = t.errors == 0 && t.c.ok();
-    let mut j = format!("{{\"schema\":\"fd-compare/1\",\"record\":\"totals\",\"a\":{},\"b\":{},\"px\":{px}", q(da), q(db));
+    let mut j = format!(
+        "{{\"schema\":\"fd-compare/1\",\"record\":\"totals\",\"a\":{},\"b\":{},\"px\":{px},\"de_tol\":{},\"normal_tol\":{}",
+        q(da),
+        q(db),
+        tol.de,
+        tol.normal
+    );
     let _ = write!(
         j,
         ",\"frames\":{},\"errors\":{},\"frames_class_identical\":{},\"frames_bytes_identical\":{},\"frames_width_off\":{},\"samples\":{}",
@@ -97,6 +124,58 @@ struct Cmp {
     bytes_identical: bool,
     /// Relative difference between the two widths (at most `WIDTH_REL`).
     width_rel: f64,
+    /// `de` relative error and normal angle error (degrees), when both files have them.
+    de: Field,
+    normal: Field,
+}
+
+/// Agreement of one secondary column on samples both escaped.
+#[derive(Default)]
+struct Field {
+    /// Frames where both files carry the column.
+    frames: u64,
+    /// Samples scored (reference `de` above `NEAR_PX`).
+    compared: u64,
+    max: f64,
+    over: u64,
+    /// Samples within `NEAR_PX` of the boundary: reported, never failing.
+    near: u64,
+    near_max: f64,
+}
+
+impl Field {
+    fn add(&mut self, err: f64, near: bool, tol: f64) {
+        if near {
+            self.near += 1;
+            self.near_max = self.near_max.max(err);
+        } else {
+            self.compared += 1;
+            self.max = self.max.max(err);
+            self.over += u64::from(err.is_nan() || err > tol);
+        }
+    }
+
+    fn sum(&mut self, o: &Field) {
+        self.frames += o.frames;
+        self.compared += o.compared;
+        self.max = self.max.max(o.max);
+        self.over += o.over;
+        self.near += o.near;
+        self.near_max = self.near_max.max(o.near_max);
+    }
+
+    fn json(&self, j: &mut String, name: &str, unit: &str) {
+        let _ = write!(
+            j,
+            ",\"{name}\":{{\"frames_scored\":{},\"compared\":{},\"{unit}_max\":{},\"over_tol\":{},\"near_boundary\":{{\"samples\":{},\"{unit}_max\":{}}}}}",
+            self.frames, self.compared, self.max, self.over, self.near, self.near_max
+        );
+    }
+}
+
+/// Smallest angle between two stored normal angles (65536 per turn), in degrees.
+fn angle_deg(a: u16, b: u16) -> f64 {
+    f64::from(a.wrapping_sub(b).min(b.wrapping_sub(a))) * (360.0 / 65536.0)
 }
 
 fn kind(s: &Samples, k: usize) -> usize {
@@ -149,7 +228,7 @@ fn width_rel(a: &str, b: &str) -> Result<f64, String> {
     })
 }
 
-fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
+fn frame(pa: &Path, pb: &Path, tol: Tol) -> Result<Cmp, String> {
     let open = |p: &Path| Reader::open(p).map_err(|e| format!("{}: {e}", p.display()));
     let (mut ra, mut rb) = (open(pa)?, open(pb)?);
     let (ha, hb) = (&ra.header, &rb.header);
@@ -167,15 +246,29 @@ fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
     if rel > WIDTH_REL {
         return Err(format!("widths differ: {} vs {}", ha.view.width, hb.view.width));
     }
-    let want = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
-    let (sa, sb) = (ra.read(want).map_err(|e| e.to_string())?, rb.read(want).map_err(|e| e.to_string())?);
+    // A must carry nu and de (de converts nu to px); de and normal of B, and normal of
+    // A, are read when present and scored when both files have them.
+    let (ca, cb) = (ha.columns, hb.columns);
+    let base = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
+    let want_a = if ca.has(Column::Normal) { base.with(Column::Normal) } else { base };
+    let mut want_b = ColumnSet::of(&[Column::Class, Column::Nu]);
+    for col in [Column::De, Column::Normal] {
+        if cb.has(col) {
+            want_b = want_b.with(col);
+        }
+    }
+    let (sa, sb) = (ra.read(want_a).map_err(|e| e.to_string())?, rb.read(want_b).map_err(|e| e.to_string())?);
     let (na, nb, de) = (sa.nu.as_ref().ok_or("A has no nu")?, sb.nu.as_ref().ok_or("B has no nu")?, sa.de.as_ref().ok_or("A has no de")?);
+    let de_b = sb.de.as_ref();
+    let normals = sa.normal.as_ref().zip(sb.normal.as_ref());
     let mut c = Cmp { samples: sa.class.len() as u64, width_rel: rel, ..Cmp::default() };
+    c.de.frames = u64::from(de_b.is_some());
+    c.normal.frames = u64::from(normals.is_some());
     for k in 0..sa.class.len() {
         let (x, y) = (kind(&sa, k), kind(&sb, k));
         c.kinds[x][y] += 1;
         let a_bad = x == 0 && !(na[k].is_finite() && de[k].is_finite() && de[k] >= 0.0);
-        let b_bad = y == 0 && !nb[k].is_finite();
+        let b_bad = y == 0 && !(nb[k].is_finite() && de_b.is_none_or(|d| d[k].is_finite() && d[k] >= 0.0));
         if a_bad || b_bad {
             c.non_finite += 1;
         }
@@ -194,7 +287,15 @@ fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
             c.nu_abs_max = c.nu_abs_max.max(d);
             let disp = d * f64::from(de[k]) * std::f64::consts::LN_2 / 2.0;
             c.nu_px_max = c.nu_px_max.max(disp);
-            c.nu_over += u64::from(disp > px);
+            c.nu_over += u64::from(disp > tol.px);
+            let near = de[k] <= NEAR_PX;
+            if let Some(db) = de_b {
+                let rel = (f64::from(db[k]) - f64::from(de[k])).abs() / f64::from(de[k]);
+                c.de.add(if de[k] == 0.0 && db[k] == 0.0 { 0.0 } else { rel }, near, tol.de);
+            }
+            if let Some((ma, mb)) = normals {
+                c.normal.add(angle_deg(ma[k], mb[k]), near, tol.normal);
+            }
         }
     }
     c.bytes_identical = std::fs::read(pa).map_err(|e| e.to_string())? == std::fs::read(pb).map_err(|e| e.to_string())?;
@@ -203,7 +304,7 @@ fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
 
 impl Cmp {
     fn ok(&self) -> bool {
-        self.class_mismatches == 0 && self.nu_over == 0 && self.non_finite == 0
+        self.class_mismatches == 0 && self.nu_over == 0 && self.non_finite == 0 && self.de.over == 0 && self.normal.over == 0
     }
 
     fn json(&self, f: usize, name: &str) -> String {
@@ -228,6 +329,8 @@ impl Cmp {
             ",\"nu\":{{\"both_escaped\":{},\"equal\":{},\"abs_max\":{},\"px_max\":{},\"over_px\":{},\"escape_count_changed\":{}}}",
             self.both_escaped, self.nu_equal, self.nu_abs_max, self.nu_px_max, self.nu_over, self.count_changed
         );
+        self.de.json(j, "de", "rel");
+        self.normal.json(j, "normal", "deg");
     }
 }
 
@@ -254,6 +357,8 @@ impl Sum {
         s.nu_px_max = s.nu_px_max.max(c.nu_px_max);
         s.nu_over += c.nu_over;
         s.non_finite += c.non_finite;
+        s.de.sum(&c.de);
+        s.normal.sum(&c.normal);
         s.count_changed += c.count_changed;
         self.class_identical += usize::from(c.class_mismatches == 0);
         self.bytes_identical += usize::from(c.bytes_identical);
@@ -263,7 +368,15 @@ impl Sum {
 
 #[cfg(test)]
 mod tests {
-    use super::width_rel;
+    use super::{angle_deg, width_rel};
+
+    #[test]
+    fn normal_angles_wrap() {
+        assert_eq!(angle_deg(10, 10), 0.0);
+        assert!((angle_deg(0, 65535) - 360.0 / 65536.0).abs() < 1e-12);
+        assert!((angle_deg(65535, 0) - 360.0 / 65536.0).abs() < 1e-12);
+        assert!((angle_deg(0, 32768) - 180.0).abs() < 1e-12);
+    }
 
     #[test]
     fn widths_compare_as_exact_decimals_at_any_depth() {
