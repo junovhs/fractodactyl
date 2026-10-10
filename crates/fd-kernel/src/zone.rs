@@ -574,7 +574,13 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                             if let Outcome::Escaped { n, dr, di, .. } = &mut o {
                                 if deriv && *n >= p.max_iter.saturating_sub(1000) {
                                     let spacing = if legacy { h / zone.scale.to_f64() } else { h };
-                                    if let Some(g) = late_derivative(zone, v, spacing, *n) {
+                                    let candidate = late_derivative(zone, v, spacing, *n);
+                                    if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some()
+                                        && matches!((i, row.j), (625, 291) | (603, 297) | (730, 358))
+                                    {
+                                        eprintln!("FIX-42 ({i},{}): n={n} v={v:?} spacing={spacing:e} candidate={candidate:?}", row.j);
+                                    }
+                                    if let Some(g) = candidate {
                                         *dr = g.0;
                                         *di = g.1;
                                     }
@@ -757,6 +763,9 @@ fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64) -> Option<Cx> {
         let imag = Cx((c.1 - d.1) / (2.0 * step * scale),
                       (d.0 - c.0) / (2.0 * step * scale));
         if (real.0 - imag.0).hypot(real.1 - imag.1) > 5e-4 * real.abs() {
+            if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some() {
+                eprintln!("FIX-42 CR mismatch n={n} step={step:e} real={real:?} imag={imag:?}");
+            }
             return None;
         }
         Some(Cx((real.0 + imag.0) * 0.5, (real.1 + imag.1) * 0.5))
@@ -766,6 +775,9 @@ fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64) -> Option<Cx> {
     if fine.abs() == 0.0
         || (fine.0 - coarse.0).hypot(fine.1 - coarse.1) > 5e-4 * fine.abs()
     {
+        if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some() {
+            eprintln!("FIX-42 two-scale mismatch n={n} coarse={coarse:?} fine={fine:?}");
+        }
         return None;
     }
     Some(fine)
