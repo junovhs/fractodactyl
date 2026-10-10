@@ -763,3 +763,102 @@ regression also passed: predicted 0.0767 s total auto vs 0.001152 s
 cold BLA, so no rendering occurred and 0 jumps were issued. An earlier, non-optimized guarded
 version correctly scored all pixels but lost to BLA (0.58–0.70x medians);
 the fast phase-offset finishing path is essential to the win.
+
+### PROB-16: centre-orbit census, first 100k-step run (2026-10-10)
+
+**Measurement:** Owner's 24-thread Ryzen, Python probe **single-threaded**,
+39.1 s wall (39.216 s shell `real`), exit 0; `test_census` passed.
+Command: `python3 tools/research/misiurewicz/census.py` at
+commit `936c9c7`. Centre recurrence computed with mpmath at each row's
+declared decimal precision (Eye: 1,171 digits), cast to complex128
+*only after* high-precision iteration for observational recurrence scans.
+The band figures below are candidate covered shares, not validated
+Koenigs or return-map skips. Bands are **iteration ranges**, not zoom
+widths. Last band for escaping published centres ends at escape.
+
+**Ten nontrivial zoom centres** (all six periodic/nucleus-centred rows,
+plus the four geometric control points, are excluded). `P` gives the
+periods observed in the 1001+ bands. A dash means that the orbit escaped
+before the band, and `<` escape iteration where relevant.
+
+| Nontrivial centre | 1-100 | 101-1k | 1k-10k | 10k-100k | P (observed) | Escape |
+|---|---:|---:|---:|---:|---|---:|
+| v0 | 100% | 100% | 100% | 99.9% | 2, 764 | no |
+| Eye of the Universe | 0% | 0% | 8.3% | 26.1% | 1, 4, 5, 64, 197, 655 | no |
+| famous-deep | 100% | 100% | 96.0% | 94.3% | 78, 998 | no |
+| published-1 | 100% | 100% | 76.4% (to 2936) | — | 6, 569 | 2936 |
+| published-2 | 100% | 100% | 78.6% (to 6520) | — | 6, 1229 | 6520 |
+| published-3 | 100% | 100% | 77.4% (to 6149) | — | 1111 | 6149 |
+| published-4 | 30.0% | 36.9% | 69.9% (to 7859) | — | 6, 249 | 7859 |
+| published-5 | 100% | 100% | 100% | 98.9% | 9, 1183 | no |
+| published-6 | 100% | 100% | 100% | 45.2% (to 13203) | 13, 2449 | 13203 |
+| published-7 | 100% | 100% | 97.7% | 94.5% (to 15594) | 31, 594 | 15594 |
+
+Published centres are literal decimals from
+[Divetoxx/Mandelbrot](https://github.com/Divetoxx/Mandelbrot);
+v0, Eye and famous-deep are taken from this repo's research probes.
+Six excluded nucleus/component-centred rows (antenna-minibrot,
+Feigenbaum at limited decimal precision, seahorse-p36, two-arm-p24,
+elephant-p36, triple-spiral-p48) all measured approximately 99-100%
+`minibrot` in the last band: **tautological periodicity, not
+representative exterior skip capacity**. Four further excluded controls:
+antenna end, cardioid cusp, seahorse root, period-three bulb. The source
+for spiral-on-spiral is absent pending FILM-07.
+
+**Dominance restricted to the ten nontrivial rows:** repeated
+long-period structures (78, 197, 249, 569, 594, 655, 764, 998, 1111,
+1183, 1229, 2449) occur in most zoom orbits, while v0 also has a
+strong 2-cycle contribution. These are *candidate recurrence
+detections*, and the `minibrot` label relies on proximity to a
+record return rather than verification of a return-map operator.
+Near-parabolic gates are not dominant in these ten centres.
+**PROB-12 order:** (1) generic long-cycle discovery and cycle/return-map
+operators, while retaining the working fast 2-cycle spiral path;
+(2) nested minibrot return composition, then (3) near-parabolic
+gates. Prioritize actual validated whole-frame wins, not coverage alone.
+
+**Eye diagnosis (completed):** Owner's Ryzen diagnostic at commit
+`082ce63`, 14.0 s probe (14.103 s shell real), exit 0;
+`test_census` passed. In its 10,001-100,000 band, baseline
+coverage is 1,088 spiral + 17,288 minibrot + 5,102 gate =
+**23,478/90,000 (26.1%)**; the remaining 66,522 (73.9%) are
+`other`. The same 100,000-step high-precision centre orbit was
+rescanned under four variants:
+
+| Recurrence scan | Classified of 90,000 | Change from baseline |
+|---|---:|---:|
+| baseline: rmax=256, tol=1e-3, min_laps=4 | 23,478 (26.1%) | — |
+| rmax=2048, tol=1e-3, min_laps=4 | 23,478 (26.1%) | +0 |
+| rmax=256, tol=1e-2, min_laps=4 | 28,665 (31.9%) | +5,187 |
+| rmax=256, tol=1e-3, min_laps=2 | 71,536 (79.5%) | +48,058 |
+| rmax=2048, tol=1e-2, min_laps=2 | 79,651 (88.5%) | +56,173 |
+
+**Cause:** the four-lap minimum, not the 256-period scan cap, is
+the principal reason for low baseline coverage. The large +48,058
+gain from admitting two-lap dwells at unchanged tolerance shows
+that much of Eye's apparently unstructured tail consists of short
+recurrence dwells (typically two or three laps), rather than long
+four-plus-lap stretches. Increasing the cycle period cap alone
+adds nothing; relaxing tolerance alone adds only 5,187 steps.
+The combined result does not separate interactions between
+the changed thresholds. These counts establish recurrence
+under the stated heuristics, not certified cycle shadowing.
+
+**PROB-12 implication:** support general long-period cycles and
+nested returns, but do not assume that one Koenigs jump yields
+a large saving at every deep location. At Eye, many candidate
+opportunities span only 2–3 laps: operator discovery,
+construction, entry/exit and correctness-guard costs can outweigh
+the few iterations saved. Before enabling a jump, require
+per-dwell profitability and validity/error/fallback checks, and
+otherwise iterate normally. Retain the four-lap baseline for
+cross-location comparisons; no classifier output was changed.
+The long-cycle-first research order above remains provisional
+as a *performance* decision until measured against full frames,
+not pending further census runs.
+
+**Validity/fallback (DEC-10/17):** this is a centre-only observation.
+Neither approximate recurrence nor a multiplier sign supplies a
+Koenigs convergence domain, an error bound, or a general pixel jump.
+A later production shortcut must decline outside its validated domain,
+fall back to exact iteration, and pass whole-frame every-pixel checks.
