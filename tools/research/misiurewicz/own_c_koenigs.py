@@ -41,59 +41,61 @@ def escape(z,c,n,dz=None):
     if n>=MAXIT: return None,s,z,dz
     return n+1-log(log(abs(z),2),2), s, z, dz
 
-# ---- theorem check on v0 ----
-p0,q0=cyc(C); L=abs(4*(C+1)); rho_c=(L-1)/8; d0=-3-4*C; m=rho_c*sqrt(2/abs(d0)); qq=(L+1)/2
-print(f'v0: lambda={complex(4*(C+1)):.5f} |lambda|={float(L):.5f} rho_c={float(rho_c):.4f}')
-for nm,(pp,qo) in (('p+',(p0,q0)),('p-',(q0,p0))):
-    A=4*(abs(pp)+m)**2+2*(abs(qo)+m); B=4*(abs(pp)+m); D=qq*(qq-1); R=min(mpf(1)/4,D/(16*(A+B+1)))
-    lam,k=kcoef(C,pp,qo,60)
-    maj=sum(abs(k[j])*R**j for j in range(2,61))
-    # empirical radius: |k_n|^(1/n) growth
-    growth=max(abs(k[j])**(mpf(1)/j) for j in range(30,61))
-    def err(w,n): return abs(sum(k[j]*w**j for j in range(n+1,61)))
-    print(f' {nm}: R={float(R):.3e} certified rho_w<=R/10={float(R/10):.3e}; sum|k_n|R^n={float(maj):.3e} (claim <= R/4={float(R/4):.3e});'
-          f' |k_n|^(1/n)~{float(growth):.2f} => series radius ~{float(1/growth):.3f};'
-          f' trunc err at |w|=0.03: N=18 {float(err(R0,18)):.1e}, N=24 {float(err(R0,24)):.1e}; theorem bound at |w|=R/10,N=18: {float(R/20*mpf(0.5)**19):.1e}')
-    extra=log(R0/(R/10))/log(L)
-    print(f'     staying inside the certified radius instead of 0.03 costs {float(extra):.0f} more laps = {float(2*extra):.0f} plain steps per pixel')
+def _report():
+    p0,q0=cyc(C); L=abs(4*(C+1)); rho_c=(L-1)/8; d0=-3-4*C; m=rho_c*sqrt(2/abs(d0)); qq=(L+1)/2
+    print(f'v0: lambda={complex(4*(C+1)):.5f} |lambda|={float(L):.5f} rho_c={float(rho_c):.4f}')
+    for nm,(pp,qo) in (('p+',(p0,q0)),('p-',(q0,p0))):
+        A=4*(abs(pp)+m)**2+2*(abs(qo)+m); B=4*(abs(pp)+m); D=qq*(qq-1); R=min(mpf(1)/4,D/(16*(A+B+1)))
+        lam,k=kcoef(C,pp,qo,60)
+        maj=sum(abs(k[j])*R**j for j in range(2,61))
+        # empirical radius: |k_n|^(1/n) growth
+        growth=max(abs(k[j])**(mpf(1)/j) for j in range(30,61))
+        def err(w,n): return abs(sum(k[j]*w**j for j in range(n+1,61)))
+        print(f' {nm}: R={float(R):.3e} certified rho_w<=R/10={float(R/10):.3e}; sum|k_n|R^n={float(maj):.3e} (claim <= R/4={float(R/4):.3e});'
+              f' |k_n|^(1/n)~{float(growth):.2f} => series radius ~{float(1/growth):.3f};'
+              f' trunc err at |w|=0.03: N=18 {float(err(R0,18)):.1e}, N=24 {float(err(R0,24)):.1e}; theorem bound at |w|=R/10,N=18: {float(R/20*mpf(0.5)**19):.1e}')
+        extra=log(R0/(R/10))/log(L)
+        print(f'     staying inside the certified radius instead of 0.03 costs {float(extra):.0f} more laps = {float(2*extra):.0f} plain steps per pixel')
 
-# ---- probe ----
-random.seed(7)
-print(f'\npixels/width {NPIX}, N={N}, R0={float(R0)}; error = |dnu|*ln2*de_px (1920 px frame); pass bar 1e-3 px')
-print('width | truth steps med | variant: max px err, pixels >1e-3, median steps left (of which finish)')
-for wexp in (6,9,12,15,18,24):
-    w=mpf(10)**(-wexp); rows={'own-c jump + own-c finish':[], 'own-c jump + C finish':[], 'C jump + C finish (control)':[]}
-    tsteps=[]
-    for _ in range(NPIX):
-        c=C+w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16)
-        nu_t,s_t,zT,dzT=escape(mpc(0),c,0,mpc(0))
-        if nu_t is None: continue
-        de_px=2*abs(zT)*log(abs(zT))/abs(dzT)/(w/PXW); tsteps.append(s_t)
-        # approach: exact steps to the first close pass of the 2-cycle
-        z=mpc(0); orb=[]
-        for n in range(1,41):
-            z=z*z+c; orb.append(z)
-        for name,(cj,cf) in (('own-c jump + own-c finish',(c,c)),('own-c jump + C finish',(c,C)),('C jump + C finish (control)',(C,C))):
-            pp,qo=cyc(cj)
-            best=min(range(20,40),key=lambda i:min(abs(orb[i]-pp),abs(orb[i]-qo)))
-            n0=best+1; z0=orb[best]
-            if abs(z0-qo)<abs(z0-pp): pp,qo=qo,pp
-            u0=z0-pp
-            lam,k=kcoef(cj,pp,qo,N)
-            if abs(u0)>=R0/abs(lam):
-                nu,s,_,_=escape(z0,cf,n0); used=n0+s; fin=s
-            else:
-                j=int(floor(log(R0/abs(u0))/log(abs(lam))))
-                # H(u0)=u0+O(u0^2): refine w0 by Newton on K(w0)=u0 (u0 is tiny in the mid band)
-                w0=u0
-                for _i in range(4):
-                    Kw=horner(k,w0); dK=horner([i*k[i] for i in range(1,N+1)],w0); w0-=(Kw-u0)/dK
-                z1=pp+horner(k,w0*lam**j)
-                nu,s,_,_=escape(z1,cf,n0+2*j); used=n0+s; fin=s
-            if nu is None: rows[name].append((mpf('inf'),used,fin)); continue
-            rows[name].append((abs(nu-nu_t)*log(2)*de_px,used,fin))
-    tsteps.sort()
-    print(f'1e-{wexp} | {tsteps[len(tsteps)//2]}')
-    for name,r in rows.items():
-        errs=sorted(x[0] for x in r); us=sorted(x[1] for x in r); fs=sorted(x[2] for x in r)
-        print(f'   {name:28s}: max {float(errs[-1]):.1e}  p50 {float(errs[len(errs)//2]):.1e}  bad {sum(e>1e-3 for e in errs)}/{len(errs)}  steps left {us[len(us)//2]} (finish {fs[len(fs)//2]})',flush=True)
+    # ---- probe ----
+    random.seed(7)
+    print(f'\npixels/width {NPIX}, N={N}, R0={float(R0)}; error = |dnu|*ln2*de_px (1920 px frame); pass bar 1e-3 px')
+    print('width | truth steps med | variant: max px err, pixels >1e-3, median steps left (of which finish)')
+    for wexp in (6,9,12,15,18,24):
+        w=mpf(10)**(-wexp); rows={'own-c jump + own-c finish':[], 'own-c jump + C finish':[], 'C jump + C finish (control)':[]}
+        tsteps=[]
+        for _ in range(NPIX):
+            c=C+w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16)
+            nu_t,s_t,zT,dzT=escape(mpc(0),c,0,mpc(0))
+            if nu_t is None: continue
+            de_px=2*abs(zT)*log(abs(zT))/abs(dzT)/(w/PXW); tsteps.append(s_t)
+            # approach: exact steps to the first close pass of the 2-cycle
+            z=mpc(0); orb=[]
+            for n in range(1,41):
+                z=z*z+c; orb.append(z)
+            for name,(cj,cf) in (('own-c jump + own-c finish',(c,c)),('own-c jump + C finish',(c,C)),('C jump + C finish (control)',(C,C))):
+                pp,qo=cyc(cj)
+                best=min(range(20,40),key=lambda i:min(abs(orb[i]-pp),abs(orb[i]-qo)))
+                n0=best+1; z0=orb[best]
+                if abs(z0-qo)<abs(z0-pp): pp,qo=qo,pp
+                u0=z0-pp
+                lam,k=kcoef(cj,pp,qo,N)
+                if abs(u0)>=R0/abs(lam):
+                    nu,s,_,_=escape(z0,cf,n0); used=n0+s; fin=s
+                else:
+                    j=int(floor(log(R0/abs(u0))/log(abs(lam))))
+                    # H(u0)=u0+O(u0^2): refine w0 by Newton on K(w0)=u0 (u0 is tiny in the mid band)
+                    w0=u0
+                    for _i in range(4):
+                        Kw=horner(k,w0); dK=horner([i*k[i] for i in range(1,N+1)],w0); w0-=(Kw-u0)/dK
+                    z1=pp+horner(k,w0*lam**j)
+                    nu,s,_,_=escape(z1,cf,n0+2*j); used=n0+s; fin=s
+                if nu is None: rows[name].append((mpf('inf'),used,fin)); continue
+                rows[name].append((abs(nu-nu_t)*log(2)*de_px,used,fin))
+        tsteps.sort()
+        print(f'1e-{wexp} | {tsteps[len(tsteps)//2]}')
+        for name,r in rows.items():
+            errs=sorted(x[0] for x in r); us=sorted(x[1] for x in r); fs=sorted(x[2] for x in r)
+            print(f'   {name:28s}: max {float(errs[-1]):.1e}  p50 {float(errs[len(errs)//2]):.1e}  bad {sum(e>1e-3 for e in errs)}/{len(errs)}  steps left {us[len(us)//2]} (finish {fs[len(fs)//2]})',flush=True)
+
+if __name__=='__main__': _report()
