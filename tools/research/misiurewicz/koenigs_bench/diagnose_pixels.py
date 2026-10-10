@@ -124,9 +124,8 @@ def adjudicate(a, b, limit):
                         de_rel=abs(de - truth[2]) / truth[2],
                         normal_deg=angle_diff(col(f, "normal", k), truth[3]))
         z = row["err"].get("zone")
-        if row["fd_class"] == 0 and z is not None:
-            # Both escaped: the dispute is nu/de/normal, judged with fd compare's
-            # tolerances (de and normal only where de > 1e-3 px).
+        if z is not None:
+            # Score zone shading against mpmath even when fd did not escape.
             bad = z["nu_px"] > 1e-3 or (truth[2] > 1e-3 and (
                 z["de_rel"] > 2e-3 or z["normal_deg"] > 0.2))
         else:
