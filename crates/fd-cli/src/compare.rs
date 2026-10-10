@@ -6,10 +6,13 @@
 //! (SAMPLES.md "Oracle tolerances"): an equivalent displacement in output pixels,
 //! `|dnu| / |grad nu|` with `|grad nu| = 2 / (de ln 2)` per pixel (`de` from `A`).
 //! A sample whose displacement exceeds `--px` (default 1e-3, the oracle's) is outside
-//! the contract. Output: one fd-compare/1 JSON line per frame, then totals; exit 1 when
-//! any class differs, any sample is outside `--px`, or a frame is missing or differs in
-//! grid or view (widths may differ by at most 2 f64 ulps: the player derives its width
-//! from the manifests; `width_ulps` reports it).
+//! the contract. A non-finite `nu` on an escaped sample (either side), or a non-finite or
+//! negative `de` on an escaped reference sample, is its own failure (`non_finite`), never
+//! folded into the maxima. Output: one fd-compare/1 JSON line per frame, then totals; exit 1
+//! when any class differs, any sample is outside `--px` or non-finite, or a frame is missing
+//! or differs in grid or view. Widths are compared as exact decimals at any depth (DEC-21):
+//! they may differ by a relative 1e-15 (the player derives its width from the manifests);
+//! `width_rel` reports it.
 use crate::args::Args;
 use crate::bench::q;
 use fd_samples::{Column, ColumnSet, Kind, Reader, Samples};
@@ -54,11 +57,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         };
         println!("{j}");
     }
-    let ok = t.errors == 0 && t.c.class_mismatches == 0 && t.c.nu_over == 0;
+    let ok = t.errors == 0 && t.c.ok();
     let mut j = format!("{{\"schema\":\"fd-compare/1\",\"record\":\"totals\",\"a\":{},\"b\":{},\"px\":{px}", q(da), q(db));
     let _ = write!(
         j,
-        ",\"frames\":{},\"errors\":{},\"frames_class_identical\":{},\"frames_bytes_identical\":{},\"frames_width_ulp_off\":{},\"samples\":{}",
+        ",\"frames\":{},\"errors\":{},\"frames_class_identical\":{},\"frames_bytes_identical\":{},\"frames_width_off\":{},\"samples\":{}",
         names.len(),
         t.errors,
         t.class_identical,
@@ -87,11 +90,13 @@ struct Cmp {
     nu_abs_max: f64,
     nu_px_max: f64,
     nu_over: u64,
+    /// Escaped samples with a non-finite `nu` (A or B) or a non-finite/negative `de` (A).
+    non_finite: u64,
     /// Escaped samples whose integer escape count (`floor nu` + 1) differs.
     count_changed: u64,
     bytes_identical: bool,
-    /// f64 ulps between the two widths (0 or at most 2).
-    width_ulps: u64,
+    /// Relative difference between the two widths (at most `WIDTH_REL`).
+    width_rel: f64,
 }
 
 fn kind(s: &Samples, k: usize) -> usize {
@@ -100,6 +105,48 @@ fn kind(s: &Samples, k: usize) -> usize {
         Some(Kind::Interior) => 1,
         _ => 2,
     }
+}
+
+/// Largest relative width difference accepted as the same view.
+const WIDTH_REL: f64 = 1e-15;
+
+/// A decimal string as sign, mantissa in [1, 10) (17 significant digits) and a base-10
+/// exponent of any size; `None` mantissa for zero. Never goes through an f64 of the value.
+fn decimal(s: &str) -> Result<(bool, Option<(f64, i64)>), String> {
+    let bad = || format!("bad width {s:?}");
+    let s = s.trim();
+    let (neg, s) = match s.as_bytes().first() {
+        Some(b'-') => (true, &s[1..]),
+        Some(b'+') => (false, &s[1..]),
+        _ => (false, s),
+    };
+    let (m, e) = match s.find(['e', 'E']) {
+        Some(i) => (&s[..i], s[i + 1..].parse::<i64>().map_err(|_| bad())?),
+        None => (s, 0),
+    };
+    let (int, frac) = m.split_once('.').unwrap_or((m, ""));
+    let digits: String = [int, frac].concat();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad());
+    }
+    let Some(lead) = digits.bytes().position(|b| b != b'0') else { return Ok((neg, None)) };
+    let sig = &digits[lead..digits.len().min(lead + 17)];
+    let mant: f64 = format!("{}.{}", &sig[..1], &sig[1..]).parse().map_err(|_| bad())?;
+    let exp = e.checked_sub(frac.len() as i64).and_then(|x| x.checked_add((digits.len() - lead - 1) as i64)).ok_or_else(bad)?;
+    Ok((neg, Some((mant, exp))))
+}
+
+/// Relative difference of two decimal widths; infinite when sign or magnitude differ.
+fn width_rel(a: &str, b: &str) -> Result<f64, String> {
+    let ((sa, a), (sb, b)) = (decimal(a)?, decimal(b)?);
+    Ok(match (a, b) {
+        (None, None) => 0.0,
+        (Some((ma, ea)), Some((mb, eb))) if sa == sb && (ea - eb).abs() <= 1 => {
+            let mb = mb * 10f64.powi((eb - ea) as i32);
+            (ma - mb).abs() / ma.max(mb)
+        }
+        _ => f64::INFINITY,
+    })
 }
 
 fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
@@ -113,25 +160,32 @@ fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
         return Err("views differ".into());
     }
     // The player writes the width it derives from the manifests (`width x 2^(2 - L)`),
-    // which may sit an ulp or two off the path's; that moves no sample by a resolvable
-    // amount (relative 1e-16 of the frame). More than 2 ulps is a different view.
-    let w = |s: &str| s.parse::<f64>().map_err(|_| format!("bad width {s:?}"));
-    let (wa, wb) = (w(&ha.view.width)?, w(&hb.view.width)?);
-    let ulps = (wa.to_bits() as i64 - wb.to_bits() as i64).unsigned_abs();
-    if wa.is_sign_negative() != wb.is_sign_negative() || ulps > 2 {
+    // which may sit an f64 ulp or two off the path's; that moves no sample by a resolvable
+    // amount (relative 1e-16 of the frame). Widths are compared as exact decimals, so
+    // 1e-1000 and 1e-2000 differ even though both underflow an f64 (DEC-21).
+    let rel = width_rel(&ha.view.width, &hb.view.width)?;
+    if rel > WIDTH_REL {
         return Err(format!("widths differ: {} vs {}", ha.view.width, hb.view.width));
     }
     let want = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
     let (sa, sb) = (ra.read(want).map_err(|e| e.to_string())?, rb.read(want).map_err(|e| e.to_string())?);
     let (na, nb, de) = (sa.nu.as_ref().ok_or("A has no nu")?, sb.nu.as_ref().ok_or("B has no nu")?, sa.de.as_ref().ok_or("A has no de")?);
-    let mut c = Cmp { samples: sa.class.len() as u64, width_ulps: ulps, ..Cmp::default() };
+    let mut c = Cmp { samples: sa.class.len() as u64, width_rel: rel, ..Cmp::default() };
     for k in 0..sa.class.len() {
         let (x, y) = (kind(&sa, k), kind(&sb, k));
         c.kinds[x][y] += 1;
+        let a_bad = x == 0 && !(na[k].is_finite() && de[k].is_finite() && de[k] >= 0.0);
+        let b_bad = y == 0 && !nb[k].is_finite();
+        if a_bad || b_bad {
+            c.non_finite += 1;
+        }
         if x != y {
             c.class_mismatches += 1;
         } else if x == 0 {
             c.both_escaped += 1;
+            if a_bad || b_bad {
+                continue;
+            }
             let d = (na[k] - nb[k]).abs();
             if d == 0.0 {
                 c.nu_equal += 1;
@@ -148,10 +202,14 @@ fn frame(pa: &Path, pb: &Path, px: f64) -> Result<Cmp, String> {
 }
 
 impl Cmp {
+    fn ok(&self) -> bool {
+        self.class_mismatches == 0 && self.nu_over == 0 && self.non_finite == 0
+    }
+
     fn json(&self, f: usize, name: &str) -> String {
-        let ok = self.class_mismatches == 0 && self.nu_over == 0;
+        let ok = self.ok();
         let mut j = format!("{{\"schema\":\"fd-compare/1\",\"record\":\"frame\",\"frame\":{f},\"file\":{},\"samples\":{}", q(name), self.samples);
-        let _ = write!(j, ",\"bytes_identical\":{},\"width_ulps\":{}", self.bytes_identical, self.width_ulps);
+        let _ = write!(j, ",\"bytes_identical\":{},\"width_rel\":{}", self.bytes_identical, self.width_rel);
         self.body(&mut j);
         let _ = write!(j, ",\"ok\":{ok}}}");
         j
@@ -164,6 +222,7 @@ impl Cmp {
             ",\"class_mismatches\":{},\"kinds\":{{\"escaped_to_interior\":{},\"escaped_to_unresolved\":{},\"interior_to_escaped\":{},\"interior_to_unresolved\":{},\"unresolved_to_escaped\":{},\"unresolved_to_interior\":{}}}",
             self.class_mismatches, k[0][1], k[0][2], k[1][0], k[1][2], k[2][0], k[2][1]
         );
+        let _ = write!(j, ",\"non_finite\":{}", self.non_finite);
         let _ = write!(
             j,
             ",\"nu\":{{\"both_escaped\":{},\"equal\":{},\"abs_max\":{},\"px_max\":{},\"over_px\":{},\"escape_count_changed\":{}}}",
@@ -194,9 +253,28 @@ impl Sum {
         s.nu_abs_max = s.nu_abs_max.max(c.nu_abs_max);
         s.nu_px_max = s.nu_px_max.max(c.nu_px_max);
         s.nu_over += c.nu_over;
+        s.non_finite += c.non_finite;
         s.count_changed += c.count_changed;
         self.class_identical += usize::from(c.class_mismatches == 0);
         self.bytes_identical += usize::from(c.bytes_identical);
-        self.width_off += usize::from(c.width_ulps != 0);
+        self.width_off += usize::from(c.width_rel != 0.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::width_rel;
+
+    #[test]
+    fn widths_compare_as_exact_decimals_at_any_depth() {
+        assert!(width_rel("1e-1000", "1e-2000").unwrap().is_infinite());
+        assert!(width_rel("1.0000000000000001e-1000", "1e-1000").unwrap() <= 1e-15);
+        assert_eq!(width_rel("0.00025", "2.5e-4").unwrap(), 0.0);
+        assert_eq!(width_rel("9.9999999999999999e-5", "1e-4").unwrap(), 0.0);
+        assert!(width_rel("1e-40", "1.000000000000002e-40").unwrap() > 1e-15);
+        assert!(width_rel("1e-40", "-1e-40").unwrap().is_infinite());
+        assert_eq!(width_rel("0", "0.000").unwrap(), 0.0);
+        assert!(width_rel("1e-40", "1e-41").unwrap() > 0.5);
+        assert!(width_rel("abc", "1").is_err() && width_rel("1e", "1").is_err() && width_rel(".", "1").is_err());
     }
 }

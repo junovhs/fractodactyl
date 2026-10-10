@@ -136,7 +136,9 @@ with 0 class mismatches.
 sits 1 ulp off the path's 6-digit width. That moves samples by about 1e-16 of the frame.
 `frames.camera_exact 750` is the compiler's own check of the same thing. The first
 comparison rejected these 8 frames as "views differ", and the 2-ulp rule was added after
-that run. The rule is a tool correction, not a benchmark setting.
+that run. The rule is a tool correction, not a benchmark setting. Since GATE-01
+(2026-10-10) widths are compared as exact decimals with a relative tolerance of 1e-15
+(2 ulps is at most 4.4e-16), so the same frames pass and widths below 1e-308 still compare.
 
 **Recolour (criterion 6):** `fd shade` on two played frames (375 and 749) with
 `--look umber,palette,relief` wrote 6 PNGs in 0.22 s, with `iterations 0` and

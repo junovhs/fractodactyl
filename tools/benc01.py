@@ -209,7 +209,7 @@ def main():
         recs = jsonl(p(f"cmp{n}.jsonl"))
         t = recs[-1]
         worst = sorted((r for r in recs[:-1] if "nu" in r), key=lambda r: -r["nu"]["px_max"])[:3]
-        cmp[n] = {k: t[k] for k in ["frames", "errors", "frames_class_identical", "frames_bytes_identical", "frames_width_ulp_off", "samples", "class_mismatches", "kinds", "nu", "px", "ok"]}
+        cmp[n] = {k: t[k] for k in ["frames", "errors", "frames_class_identical", "frames_bytes_identical", "frames_width_off", "samples", "class_mismatches", "kinds", "nu", "px", "ok"]}
         cmp[n]["frames_with_class_mismatch"] = [r["frame"] for r in recs[:-1] if r.get("class_mismatches", 1) != 0]
         cmp[n]["worst_nu_px_frames"] = [[r["frame"], r["nu"]["px_max"]] for r in worst]
     lv = loads(p("load.log"))

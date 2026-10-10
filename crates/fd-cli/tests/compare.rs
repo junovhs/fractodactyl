@@ -98,3 +98,64 @@ fn per_frame_bla_control_matches_plain_control() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Write one 2x1 frame (both samples escaped) into `dir` as `frame-00000.fds`.
+fn synth(dir: &Path, width: &str, nu: [f64; 2], de: [f32; 2]) {
+    use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View};
+    std::fs::create_dir_all(dir).unwrap();
+    let columns = ColumnSet::of(&[Column::Class, Column::Nu, Column::De]);
+    let view = View { center_re: "-0.75".into(), center_im: "0.1".into(), width: width.into(), rotation: 0.0 };
+    let h = Header { minor: fd_samples::MINOR, columns, nx: 2, ny: 1, ss: 1, max_iter: 1000, escape_radius: 1e10, view, kernel: "test".into() };
+    let mut s = Samples::alloc(2, columns);
+    s.class = vec![Class::new(Kind::Escaped, Evidence::Heuristic); 2];
+    s.nu = Some(nu.to_vec());
+    s.de = Some(de.to_vec());
+    fd_samples::write(std::fs::File::create(dir.join("frame-00000.fds")).unwrap(), &h, &s).unwrap();
+}
+
+#[test]
+fn non_finite_values_and_deep_widths_fail() {
+    let dir = std::env::temp_dir().join(format!("fd-compare-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let run = |name: &str, aw: &str, bw: &str, b_nu: [f64; 2], a_de: [f32; 2]| {
+        let (a, b) = (dir.join(name).join("A"), dir.join(name).join("B"));
+        synth(&a, aw, [10.5, 11.25], a_de);
+        synth(&b, bw, b_nu, [1.0, 2.0]);
+        fd(&["compare", a.to_str().unwrap(), b.to_str().unwrap()])
+    };
+    let good = [10.5, 11.25];
+    let de = [1.0, 2.0];
+
+    // Identical frames pass, at an f64-underflowing depth too.
+    for w in ["1e-3", "1e-1000"] {
+        let o = run(&format!("same{w}"), w, w, good, de);
+        assert!(ok(&o).lines().last().unwrap().ends_with("\"ok\":true}"));
+    }
+    // Width agreement within a relative 1e-15 is the same view.
+    let o = run("near", "1.0000000000000001e-1000", "1e-1000", good, de);
+    let t = ok(&o);
+    assert_eq!(num(t.lines().last().unwrap(), "non_finite"), 0.0, "{t}");
+
+    // 1e-1000 vs 1e-2000: both are 0 as f64, but they are different views.
+    let o = run("deep", "1e-1000", "1e-2000", good, de);
+    assert_eq!(o.status.code(), Some(1));
+    let text = String::from_utf8(o.stdout).unwrap();
+    assert!(text.contains("widths differ"), "{text}");
+
+    // Non-finite nu in B (NaN, +inf) and non-finite or negative de in A each fail.
+    for (name, b_nu, a_de) in [
+        ("nan", [f64::NAN, 11.25], de),
+        ("inf", [10.5, f64::INFINITY], de),
+        ("de-nan", good, [f32::NAN, 2.0]),
+        ("de-neg", good, [1.0, -2.0]),
+    ] {
+        let o = run(name, "1e-40", "1e-40", b_nu, a_de);
+        assert_eq!(o.status.code(), Some(1), "{name}");
+        let text = String::from_utf8(o.stdout).unwrap();
+        let totals = text.lines().last().unwrap();
+        assert_eq!(num(totals, "non_finite"), 1.0, "{name}: {totals}");
+        assert_eq!(num(totals, "class_mismatches"), 0.0, "{name}: {totals}");
+        assert!(totals.ends_with("\"ok\":false}"), "{name}: {totals}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
