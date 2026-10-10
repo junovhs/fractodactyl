@@ -126,3 +126,14 @@ Next, after the whole-frame bench:
 
 File with Ishoo: a new issue for item 6 (PROB-12 family), and a note on FEATURE-MAP.md
 that ladders give exact, formula-addressed minibrot destinations at any depth.
+
+## Added last: the landing formula and the bridge (probe H)
+
+- A proposed shortcut (a few steps of ζ² + s, then one lookup of a fixed torus function)
+  is **wrong as stated**; see `universal-landing-claims-a-to-e.md`. The exact identity in
+  that file (B1) is the decomposition fd's deep path already uses.
+- **Cost down a ladder is logarithmic, not flat:** about one more minibrot return per pixel
+  each time the depth exponent doubles (measured +0.96 at 1e-100 and +4.32 at 1e-1000
+  against v0; `ladder_bridge.py`). Budget for it when rendering a new rung.
+- Small, usable: the return map is exactly even in the critical coordinate, so the loop
+  map can be a polynomial in ζ² of half the degree.
