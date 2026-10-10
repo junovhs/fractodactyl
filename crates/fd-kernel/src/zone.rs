@@ -571,10 +571,10 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                             } else {
                                 pixel::<false>(zone, v, p.max_iter, r2, false, &mut st)
                             };
-                            if let Outcome::Escaped { n, dr, di, .. } = &mut o {
+                            if let Outcome::Escaped { n, zr, zi, dr, di, .. } = &mut o {
                                 if deriv && *n >= p.max_iter.saturating_sub(1000) {
                                     let spacing = if legacy { h / zone.scale.to_f64() } else { h };
-                                    let candidate = late_derivative(zone, v, spacing, *n);
+                                    let candidate = late_derivative(zone, v, spacing, *n, r2, Cx(*zr, *zi));
                                     if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some()
                                         && matches!((i, row.j), (625, 291) | (603, 297) | (730, 358))
                                     {
@@ -735,48 +735,46 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st:
     }
 }
 
-/// Re-evaluate the escape point at the same iteration for a nearby parameter.
-fn value_at(k: &Zone, v: Cx, n: u64) -> Option<Cx> {
-    let (o, _) = pixel::<false>(k, v, n, f64::INFINITY, true, &mut ZoneStats::default());
-    if let Outcome::Escaped { zr, zi, .. } = o {
-        if zr.is_finite() && zi.is_finite() {
-            return Some(Cx(zr, zi));
+/// Smooth escape value for a nearby parameter (escape iteration may differ).
+fn escape_nu(k: &Zone, v: Cx, max_iter: u64, r2: f64) -> Option<f64> {
+    let (o, _) = pixel::<false>(k, v, max_iter, r2, false, &mut ZoneStats::default());
+    if let Outcome::Escaped { n, zr, zi, .. } = o {
+        let log2z = zr.hypot(zi).log2();
+        if log2z > 0.0 && log2z.is_finite() {
+            return Some(n as f64 + 1.0 - log2z.log2());
         }
     }
     None
 }
 
-/// Independent derivative for a very late escape, checked at two pixel scales.
-/// The truncated return map may preserve z but lose dz/dc over many returns.
-fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64) -> Option<Cx> {
+/// Reconstruct dz/dc from the gradient of smooth escape time, rather than
+/// differentiating the truncated return map through many near-neutral returns.
+/// Two scales must agree; otherwise the original derivative is retained.
+fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64, r2: f64, z: Cx) -> Option<Cx> {
     let scale = k.scale.to_f64();
     if !(spacing > 0.0 && scale > 0.0) {
         return None;
     }
+    // Permit adjacent parameters to cross the escape threshold at different n.
+    let limit = n.saturating_add(10_000);
     let sample = |step: f64| -> Option<Cx> {
-        let a = value_at(k, v.add(Cx(step, 0.0)), n)?;
-        let b = value_at(k, v.add(Cx(-step, 0.0)), n)?;
-        let c = value_at(k, v.add(Cx(0.0, step)), n)?;
-        let d = value_at(k, v.add(Cx(0.0, -step)), n)?;
-        let real = Cx((a.0 - b.0) / (2.0 * step * scale),
-                      (a.1 - b.1) / (2.0 * step * scale));
-        let imag = Cx((c.1 - d.1) / (2.0 * step * scale),
-                      (d.0 - c.0) / (2.0 * step * scale));
-        if (real.0 - imag.0).hypot(real.1 - imag.1) > 5e-4 * real.abs() {
-            if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some() {
-                eprintln!("FIX-42 CR mismatch n={n} step={step:e} real={real:?} imag={imag:?}");
-            }
-            return None;
-        }
-        Some(Cx((real.0 + imag.0) * 0.5, (real.1 + imag.1) * 0.5))
+        let a = escape_nu(k, v.add(Cx(step, 0.0)), limit, r2)?;
+        let b = escape_nu(k, v.add(Cx(-step, 0.0)), limit, r2)?;
+        let c = escape_nu(k, v.add(Cx(0.0, step)), limit, r2)?;
+        let d = escape_nu(k, v.add(Cx(0.0, -step)), limit, r2)?;
+        let k0 = std::f64::consts::LN_2 * z.abs().ln() / scale;
+        // d nu/dv_x = -Re((dz/dc) scale / z) / (ln2 ln|z|).
+        // d nu/dv_y =  Im((dz/dc) scale / z) / (ln2 ln|z|).
+        Some(z.mul(Cx((b - a) * k0 / (2.0 * step),
+                      (c - d) * k0 / (2.0 * step))))
     };
-    let coarse = sample(spacing * 1e-4)?;
-    let fine = sample(spacing * 5e-5)?;
-    if fine.abs() == 0.0
+    let coarse = sample(spacing * 1e-3)?;
+    let fine = sample(spacing * 5e-4)?;
+    if !fine.abs().is_finite() || fine.abs() == 0.0
         || (fine.0 - coarse.0).hypot(fine.1 - coarse.1) > 5e-4 * fine.abs()
     {
         if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some() {
-            eprintln!("FIX-42 two-scale mismatch n={n} coarse={coarse:?} fine={fine:?}");
+            eprintln!("FIX-42 nu-gradient mismatch n={n} coarse={coarse:?} fine={fine:?}");
         }
         return None;
     }
