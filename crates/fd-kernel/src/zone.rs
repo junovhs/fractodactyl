@@ -24,14 +24,14 @@
 //! ([`zone_covers`] is false); the caller renders it with the perturbation kernel.
 //! A zone with `diag` lines also refuses a frame whose first-return truncation shift
 //! could exceed [`SHIFT_PX`] (PROB-20): decided before rendering (DEC-19).
-use crate::grid::{header, setup, Params, Stats};
+use crate::grid::{header, reference, setup, Job, Params, Stats};
 use crate::sample::Outcome;
 use crate::store::{Row, Store};
 use crate::view::Plane;
 use fd_fixed::{exp2i, Fixed};
 use fd_samples::{Column, Header, Samples, View};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 /// Tail patch polynomial length (tail_patches.py `D`).
 const PATCH_D: usize = 16;
@@ -539,6 +539,8 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
     let mut s = Samples::alloc(n, cols);
     let work = AtomicU64::new(0);
     let total = Mutex::new(ZoneStats::default());
+    let fallback = OnceLock::new();
+    let fallback_error = Mutex::new(None);
     {
         let queue = Mutex::new(Row::split(&mut s, nx).into_iter());
         std::thread::scope(|sc| {
@@ -567,23 +569,18 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                                 Cx(off.scaled.0 + ux * h, off.scaled.1 + uy * h)
                             };
                             let (mut o, w) = if deriv {
-                                pixel::<true>(zone, v, p.max_iter, r2, false, &mut st)
+                                pixel::<true>(zone, v, p.max_iter, r2, &mut st)
                             } else {
-                                pixel::<false>(zone, v, p.max_iter, r2, false, &mut st)
+                                pixel::<false>(zone, v, p.max_iter, r2, &mut st)
                             };
-                            if let Outcome::Escaped { n, zr, zi, dr, di, .. } = &mut o {
-                                if deriv && *n >= p.max_iter.saturating_sub(1000) {
-                                    let spacing = if legacy { h / zone.scale.to_f64() } else { h };
-                                    let candidate = late_derivative(zone, v, spacing, *n, r2, Cx(*zr, *zi));
-                                    if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some()
-                                        && matches!((i, row.j), (625, 291) | (603, 297) | (730, 358))
-                                    {
-                                        eprintln!("FIX-42 ({i},{}): n={n} v={v:?} spacing={spacing:e} candidate={candidate:?}", row.j);
+                            if late_escape(&o, p.max_iter) {
+                                // DEC-10: late zone derivatives are untrusted; use all
+                                // fields from the independent kernel, including class.
+                                match fallback.get_or_init(|| reference(view, p)) {
+                                    Ok((orbit, _)) => {
+                                        o = Job::new(orbit, &plane, tier, p, cols).outcome(i, row.j);
                                     }
-                                    if let Some(g) = candidate {
-                                        *dr = g.0;
-                                        *di = g.1;
-                                    }
+                                    Err(e) => *fallback_error.lock().unwrap() = Some(e.clone()),
                                 }
                             }
                             its += w;
@@ -600,6 +597,9 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
             }
         });
     }
+    if let Some(e) = fallback_error.into_inner().unwrap() {
+        return Err(format!("zone fallback: {e}"));
+    }
     let mut hd = header(view, p, cols, &plane, tier);
     hd.kernel = format!("zone-koenigs/1 P={}", zone.period);
     let stats = Stats { reference_len: 0, reference_seconds: 0.0, iterations: work.into_inner() };
@@ -610,7 +610,7 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
 /// Returns the outcome and the work it took (biseries returns + approach + jump +
 /// patch + plain steps, each counted once).
 #[inline]
-fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st: &mut ZoneStats) -> (Outcome, u64) {
+fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneStats) -> (Outcome, u64) {
     // Biseries coefficients in u, with the v powers folded in: b_i(v) and db_i/dv.
     let mut b = [Cx::default(); 8];
     let mut bv = [Cx::default(); 8];
@@ -652,7 +652,7 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st:
         // 32, 64, ... returns) u provably lies in the basin of an attracting cycle of
         // the return map of period <= 4 (an attracting q-cycle of the minibrot's
         // return map is an attracting qP-cycle of f_c: the minibrot or one of its bulbs).
-        if !at_n && ((su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()) || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u))) {
+        if (su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()) || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u)) {
             st.returns += 1;
             return (Outcome::Interior { n }, work + 1);
         }
@@ -704,12 +704,6 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st:
     // Stage 4: plain steps at C.
     loop {
         if n >= max_iter {
-            if at_n && n == max_iter {
-                return (Outcome::Escaped {
-                    n, zr: z.0, zi: z.1, dr: 0.0, di: 0.0, dexp: 0,
-                    ez: f64::INFINITY, ed: f64::INFINITY,
-                }, work);
-            }
             return (Outcome::Unresolved, work);
         }
         if D {
@@ -735,50 +729,10 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st:
     }
 }
 
-/// Smooth escape value for a nearby parameter (escape iteration may differ).
-fn escape_nu(k: &Zone, v: Cx, max_iter: u64, r2: f64) -> Option<f64> {
-    let (o, _) = pixel::<false>(k, v, max_iter, r2, false, &mut ZoneStats::default());
-    if let Outcome::Escaped { n, zr, zi, .. } = o {
-        let log2z = zr.hypot(zi).log2();
-        if log2z > 0.0 && log2z.is_finite() {
-            return Some(n as f64 + 1.0 - log2z.log2());
-        }
-    }
-    None
-}
-
-/// Reconstruct dz/dc from the gradient of smooth escape time, rather than
-/// differentiating the truncated return map through many near-neutral returns.
-/// Two scales must agree; otherwise the original derivative is retained.
-fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64, r2: f64, z: Cx) -> Option<Cx> {
-    let scale = k.scale.to_f64();
-    if !(spacing > 0.0 && scale > 0.0) {
-        return None;
-    }
-    // Permit adjacent parameters to cross the escape threshold at different n.
-    let limit = n.saturating_add(10_000);
-    let sample = |step: f64| -> Option<Cx> {
-        let a = escape_nu(k, v.add(Cx(step, 0.0)), limit, r2)?;
-        let b = escape_nu(k, v.add(Cx(-step, 0.0)), limit, r2)?;
-        let c = escape_nu(k, v.add(Cx(0.0, step)), limit, r2)?;
-        let d = escape_nu(k, v.add(Cx(0.0, -step)), limit, r2)?;
-        let k0 = std::f64::consts::LN_2 * z.abs().ln() / scale;
-        // d nu/dv_x = -Re((dz/dc) scale / z) / (ln2 ln|z|).
-        // d nu/dv_y =  Im((dz/dc) scale / z) / (ln2 ln|z|).
-        Some(z.mul(Cx((b - a) * k0 / (2.0 * step),
-                      (c - d) * k0 / (2.0 * step))))
-    };
-    let coarse = sample(spacing * 1e-3)?;
-    let fine = sample(spacing * 5e-4)?;
-    if !fine.abs().is_finite() || fine.abs() == 0.0
-        || (fine.0 - coarse.0).hypot(fine.1 - coarse.1) > 5e-4 * fine.abs()
-    {
-        if std::env::var_os("FD_ZONE_DERIV_DIAG").is_some() {
-            eprintln!("FIX-42 nu-gradient mismatch n={n} coarse={coarse:?} fine={fine:?}");
-        }
-        return None;
-    }
-    Some(fine)
+/// DEC-10: a late escape's truncated-return derivative is unreliable.
+/// Recompute the entire sample using the independent kernel.
+fn late_escape(o: &Outcome, max_iter: u64) -> bool {
+    matches!(o, Outcome::Escaped { n, .. } if *n >= max_iter.saturating_sub(1000))
 }
 
 /// [`pixel`] for a deep zone: the same four stages with states, constants and `dz/dc`
@@ -1078,6 +1032,23 @@ fn patch(k: &Zone, ln_w0: f64, arg_w0: f64, j: f64) -> Option<(Cx, Cx, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn late_escape_requests_independent_fallback() {
+        let o = Outcome::Escaped {
+            n: 99_981, zr: 5.0, zi: 0.0, dr: 1.0, di: 0.0,
+            dexp: 0, ez: f64::INFINITY, ed: f64::INFINITY,
+        };
+        assert!(late_escape(&o, 100_000));
+        assert!(!late_escape(&o, 101_000));
+        assert!(!late_escape(&Outcome::Unresolved, 100_000));
+        let v = view("1e-36");
+        let p = params(&[Column::Nu, Column::De, Column::Normal]);
+        let (plane, tier) = setup(&v, &p).unwrap();
+        let (orbit, _) = reference(&v, &p).unwrap();
+        let fallback = Job::new(&orbit, &plane, tier, &p, p.columns).outcome(20, 20);
+        assert!(matches!(fallback, Outcome::Escaped { .. } | Outcome::Unresolved | Outcome::Interior { .. }));
+    }
 
     #[test]
     fn series_derivative_matches_finite_difference() {
