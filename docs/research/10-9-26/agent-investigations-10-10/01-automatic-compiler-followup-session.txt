@@ -1,0 +1,303 @@
+the general acceleration and algorithm-selection foundation already exists. 
+
+Mathr
++1
+
+
+
+9. The critical blind test
+To determine whether this goes beyond location-specific techniques, I would freeze the compiler and evaluate it on parameter locations it has never previously encountered.
+Proposed validation suite
+[ ] Repelling-cycle approaches
+Complex Misiurewicz neighborhoods and long transients
+
+
+[ ] Near-critical returns
+Primitive and satellite components across many periods
+
+
+[ ] Nested minibrots
+Multiple renormalization levels and mixed combinatorics
+
+
+[ ] Parabolic bottlenecks
+Cusp, root and near-root parameters
+
+
+[ ] Adversarial locations
+Chaotic orbits, weak recurrence and misleading near-periodicity
+
+
+[ ] Ordinary locations
+Exterior regions and short-iteration views where compilation should abstain
+
+
+
+0 of 6 test families selected
+Build test protocol 
+
+The crucial tests are not just whether a feature gets labeled correctly. They must establish that the label generates a correct, profitable operator.
+I would measure four independent outcomes:
+Metric	What it establishes
+Discovery recall and false positives	Does it recognize the relevant structures without hand guidance?
+Numerical fidelity	Does it preserve escape times, smooth coloring, and required orbit accuracy?
+Net speedup	Are compilation and execution faster than an optimized baseline?
+Generalization	Does it work on genuinely unseen periods, locations, zoom scales and nested structures?
+A reasonable initial research target would be a greater-than-2× end-to-end speedup over a strong perturbation/BLA baseline on a meaningful subset of difficult unseen views, with no unresolved incorrect pixels in the high-precision validation suite.
+That is a proposed milestone, not an observed performance result.
+Most importantly, failed candidate detections should not corrupt an image. A general-purpose compiler should be allowed to abstain and take the ordinary iteration path.
+10. Fundamental limitations
+There are several reasons not to expect universal compression.
+Incomplete observability: one finite reference orbit cannot reveal every repelling cycle, branch transition, or nearby parameter-space structure.
+Nonuniform complexity: some locations are governed by compact normal forms; others have long, sensitive itineraries without an inexpensive approximation over the relevant pixel domain.
+Accuracy amplification: a small operator error near a repelling cycle can become significant after later iterations. A jump's safety cannot be judged solely by its immediate state error.
+Renormalization complexity: identifying repeated scaling is easier than proving that a valid quadratic-like return map exists. Multiple possible nested structures may compete.
+Parabolic sensitivity: extremely long bottlenecks are excellent acceleration targets, but small phase errors can affect subsequent escape times and detailed coloring.
+Finite information: a finite orbit and precision budget can only reveal a finite portion of an infinite dynamical hierarchy.
+There is also an important algebraic reason for caution: \(f_c^N(z)\), expanded generically as a polynomial in \(z\), has degree \(2^N\). Compact descriptions exist in terms of composition, but cheaply evaluating them at arbitrary states is a separate question.
+Thus, a universal finite library of operators that compresses most iterations for every possible camera should not be assumed to exist.
+That does not prevent a robust compiler from accepting arbitrary inputs and providing useful acceleration where structure permits.
+
+11. Where this leaves Fractodactyl
+I could not independently verify public technical documentation or source code for Fractodactyl, so I cannot claim to have benchmarked these ideas against its current manually developed acceleration zones.
+However, the mathematical evidence and numerical probes do support a meaningful conclusion.
+Current feasibility assessment
+Automatic local cycle discovery
+4.5 / 5
+
+
+
+
+Automatic cycle-based acceleration
+4.0 / 5
+
+
+
+
+Automatic return-map construction
+4.0 / 5
+
+
+
+
+Nested hierarchy recognition
+3.5 / 5
+
+
+
+
+General minibrot renormalization
+2.5 / 5
+
+
+
+
+Reliable parabolic fast-forward
+2.0 / 5
+
+
+
+
+Universal majority-iteration elimination
+1.0 / 5
+
+
+
+
+Qualitative engineering feasibility estimates, not measured success probabilities.
+The immediate path to something genuinely new is to build an automatic return-map discovery engine on top of perturbation/BLA, then add cycle linearization as the first new operator family.
+That is the smallest implementation capable of demonstrating a qualitative advance over generic block skipping.
+Only after proving end-to-end speedups would I prioritize automated polynomial-like renormalization and high-order parabolic coordinates.
+Final verdict
+The critical question was whether a system could discover and accelerate structures that presently require a human researcher to recognize, including unfamiliar locations.
+For finite-period recurrent and preperiodic structures, the answer is a qualified yes. The existing numerical techniques are sufficient to make automatic discovery plausible, and the prototype Misiurewicz experiment demonstrates both detection and a successful local jump.
+For nested renormalizations and parabolic bottlenecks, the answer remains an open engineering and numerical-research question. The structures can be recognized in favorable cases, but automatic construction of profitable, accuracy-controlled operators is significantly harder.
+For arbitrary cameras, no uniform speedup guarantee is justified. A compiler can be general-purpose in its inputs, recognition machinery, and fallback behavior without being universally successful at compression.
+The proposed system is therefore a credible research direction: a dynamical just-in-time compiler whose mathematical models are discovered from orbit data, checked against the camera, reused across pixels, and replaced when they cease to be valid.
+Its decisive demonstration would be a blind, end-to-end rendering benchmark in which it discovers unfamiliar cycles and return hierarchies, generates its own operators, and achieves speedups beyond BLA without hand-authored location rules. That experiment—not the existence of the individual mathematical techniques—would establish the breakthrough.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Using Fractodactyl's existing mathematical accelerators, implement automatic discovery for previously unseen Misiurewicz neighborhoods. Start from a camera location and reference orbit, discover candidate cycles, construct the appropriate jump, and decide whether it is profitable.
+Test complete frames at unfamiliar locations against fd's per-frame BLA baseline. Include discovery and compilation time. Require zero classification mismatches, the 1e-3 pixel correctness threshold, and independent checks of distance estimates and normals. Report cases where the compiler correctly decides not to accelerate.
+
+fractodactyl is a git connected repo you can look at
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Thinking
+
+
+
+
+
+
+Repository findings
+I located the connected repository: junovhs/fractodactyl.
+Its existing implementation provides a useful foundation:
+- fd-kernel/src/zone.rs implements the minibrot return-map → Koenigs jump → tail-patch pipeline, including derivatives for distance estimates and normals.
+- fd-kernel/src/bla.rs implements guarded BLA operators.
+- fd control --bla per-frame provides the independent, per-frame baseline, including reference-orbit and BLA construction time.
+- fd compare enforces zero classification mismatches and a maximum \(10^{-3}\)-pixel smooth-iteration displacement.
+The repository documents 8.1–25× acceleration for its existing manually configured deep-zone pipeline on six complete 480×270 frames. That is prior project evidence, not evidence that automatic discovery has achieved the same result.
+The first automatic compiler should reuse the Koenigs mathematics but replace the hard-coded cycle identification and constants with a recurrence search, Newton-refined cycle, automatically constructed local series, and an explicit profitability gate.
+First complete-frame measurements
+The corrected probe has now run on GitHub Actions. At 64×36 resolution, it automatically discovered and constructed cycle jumps for previously unconfigured locations.
+Camera	Discovery	Skipped steps across frame	Correctness	End-to-end decision
+\(c=i,\ W=10^{-95}\)	\(q=2,p=2\)	562,648	Passed	Reject: slower
+Unfamiliar \(q=3,p=2\), \(W=10^{-60}\)	Correct cycle found	Not executed	Not tested	Decline: predicted cost too high
+Unfamiliar complex location, \(W=10^{-65}\)	\(q=4,p=1\) found	1,160,148	Passed	Reject: slower
+\(c=-2,\ W=10^{-95}\)	No usable jump	0	Baseline retained	Decline
+Generic camera, \(W=10^{-3}\)	No usable jump	0	Baseline retained	Decline
+\(c=i,\ W=10^{-4}\)	Cycle found	0	Baseline retained	Decline: insufficient savings
+For the two executed jumps, all 2,304 pixels passed the classification, smooth-escape, distance-estimate and normal checks. Maximum smooth-escape displacement was approximately \(10^{-11}\) and \(3.3\times10^{-12}\) pixels respectively.
+But the compiler correctly rejected both as unprofitable at this small resolution: compilation cost approximately 0.13–0.18 seconds, while the corresponding BLA frames took only 0.011–0.014 seconds.
+This establishes automatic discovery and accurate jumping in favorable cases, but not yet a net acceleration win. Larger frames are needed to test whether the compilation cost amortizes.
+Native compiler: first net speedups
+The native Rust path has now passed complete-frame tests at 960×540, using 20,000 maximum iterations and four threads. These runs include the automatic high-precision discovery and compilation cost.
+Location	fd per-frame BLA	Discovery + compilation	Native rendering	Total speedup
+\(c=i,\ W=10^{-95}\)	0.412 s	0.101 s	0.166 s	1.55×
+Unfamiliar \(q=3,p=2,\ W=10^{-95}\)	0.397 s	0.153 s	0.169 s	1.23×
+Both tests passed across all 518,400 pixels per frame: zero classification mismatches, zero pixels beyond the \(10^{-3}\)-pixel displacement threshold, and separate distance-estimate and normal checks within the current research tolerances. High-precision direct-orbit spot checks were also run at pixels selected for their worst derivative disagreements.
+The unfamiliar \(q=3,p=2\) cycle and its multiplier were discovered from the camera and critical orbit, not entered as zone constants. Its compiled jump replaced approximately 120 million direct steps across the frame.
+These are promising single-run measurements, not yet proof of a stable performance advantage across hardware, repeat trials, or arbitrary Misiurewicz neighborhoods.
+
+
+
+
+
+
+
+
+Designed a practical prototype
+
+
+
+
+Designed automated Misiurewicz cycle discovery for fractal rendering acceleration
+
+
+
+
+Checked mpmath availability for CI tests
+
+
+
+
+Searching the web
+
+
+
+
+Computed high-precision periodic points and nontrivial polynomial roots
+
+
+
+
+I’ve added an experimental, camera-driven cycle compiler on a separate repository branch. It searches the high-precision critical orbit for preperiodic returns, refines the candidate cycle, builds a parameter-dependent Koenigs series and derivative, and uses an estimated skip-versus-operator cost to decide whether to attempt a frame. The next gate is full-frame correctness and timing; no speedup claim is justified until that passes.
+
+Inspected automated Misiurewicz discovery workflows and CI correctness
+
+
+
+
+Validated algorithm metrics, inspected CI workflows, fixed cycle initialization bugs, and verified runs
+
+
+
+
+Verified workflow runs, jobs, logs, and optimized discovery performance
+
+
+
+
+Checked Git, Rust, and repository access
+
+
+
+
+Evaluated GitHub workflow test results
+
+
+
+
+Searched 7 websites
+
+
+
+
+Reviewed completed workflow run jobs and logs
+
+
+
+
+Checked Rust and Python dependencies
+
+
+
+
+Inspected logs and optimized automated Misiurewicz promotion workflows
+
+
+
+
+Evaluated workflow status, acceleration costs, and promotion failure logs
+
+
+
+
+Checked UTC timestamp and listed promotion log files
+
+
+
+
+Assessed preliminary results
+
+
+
+
+Fetched GitHub Actions job logs
+
+
+
+
+Reassessed the prototype
+
+
+
+
+Implemented automated Misiurewicz discovery, oracle checks, native Rust benchmarking, rendering, and promotion workflows
+
+
+
+
+Reviewed GitHub Actions workflows, logs, native compilation, and validation jobs
+
+
+
+
+Reviewing GitHub Workflow Run Jobs
