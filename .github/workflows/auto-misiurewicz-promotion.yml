@@ -1,0 +1,64 @@
+name: auto-misiurewicz-promotion
+on:
+  push:
+    branches: [research/auto-misiurewicz-discovery]
+    paths:
+      - ".github/workflows/auto-misiurewicz-promotion.yml"
+  workflow_dispatch:
+jobs:
+  promotion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath numpy
+      - run: cargo build --release -j 4
+      - name: End-to-end full-frame comparisons
+        shell: bash
+        run: |
+          set +e
+          mkdir -p out/auto-promotion
+          failures=0
+          probe() {
+            local name="$1" re="$2" im="$3" width="$4" sz="$5"
+            python tools/research/misiurewicz/auto_discover.py \
+              --fd target/release/fd --re "$re" --im "$im" \
+              --width "$width" --size "$sz" --iter 20000 --threads 4 \
+              --out "out/auto-promotion/$name"
+            rc=$?
+            test "$rc" -eq 0 || failures=$((failures+1))
+          }
+          # All samples, not sparse control points. Nothing is pre-configured
+          # with a location-specific period or multiplier.
+          probe i-480 0 1 1e-95 480x270
+          probe q3p2-480 \
+            0.4196433776070805662759262823266433002120893730487961233893793197021016110409832128692177097141535071 \
+            0.606290729207199369259342197028023002949570668386421712214899686318868275281145662031327930379402341 \
+            1e-95 480x270
+          probe q4p1-480 \
+            -0.101096363845622161025785445738622565463805442826253483876931177660780840740470584274821219810516779 \
+            0.9562865108091415007710960577299774358098333365105291700343143215005246590657167325269784107873398072 \
+            1e-65 480x270
+          probe shallow-480 0 1 1e-4 480x270
+          python - <<'PY'
+          import json, pathlib
+          print("name | decision | q,p | jumps | skipped | BLA sec | compile sec | render sec | speedup | class | px max | de rel | normal rad")
+          for path in sorted(pathlib.Path("out/auto-promotion").glob("*/report.json")):
+              r=json.loads(path.read_text())
+              e=r.get("full_frame",{})
+              print(path.parent.name,"|",r["decision"],"|",(r.get("q"),r.get("p")),"|",r.get("jumps",0),"|",r.get("skipped",0),"|",
+                    r.get("baseline_seconds"),"|",r.get("compile_seconds"),"|",r.get("render_seconds"),"|",
+                    r.get("speedup_vs_fd_cold"),"|",e.get("class_mismatches"),"|",
+                    e.get("max_displacement_px"),"|",e.get("max_de_relative_error"),"|",e.get("max_normal_error_rad"))
+          PY
+          echo "failed cases: $failures"
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-misiurewicz-promotion
+          path: out/auto-promotion/**/report.json
