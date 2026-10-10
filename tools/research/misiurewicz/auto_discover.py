@@ -287,7 +287,7 @@ def frame(k,width,nx,ny,maxiter,radius=1e10,rotation=0.0):
             normal[ids]=np.angle(np.conj(vec))
         active[ix[esc]]=False
         active[stepn>=maxiter]=False
-    return {"escaped":escaped,"nu":nu,"de":de,"normal":normal,
+    return {"escaped":escaped,"class":np.where(escaped,0,2).astype("u1"),"nu":nu,"de":de,"normal":normal,
             "jumps":int(np.sum(good)),"skipped":int(np.sum(k["p"]*j[good])),
             "fallback_samples":int(np.sum(~good)),
             "finish_steps":int(np.sum(stepn-k["q"]-np.where(good,k["p"]*j,0)))}
@@ -310,7 +310,7 @@ def load_fd(path,n):
 
 def score(ref,ours,px=1e-3):
     cls,nu,de,norm=ref
-    mismatch=int(np.count_nonzero((cls==0)!=ours["escaped"]))
+    mismatch=int(np.count_nonzero(cls!=ours["class"]))
     mask=(cls==0)&ours["escaped"]
     if not np.any(mask):
         return {"class_mismatches":mismatch,"escaped_compared":0,"ok":bool(mismatch==0)}
@@ -393,7 +393,7 @@ def read_native(path,n):
     nu=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy();o+=n*8
     de=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy();o+=n*8
     normal=np.frombuffer(b,dtype="<f8",count=n,offset=o).copy()
-    return {"escaped":cls==0,"nu":nu,"de":de,"normal":normal}
+    return {"escaped":cls==0,"class":cls,"nu":nu,"de":de,"normal":normal}
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
