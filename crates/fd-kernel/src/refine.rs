@@ -165,7 +165,35 @@ fn fill(s: &mut Samples, from: usize, to: impl Iterator<Item = usize>) {
             v[k] = v[from];
         }
         if let Some(v) = s.bound.as_mut() {
-            v[k] = v[from];
+            v[k] = 0.0;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fd_samples::{ColumnSet, Kind};
+
+    #[test]
+    fn copied_samples_have_no_bound() {
+        let view = View { center_re: "3".into(), center_im: "0".into(), width: "0.1".into(), rotation: 0.0 };
+        let p = Params {
+            nx: 4, ny: 4, ss: 2, max_iter: 32, escape_radius: 4.0,
+            columns: ColumnSet::of(&[Column::Bound]), threads: 1, tier: None,
+        };
+        let (_, s, _, r) = render_refined(&view, &p, 2, 1e6).unwrap();
+        assert_eq!(r.dense.samples, 0, "no samples were copied");
+        let bounds = s.bound.as_ref().unwrap();
+        for (k, &bound) in bounds.iter().enumerate() {
+            if k % 4 % 2 == 1 && k / 4 % 2 == 1 {
+                assert_eq!(s.class[k].kind(), Some(Kind::Escaped));
+                assert_eq!(s.class[k].evidence(), Some(Evidence::Bounded));
+                assert!(bound > 0.0);
+            } else {
+                assert_eq!(s.class[k].evidence(), Some(Evidence::Heuristic));
+                assert_eq!(bound, 0.0);
+            }
         }
     }
 }

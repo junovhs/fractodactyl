@@ -72,3 +72,16 @@ fn normal_angle_quantisation() {
         assert!((x as f64 - t.cos()).abs() < 1e-4 && (y as f64 - t.sin()).abs() < 1e-4);
     }
 }
+
+#[test]
+fn huge_dimensions_are_refused_without_allocating() {
+    let mut h = header(ColumnSet(ColumnSet::KNOWN));
+    h.nx = 1 << 31;
+    h.ny = 1 << 31;
+    h.ss = 1;
+    let p = path("huge");
+    std::fs::write(&p, h.encode().unwrap()).unwrap();
+    let err = Reader::open(&p).err().expect("huge sample file must be rejected");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    std::fs::remove_file(p).unwrap();
+}

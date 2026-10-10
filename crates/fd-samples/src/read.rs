@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::{ErrorKind, Read, Result, Seek, SeekFrom};
 use std::path::Path;
 
+const MAX_SAMPLE_FILE_BYTES: u64 = 1 << 34;
+
 /// An open sample file whose header has been parsed and validated.
 pub struct Reader {
     file: File,
@@ -20,16 +22,27 @@ impl Reader {
     /// Open and validate a sample file; no column data is read yet.
     pub fn open(path: &Path) -> Result<Reader> {
         let mut file = File::open(path)?;
-        let size = file.metadata()?.len() as usize;
+        let size = file.metadata()?.len();
         // Headers are ~100 bytes; fall back to the format maximum only if needed.
-        let (header, body) = match head(&mut file, size.min(4096)) {
-            Err(e) if e.kind() == ErrorKind::UnexpectedEof && size > 4096 => head(&mut file, size.min(MAX_HEADER))?,
+        let (header, body) = match head(&mut file, size.min(4096) as usize) {
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof && size > 4096 => head(&mut file, size.min(MAX_HEADER as u64) as usize)?,
             r => r?,
         };
         let known = ColumnSet(header.columns.0 & ColumnSet::KNOWN);
-        let need = body + known.iter().map(|c| align8(c.width() * header.count())).sum::<usize>();
-        if !header.columns.has(Column::Class) || size < need {
-            return Err(bad("sample file is truncated or lacks the class column"));
+        let n = u64::from(header.nx).checked_mul(u64::from(header.ny))
+            .ok_or_else(|| bad("sample count overflow"))?;
+        let mut need = body as u64;
+        for c in known.iter() {
+            let bytes = n.checked_mul(c.width() as u64)
+                .and_then(|n| n.checked_add(7))
+                .map(|n| n & !7)
+                .ok_or_else(|| bad("sample column size overflow"))?;
+            need = need.checked_add(bytes).ok_or_else(|| bad("sample file size overflow"))?;
+        }
+        if !header.columns.has(Column::Class) || need > MAX_SAMPLE_FILE_BYTES
+            || need > size || usize::try_from(need).is_err()
+        {
+            return Err(bad("sample file is truncated, oversized, or lacks the class column"));
         }
         Ok(Reader { file, header, body })
     }
