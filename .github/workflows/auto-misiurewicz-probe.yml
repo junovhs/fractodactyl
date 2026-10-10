@@ -1,0 +1,72 @@
+name: auto-misiurewicz-probe
+on:
+  push:
+    branches: [research/auto-misiurewicz-discovery]
+    paths:
+      - "tools/research/misiurewicz/auto_discover.py"
+      - ".github/workflows/auto-misiurewicz-probe.yml"
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath numpy
+      - run: cargo build --release -j 4
+      - name: Full-frame discovery gate against fd per-frame BLA
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p out/auto-mis
+          script=tools/research/misiurewicz/auto_discover.py
+          fd=target/release/fd
+          failures=0
+          one() {
+            local name="$1" re="$2" im="$3" width="$4"
+            echo "::group::${name}"
+            python "$script" --fd "$fd" --re "$re" --im "$im" --width "$width" \
+              --size 64x36 --iter 20000 --threads 4 --out "out/auto-mis/$name"
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "failure $name exit=$status"
+              failures=$((failures+1))
+            fi
+            echo "::endgroup::"
+          }
+          one i-deep 0 1 1e-95
+          one minus2-deep -2 0 1e-95
+          one q3p2-unseen \
+            0.4196433776070805662759262823266433002120893730487961233893793197021016110409832128692177097141535071 \
+            0.606290729207199369259342197028023002949570668386421712214899686318868275281145662031327930379402341 \
+            1e-60
+          one q4p3-unseen \
+            -0.101096363845622161025785445738622565463805442826253483876931177660780840740470584274821219810516779 \
+            0.9562865108091415007710960577299774358098333365105291700343143215005246590657167325269784107873398072 \
+            1e-65
+          one generic-no-return -0.7453 0.1127 1e-3
+          one i-shallow 0 1 1e-4
+          python - <<'PY'
+          import json, pathlib
+          for x in sorted(pathlib.Path('out/auto-mis').glob('*/report.json')):
+              d=json.loads(x.read_text())
+              print(x.parent.name, 'decision=',d['decision'],
+                    'seconds=',d.get('total_candidate_seconds'),
+                    'speedup=',d.get('speedup_vs_fd_cold'),
+                    'correct=',d.get('full_frame',{}).get('ok'),
+                    'mismatch=',d.get('full_frame',{}).get('class_mismatches'),
+                    'px=',d.get('full_frame',{}).get('max_displacement_px'),
+                    'de=',d.get('full_frame',{}).get('max_de_relative_error'),
+                    'normal=',d.get('full_frame',{}).get('max_normal_error_rad'))
+          PY
+          echo "Probe failures: $failures"
+          test "$failures" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-misiurewicz-probe
+          path: out/auto-mis/**/report.json
