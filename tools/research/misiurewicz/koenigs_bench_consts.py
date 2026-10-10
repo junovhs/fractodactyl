@@ -6,7 +6,10 @@ All are computed once per zone at high precision and rounded to double:
 - the biseries and Z_24 - alpha again as mantissa + binary exponent (`_x` lines, PROB-19),
   exact at ladder rungs where the doubles overflow or underflow;
 - the 2-cycle point alpha, its multiplier rho and the Koenigs series phi;
-- C's periodic reference orbit z_0..z_{P-1}, for the lean perturbation baseline.
+- C's periodic reference orbit z_0..z_{P-1}, for the lean perturbation baseline;
+- the first return's diagonal series M(v, v) = sum_n S_n v^n to degree DEGREE + 2
+  (`diag` lines, mantissa + binary exponent): fd's pre-render guard bounds the biseries
+  truncation shift from S_(DEGREE+1..DEGREE+2) (PROB-20, DEC-19).
 Usage: python koenigs_bench_consts.py DEGREE GUARD TERMS R0 OUT [PSI_TERMS=0] [RE IM PERIOD]
 (PSI_TERMS > 0 also writes psi = phi^-1 by series reversion, PROB-09; 0 means Newton.)
 """
@@ -91,6 +94,25 @@ for _ in range(kt.P - 1): R.append(R[-1]**2 + kt.C)
 lines += [f"ref {i} {c(z)}" for i, z in enumerate(R)]
 lines += [f"biseries {i} {j} {c(rt.decode(a))}" for i, j, a in coeff]
 lines += [f"biseries_x {i} {j} {fx(rt.decode(a))}" for i, j, a in coeff]
+
+def diagonal(n):
+    """First return from u = v as one series in v: S_1..S_n (the biseries' diagonal sums
+    to degree `deg`, plus the terms its truncation drops)."""
+    a = [mp.mpc(0)] * (n + 1)
+    a[1] = mp.mpc(1)
+    z = kt.C
+    for _ in range(kt.P):
+        b = [2 * z * x for x in a]
+        for i in range(1, n):
+            for j in range(1, n + 1 - i):
+                b[i + j] += rt.SCALE * a[i] * a[j]
+        b[1] += 1
+        a = b
+        z = z * z + kt.C
+    return a
+
+
+lines += [f"diag {k} {fx(s)}" for k, s in enumerate(diagonal(deg + 2)) if k]
 lines += [f"phi {k} {c(COEF[k])}" for k in range(1, terms + 1)]
 if psi_terms:
     PSI = psi_series.reverse(COEF, psi_terms)

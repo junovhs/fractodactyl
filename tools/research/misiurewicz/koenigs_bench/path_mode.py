@@ -1,17 +1,21 @@
-"""PROB-10: full-path, every-pixel Koenigs-zone versus per-frame BLA.
+"""PROB-10/PROB-20: full-path, every-pixel Koenigs-zone versus per-frame BLA.
 
-The original Rust koenigs-bench writes only class/nu. Path mode uses fd's
-production implementation of the same Koenigs pipeline so fd compare also
-scores de, normal and non-finite samples (GATE-01/02). It preserves exact
-decimal camera coordinates and fd's rotated unit_offset geometry.
+fd decides each frame before rendering it (DEC-19): `fd control --zone` uses the zone
+only where `zone_covers` admits the frame (every sample within the zone's max_dc, and
+a bounded first-return truncation shift, PROB-20). Two whole-film executions are timed:
+fd alone and the mixed film. Every admitted frame is then rendered by both and scored
+with fd compare (class, nu, de, normal, non-finite); disputes beyond the FIX-04 gap are
+adjudicated against mpmath with diagnose_pixels.py. Camera centres stay exact decimals.
 """
 import json
-import math
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import mpmath as mp
+
+from diagnose_pixels import adjudicate, load
 
 
 def read_path(path):
@@ -32,23 +36,6 @@ def read_path(path):
     return frames
 
 
-def covered(frame, centre, size, guard):
-    """Test the four extremal sample centres, not just the camera centre."""
-    re, im, width, rotation = frame
-    nx, ny = size
-    step = mp.mpf(width) / nx
-    co, si = mp.cos(mp.mpf(rotation)), mp.sin(mp.mpf(rotation))
-    dx, dy = mp.mpf(re) - centre[0], mp.mpf(im) - centre[1]
-    for x in (-mp.mpf(nx - 1) / 2, mp.mpf(nx - 1) / 2):
-        for y in (-mp.mpf(ny - 1) / 2, mp.mpf(ny - 1) / 2):
-            # fd Plane::unit_offset uses y increasing downward.
-            a = dx + step * (co * x + si * y)
-            b = dy + step * (si * x - co * y)
-            if a * a + b * b > guard * guard:
-                return False
-    return True
-
-
 def lines(frames):
     return "".join(" ".join(f[:3] if f[3] == "0" else f) + "\n" for f in frames)
 
@@ -62,13 +49,6 @@ def run(cmd, dest):
     if not records or not records[-1].get("ok", False):
         raise RuntimeError(f"failed or incomplete run: {dest}")
     return [r for r in records if r.get("record") == "frame"]
-
-
-def accepted_times(times, scores):
-    """Keep each independently passing frame; rejected candidates use fd."""
-    if len(times) != len(scores):
-        raise ValueError("incomplete frame scores")
-    return [t for t, s in zip(times, scores) if s["valid_shortcut"]]
 
 
 def valid(score, zone_used):
@@ -85,6 +65,39 @@ def valid(score, zone_used):
     )
 
 
+def ranges(ids):
+    """[1, 2, 3, 7] -> "1-3, 7"."""
+    out, start = [], None
+    for i, k in enumerate(ids):
+        if start is None:
+            start = k
+        if i + 1 == len(ids) or ids[i + 1] != k + 1:
+            out.append(f"{start}" if start == k else f"{start}-{k}")
+            start = None
+    return ", ".join(out) or "none"
+
+
+def film(cmd, dest):
+    """Run one whole-film fd control execution; its frames and wall seconds."""
+    start = time.perf_counter()
+    frames = run(cmd, dest)
+    return frames, time.perf_counter() - start
+
+
+def judge(score, zone_used, rows, total):
+    """Admitted frame verdict: valid as scored, or valid once every dispute beyond
+    FIX-04 is adjudicated as fd's fault (fd max_iter-boundary errors, PROB-18)."""
+    if valid(score, zone_used):
+        return "pass"
+    other = score["class_mismatches"] - score["kinds"]["unresolved_to_interior"]
+    values_ok = (score["nu"]["over_px"] == 0 and score["non_finite"] == 0
+                 and score["de"]["over_tol"] == 0 and score["normal"]["over_tol"] == 0)
+    if (zone_used and values_ok and other > 0 and total == len(rows)
+            and all(r["fault"] == "fd" for r in rows)):
+        return "pass (fd faults)"
+    return "FAIL"
+
+
 def main(fd, out, source, size, threads, runs, maxit):
     mp.mp.dps = 180
     out = Path(out).resolve()
@@ -97,123 +110,106 @@ def main(fd, out, source, size, threads, runs, maxit):
     zone = out / "v0.zone"
     maker = Path(__file__).resolve().parent.parent / "make_zone.sh"
     subprocess.run(["bash", str(maker), str(zone)], check=True)
-    consts = {}
-    for line in zone.read_text().splitlines():
-        a = line.split()
-        if a and a[0] in ("c_exact", "guard"):
-            consts[a[0]] = a[1:]
-    centre = tuple(mp.mpf(s) for s in consts["c_exact"])
-    mant, *exponent = consts["guard"]
-    guard = mp.mpf(mant) * (2 ** int(exponent[0]) if exponent else 1)
-    indices = [i for i, f in enumerate(path) if covered(f, centre, (nx, ny), guard)]
-    if not indices:
-        raise RuntimeError("no full frames fit the Koenigs guard")
-    covered_set = set(indices)
-    uncovered = [i for i in range(len(path)) if i not in covered_set]
-
-    (out / "outside-path.txt").write_text(lines([path[i] for i in uncovered]))
-    (out / "band-path.txt").write_text(lines([path[i] for i in indices]))
+    (out / "path.txt").write_text(lines(path))
     common = ["--size", size, "--iter", str(maxit), "--columns", "nu,de,normal",
-              "--threads", str(threads), "--bla", "per-frame", "--runs", str(runs)]
-    outside = []
-    if uncovered:
-        print(f"== outside guard: {len(uncovered)} fd frames", flush=True)
-        outside = run([fd, "control", str(out / "outside-path.txt"), *common],
-                      out / "outside.jsonl")
+              "--threads", str(threads), "--bla", "per-frame"]
 
-    times, scores = [], []
-    # Compare in bounded chunks; two 1280x720 FDS frames are ~28 MiB.
-    # Keeping the entire 300+ frame band in .fds would exhaust Actions disk.
-    for start in range(0, len(indices), 8):
-        batch = indices[start:start + 8]
+    print(f"== fd-only film: {len(path)} frames", flush=True)
+    timed = [*common, "--runs", str(runs)]
+    base, base_wall = film([fd, "control", str(out / "path.txt"), *timed], out / "fd-film.jsonl")
+    print("== mixed film: fd --zone decides each frame before rendering it", flush=True)
+    mixed, mixed_wall = film([fd, "control", str(out / "path.txt"), *timed, "--zone", str(zone)],
+                             out / "mixed-film.jsonl")
+    if len(base) != len(path) or len(mixed) != len(path):
+        raise RuntimeError("film frame count differs from the path")
+    admitted = [i for i, r in enumerate(mixed) if r.get("zone", {}).get("used")]
+
+    rows_out = []
+    # Score admitted frames in chunks; two 1280x720 FDS frames are ~28 MiB.
+    for start in range(0, len(admitted), 8):
+        batch = admitted[start:start + 8]
         subset = out / "chunk-path.txt"
         subset.write_text(lines([path[i] for i in batch]))
         a, b = out / "fd-ref", out / "zone"
-        a.mkdir(exist_ok=True)
-        b.mkdir(exist_ok=True)
-        print(f"== frames {batch[0]}..{batch[-1]}: fd and Koenigs", flush=True)
-        ref = run([fd, "control", str(subset), *common, "-o", str(a)],
+        for directory in (a, b):
+            directory.mkdir(exist_ok=True)
+            for file in directory.glob("frame-*.fds"):
+                file.unlink()
+        print(f"== score frames {batch[0]}..{batch[-1]}", flush=True)
+        ref = run([fd, "control", str(subset), *common, "--runs", "1", "-o", str(a)],
                   out / "chunk-fd.jsonl")
-        fast = run([fd, "control", str(subset), *common, "--zone", str(zone), "-o", str(b)],
-                   out / "chunk-zone.jsonl")
+        fast = run([fd, "control", str(subset), *common, "--runs", "1", "--zone", str(zone),
+                    "-o", str(b)], out / "chunk-zone.jsonl")
         cmp = subprocess.run([fd, "compare", str(a), str(b)],
                              text=True, capture_output=True, check=False)
-        (out / "chunk-compare.jsonl").write_text(cmp.stdout + cmp.stderr)
-        compared = [json.loads(s) for s in cmp.stdout.splitlines() if s.startswith("{")
-                    and json.loads(s).get("record") == "frame"]
+        compared = [json.loads(x) for x in cmp.stdout.splitlines() if x.startswith("{")]
+        compared = [x for x in compared if x.get("record") == "frame"]
         if len(ref) != len(batch) or len(fast) != len(batch) or len(compared) != len(batch):
             raise RuntimeError("partial scoring: frame count differs")
         for j, index in enumerate(batch):
-            t = {"frame": index, "width": path[index][2],
-                 "fd_seconds": ref[j]["timing"]["cold_seconds"],
-                 "koenigs_seconds": fast[j]["timing"]["cold_seconds"],
-                 "zone_used": fast[j].get("zone", {}).get("used", False)}
-            s = dict(compared[j], frame=index, width=path[index][2])
-            s["valid_shortcut"] = valid(s, t["zone_used"])
-            times.append(t)
-            scores.append(s)
-        for directory in (a, b):
-            for file in directory.glob("frame-*.fds"):
-                file.unlink()
-    (out / "times.jsonl").write_text("".join(json.dumps(r) + "\n" for r in times))
-    (out / "scores.jsonl").write_text("".join(json.dumps(r) + "\n" for r in scores))
+            score = compared[j]
+            used = fast[j].get("zone", {}).get("used", False)
+            rows, total = [], 0
+            if not valid(score, used):
+                name = f"frame-{j:05d}.fds"
+                rows, total = adjudicate(load(a / name), load(b / name), 200)
+            verdict = judge(score, used, rows, total)
+            rows_out.append(dict(frame=index, width=path[index][2], score=score,
+                                 disputes=total, adjudicated=rows, verdict=verdict,
+                                 fd_seconds=base[index]["timing"]["cold_seconds"],
+                                 mixed_seconds=mixed[index]["timing"]["cold_seconds"]))
+    for directory in (out / "fd-ref", out / "zone"):
+        for file in directory.glob("frame-*.fds"):
+            file.unlink()
+    (out / "scores.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows_out))
 
-    # A failed frame does not invalidate passing neighbours (DEC-17).
-    accepted_rows = accepted_times(times, scores)
-    fd_outside = sum(r["timing"]["cold_seconds"] for r in outside)
-    fd_band = sum(r["fd_seconds"] for r in times)
-    fast_band = sum(r["koenigs_seconds"] for r in times)
-    film_fd = fd_outside + fd_band
-    accepted_fd = sum(r["fd_seconds"] for r in accepted_rows)
-    accepted_fast = sum(r["koenigs_seconds"] for r in accepted_rows)
-    projected = film_fd - accepted_fd + accepted_fast
-    failures = [s for s in scores if not s["valid_shortcut"]]
-    gap = sum(s.get("kinds", {}).get("unresolved_to_interior", 0) for s in scores)
+    failed = [r for r in rows_out if r["verdict"] == "FAIL"]
+    faults = [r for r in rows_out if r["verdict"] == "pass (fd faults)"]
+    gap = sum(r["score"]["kinds"]["unresolved_to_interior"] for r in rows_out)
+    base_frames = sum(r["timing"]["cold_seconds"] for r in base)
+    mixed_frames = sum(r["timing"]["cold_seconds"] for r in mixed)
     report = [
-        "# PROB-10: v0 path, full-resolution every-pixel comparison",
+        "# PROB-20: v0 path, frames decided before rendering",
         "",
         f"- Path: `{source}`; {len(path)} frames; {size}; {threads} threads; "
-        f"{runs} cold run(s)/frame; max_iter {maxit}.",
-        f"- Guard: {guard} from zone; {len(indices)} full-frame-covered candidates "
-        f"(frames {indices[0]}–{indices[-1]}).",
-        f"- Independently accepted: {len(accepted_rows)} passing frames; "
-        f"{len(failures)} rejected candidates and {len(uncovered)} uncovered frames "
-        "remain on fd.",
-        f"- Guard-band fd: {fd_band:.3f} s; Koenigs: {fast_band:.3f} s; "
-        f"ratio: {fd_band / fast_band:.2f}x.",
-        f"- Accepted frames fd: {accepted_fd:.3f} s; Koenigs: {accepted_fast:.3f} s; "
-        f"ratio: {accepted_fd / accepted_fast:.2f}x" if accepted_fast else
-        "- No accepted frames.",
-        f"- Whole-film fd: {film_fd:.3f} s; accepted band fraction: "
-        f"{accepted_fd / film_fd:.2%}; guard candidate fraction: {fd_band / film_fd:.2%}.",
-        f"- Estimated film with accepted Koenigs frames: {projected:.3f} s; "
-        f"end-to-end speed-up: {film_fd / projected:.2f}x.",
-        f"- FIX-04 known fd Unresolved → zone Interior: {gap} samples, "
-        "reported separately (not counted as shortcut failures).",
-        f"- Failing frames (beyond FIX-04): {len(failures)}; "
-        f"max nu displacement: {max(s.get('nu', {}).get('px_max', 0) for s in scores):.6g} px.",
+        f"{runs} run(s)/frame; max_iter {maxit}.",
+        f"- Admitted by fd's pre-render guard: {len(admitted)} frames ({ranges(admitted)}).",
+        f"- Admitted frames failing after adjudication: {len(failed)} "
+        f"({ranges([r['frame'] for r in failed])}).",
+        f"- Admitted frames whose only disputes are fd faults (mpmath): {len(faults)} "
+        f"({ranges([r['frame'] for r in faults])}).",
+        f"- fd-only film: {base_wall:.3f} s wall ({base_frames:.3f} s in frames).",
+        f"- Mixed film: {mixed_wall:.3f} s wall ({mixed_frames:.3f} s in frames).",
+        f"- Measured end-to-end speed-up: {base_wall / mixed_wall:.2f}x wall "
+        f"({base_frames / mixed_frames:.2f}x in frames).",
+        f"- FIX-04 fd Unresolved -> zone Interior on admitted frames: {gap} samples "
+        "(not counted as zone errors).",
         "",
-        "| Frame | Width | fd s | Koenigs s | Speed-up | Wrong px | Other class | "
-        "FIX-04 | Nonfinite | de over | normal over | Valid |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---:|",
+        "| Frame | Width | fd s | Mixed s | Other class | FIX-04 | Nonfinite | "
+        "nu over | de over | normal over | Disputes (fd/zone fault) | Verdict |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|:---|",
     ]
-    for t, s in zip(times, scores):
-        k = s.get("kinds", {})
-        fix = k.get("unresolved_to_interior", 0)
-        other = s.get("class_mismatches", 0) - fix
-        ratio = t["fd_seconds"] / t["koenigs_seconds"]
-        report.append(f"| {t['frame']} | {t['width']} | {t['fd_seconds']:.3f} | "
-                      f"{t['koenigs_seconds']:.3f} | {ratio:.2f}x | "
-                      f"{s.get('nu', {}).get('over_px', '?')} | {other} | {fix} | "
-                      f"{s.get('non_finite', '?')} | {s.get('de', {}).get('over_tol', '?')} | "
-                      f"{s.get('normal', {}).get('over_tol', '?')} | "
-                      f"{'yes' if s['valid_shortcut'] else 'NO'} |")
+    for r in rows_out:
+        s = r["score"]
+        fix = s["kinds"]["unresolved_to_interior"]
+        fd_fault = sum(x["fault"] == "fd" for x in r["adjudicated"])
+        report.append(
+            f"| {r['frame']} | {r['width']} | {r['fd_seconds']:.3f} | {r['mixed_seconds']:.3f} | "
+            f"{s['class_mismatches'] - fix} | {fix} | {s['non_finite']} | {s['nu']['over_px']} | "
+            f"{s['de']['over_tol']} | {s['normal']['over_tol']} | "
+            f"{r['disputes']} ({fd_fault}/{len(r['adjudicated']) - fd_fault}) | {r['verdict']} |")
+    for r in rows_out:
+        for x in r["adjudicated"]:
+            report.append(f"- frame {r['frame']} ({x['x']},{x['y']}): fd class {x['fd_class']}, "
+                          f"zone class {x['zone_class']}, mpmath {x['truth']} at n={x['n']}: "
+                          f"{x['fault']} fault {json.dumps(x['err'])}")
     (out / "report.md").write_text("\n".join(report) + "\n")
-    print("\n".join(report[:14]), flush=True)
+    print("\n".join(report[:11]), flush=True)
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 8:
         sys.exit("usage: path_mode.py FD OUT PATH NXxNY THREADS RUNS MAX_ITER")
-    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],
-         int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]))
+    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4],
+                  int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7])))

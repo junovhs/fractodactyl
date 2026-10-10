@@ -96,11 +96,14 @@ def oracle(f, x, y):
     return ("unresolved", None, None, None, f["maxit"])
 
 
-def diagnose(a, b, limit):
+def adjudicate(a, b, limit):
+    """Disputed samples beyond FIX-04 (at most `limit`, each against mpmath) and the
+    total count. Each row says whose fault the dispute is: the zone's if its class
+    differs from mpmath's or, where both escape, its values miss mpmath's."""
     if any(a[k] != b[k] for k in ("nx", "ny", "maxit", "radius", "rot",
                                   "re", "im", "width")):
         raise ValueError("not the same camera and grid")
-    total = 0
+    rows, total = [], 0
     for k in range(a["nx"] * a["ny"]):
         issues = disputed(a, b, k)
         if not issues:
@@ -110,16 +113,38 @@ def diagnose(a, b, limit):
             continue
         x, y = k % a["nx"], k // a["nx"]
         truth = oracle(a, x, y)
-        ca, cb = col(a, "class", k), col(b, "class", k)
-        print(f"({x},{y}) {','.join(issues)}: fd class={ca} zone class={cb} "
-              f"mpmath={truth[0]} at n={truth[4]}")
+        row = dict(x=x, y=y, issues=issues, fd_class=col(a, "class", k),
+                   zone_class=col(b, "class", k), truth=truth[0], n=truth[4], err={})
         if truth[0] == "escaped":
             for name, f in (("fd", a), ("zone", b)):
                 if col(f, "class", k) == 0:
                     de = col(f, "de", k)
-                    print(f"  {name}: nu-px={abs(col(f, 'nu', k) - truth[1]) * truth[2] * math.log(2) / 2:.3g} "
-                          f"de-rel={abs(de - truth[2]) / truth[2]:.3g} "
-                          f"normal-deg={angle_diff(col(f, 'normal', k), truth[3]):.3g}")
+                    row["err"][name] = dict(
+                        nu_px=abs(col(f, "nu", k) - truth[1]) * truth[2] * math.log(2) / 2,
+                        de_rel=abs(de - truth[2]) / truth[2],
+                        normal_deg=angle_diff(col(f, "normal", k), truth[3]))
+        z = row["err"].get("zone")
+        if row["fd_class"] == 0 and z is not None:
+            # Both escaped: the dispute is nu/de/normal, judged with fd compare's
+            # tolerances (de and normal only where de > 1e-3 px).
+            bad = z["nu_px"] > 1e-3 or (truth[2] > 1e-3 and (
+                z["de_rel"] > 2e-3 or z["normal_deg"] > 0.2))
+        else:
+            bad = (row["zone_class"] == 0) != (truth[0] == "escaped")
+        row["fault"] = "zone" if bad else "fd"
+        rows.append(row)
+    return rows, total
+
+
+def diagnose(a, b, limit):
+    rows, total = adjudicate(a, b, limit)
+    for r in rows:
+        print(f"({r['x']},{r['y']}) {','.join(r['issues'])}: fd class={r['fd_class']} "
+              f"zone class={r['zone_class']} mpmath={r['truth']} at n={r['n']} "
+              f"-> {r['fault']} fault")
+        for name, e in r["err"].items():
+            print(f"  {name}: nu-px={e['nu_px']:.3g} de-rel={e['de_rel']:.3g} "
+                  f"normal-deg={e['normal_deg']:.3g}")
     print(f"Disputed samples beyond FIX-04: {total}; checked with mpmath: {min(total, limit)}")
     if total > limit:
         print("Not all disputed pixels checked; raise --limit before adjudication.")

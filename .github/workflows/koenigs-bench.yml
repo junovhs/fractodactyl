@@ -147,8 +147,8 @@ jobs:
           name: koenigs-path
           path: |
             out/koenigs-path/report.md
-            out/koenigs-path/*-path.txt
-            out/koenigs-path/times.jsonl
+            out/koenigs-path/path.txt
+            out/koenigs-path/v0.zone
             out/koenigs-path/scores.jsonl
-            out/koenigs-path/outside.jsonl
-            out/koenigs-path/chunk-compare.jsonl
+            out/koenigs-path/fd-film.jsonl
+            out/koenigs-path/mixed-film.jsonl

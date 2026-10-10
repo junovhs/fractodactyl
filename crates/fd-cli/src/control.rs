@@ -14,7 +14,8 @@
 //! kept for the next frame.
 //!
 //! `--zone FILE` (KERN-01): frames the zone covers (every sample within its `max_dc` of
-//! the nucleus) render with the minibrot-band fast path (`fd_kernel::render_zone`),
+//! the nucleus and, for a zone with `diag` lines, a bounded truncation shift: PROB-20),
+//! decided before rendering (DEC-19), render with the minibrot-band fast path (`fd_kernel::render_zone`),
 //! inside the frame's clock; every other frame renders as without it (with `--bla
 //! per-frame` if given). Each frame's record says which (`"zone"`), the totals count
 //! the zone frames and their seconds.

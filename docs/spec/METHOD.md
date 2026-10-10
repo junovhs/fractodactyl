@@ -98,6 +98,30 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-20: v0 film frames decided before rendering (2026-10-10)
+
+**Measured locally** (Ryzen 9 3900X, 24 threads, 1280x720, 1 run per frame, max_iter 1e5). Command: `THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/prob20 bench/path-atlas-v0.txt`. Both films are single `fd control` executions over all 750 frames. In the mixed film, `fd control --zone` decides each frame before rendering it.
+
+| Film | Wall s | Seconds in frames |
+|---|---:|---:|
+| fd per-frame BLA only | 629.4 | 614.7 |
+| Mixed: zone on the 315 admitted frames, fd elsewhere | 267.0 | 252.3 |
+| **Measured speed-up** | **2.36x** | 2.44x |
+
+- **Admitted frames: 435-749 (315).** On those frames fd takes 383.2 s and the zone 15.8 s.
+- **Correctness on every admitted frame:** 0 nu over 1e-3 px (max 7.7e-5), 0 non-finite, 0 de over 0.2% (max 0.13%), 0 normal over 0.2 deg (max 0.12).
+- **Class disputes:** after the 367,389 FIX-04 pairs, 4 samples remain, and `diagnose_pixels.py` (180-digit mpmath) assigns all 4 to fd at the max_iter boundary.
+  - 742 (625,291) and (603,297), 747 (730,358): fd says Unresolved, while mpmath escapes at n = 99981, 99976 and 99901. The zone has the right class and nu (1e-13 px), but its de is off by 7.4x, 33x and 3.4x and the normal by up to 153 deg. These samples are not de-scored (class differs), so this is an open zone defect on near-max_iter escapes.
+  - 748 (457,177): fd escaped; mpmath and the zone are unresolved at 1e5.
+
+**The band-top cutoff, from zone data and frame geometry.** At frames 431/432, the de errors are not from fixing the parameter at C (mpmath: 1e-16), from the Koenigs, psi or tail-patch series (more terms change nothing), or from f64 C (1e-6). They come from truncating the first return at degree 4. Its relative state error (6e-9 at |v| = 0.94e-3) moves a pixel by about 2e-6 px. Near the scored de floor (1e-3 px) that is a ~0.2% de change.
+- **Bound:** the zone now carries the first return's diagonal series M(v,v) = sum S_n v^n to degree 6 (`diag` lines, mantissa + exponent). `zone_covers` bounds the shift at the frame's outer radius r as (|S5| r^5 + |S6| r^6) / (lower bound of |dM/dv| at r) / pixel spacing.
+- **Rule:** admit when the bound is <= 5e-7 px, i.e. 0.2% x 1e-3 px / 4, where the 4 covers the measured excess of up to 2.2x.
+- **Check against frames 431-434:** bounds 2.6e-6, 1.7e-6, 1.1e-6, 6.7e-7 px, so all are refused. Their measured de maxima were 0.50%, 0.36%, 0.09% and 0.11%. Frame 435 bounds at 4.2e-7 px and is admitted.
+- **Scope of the rule:** it depends on resolution (at 320x180, frame 433 is admitted). It covers only the first return, since later returns' inputs do not depend on the frame. Not certified (PROB-13).
+
+**max_iter margin rule: none.** mpmath shows the zone's class at the max_iter boundary is right where fd's is wrong (here and in PROB-18). A frame-level exclusion would only hand those pixels back to the wrong side, so admitted frames are scored with class disputes adjudicated. Compared with PROB-18's post-render 2.46x (projected), the frames are now chosen before rendering, and 2.36x is one measured execution.
+
 ### PROB-19: the k = 7676 (~1e-1000) rung renders; three-rung table (2026-10-10)
 
 **Measured locally** (Ryzen 9 3900X, 24 threads, 480x270, best of 3 runs per frame, max_iter 40P, nu/de/normal). Command: `THREADS=24 RUNS=3 SIZE=480x270 RUNGS="0 409 7676" FRAMES="5000 500 50 5" bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob19`. Same exact centres and widths as PROB-17; every one of 129,600 pixels per frame scored with `fd compare`. The rival is `fd control --bla per-frame`. At v0 and k=409 that is BLA (`bla.use=used`). At k=7676 the scaled tier has no BLA (`bla.use=none`, FIX-03), so it is plain scaled perturbation.

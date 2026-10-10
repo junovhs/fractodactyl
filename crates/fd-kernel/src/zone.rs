@@ -22,6 +22,8 @@
 //! BLA down to 2e-48: METHOD.md PROB-09). **Error**: measured, not bounded (PROB-13 is
 //! the certification). **Fallback**: a frame outside the zone is not rendered here
 //! ([`zone_covers`] is false); the caller renders it with the perturbation kernel.
+//! A zone with `diag` lines also refuses a frame whose first-return truncation shift
+//! could exceed [`SHIFT_PX`] (PROB-20): decided before rendering (DEC-19).
 use crate::grid::{header, setup, Params, Stats};
 use crate::sample::Outcome;
 use crate::store::{Row, Store};
@@ -35,6 +37,12 @@ use std::sync::Mutex;
 const PATCH_D: usize = 16;
 /// Critical-orbit steps from a return to the Koenigs chart (the zone's `q - 1`).
 const APPROACH: usize = 23;
+/// Largest first-return truncation shift, in pixels, a covered frame may carry. A shift
+/// of `s` px moves `de` by about `s` (|grad de| ~ 1), so near the scored floor
+/// (`de` = 1e-3 px, `fd compare` tolerance 0.2%) the relative `de` error is ~ s / 1e-3.
+/// Allowed: 2e-3 * 1e-3 / 4. The factor 4 covers the measured excess of up to 2.2x on
+/// the v0 band-top frames (PROB-20).
+pub const SHIFT_PX: f64 = 5e-7;
 
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
 struct Cx(f64, f64);
@@ -232,6 +240,9 @@ pub struct Zone {
     phi: Vec<Cx>,
     /// `psi[k - 1]`: coefficient of `w^k`, `psi = phi^-1`.
     psi: Vec<Cx>,
+    /// `log2 |S_n|` (index `n`, `-inf` if absent) of the first return from `u = v`,
+    /// `M(v, v) = sum S_n v^n`, to beyond the biseries degree (`diag` lines).
+    diag: Vec<f64>,
     patch_nx: usize,
     /// (centre, first child or -1, leaf index or -1)
     nodes: Vec<(Cx, i64, i64)>,
@@ -278,6 +289,7 @@ impl Zone {
             bis: Vec::new(),
             phi: Vec::new(),
             psi: Vec::new(),
+            diag: Vec::new(),
             patch_nx: 0,
             nodes: Vec::new(),
             leaves: Vec::new(),
@@ -321,6 +333,17 @@ impl Zone {
                 "biseries_x" => raw_x.push((n(1)? as usize, n(2)? as usize, fx(3)?)),
                 "phi" => z.phi.push(cx(2)?),
                 "psi" => z.psi.push(cx(2)?),
+                "diag" => {
+                    let k = n(1)? as usize;
+                    if k == 0 || k > 16 {
+                        return Err(bad("diag degree must be 1..=16"));
+                    }
+                    let a = fx(2)?;
+                    if z.diag.len() <= k {
+                        z.diag.resize(k + 1, f64::NEG_INFINITY);
+                    }
+                    z.diag[k] = if a.is_zero() { f64::NEG_INFINITY } else { a.m.abs().log2() + a.e as f64 };
+                }
                 "patch_root" => {
                     z.patch_nx = n(3)? as usize;
                     if n(4)? as usize != PATCH_D {
@@ -393,6 +416,9 @@ impl Zone {
             }
             z.deep = Some(Deep { bis, z24ma, phi: z.phi.iter().map(|&a| Fx::new(a, 0)).collect() });
         }
+        if !z.diag.is_empty() && z.diag.len() <= z.deg + 1 {
+            return Err("diag lines must go beyond the biseries degree".into());
+        }
         if z.max_dc.mant == 0.0 {
             z.max_dc = z.guard;
         }
@@ -443,19 +469,50 @@ impl Zone {
         plane.h() > 0.0
             && [self.scale, self.guard, self.max_dc].iter().all(|size| size.to_f64() > 0.0 && size.to_f64().is_finite())
     }
+
+    /// Bound on the pixel shift from truncating the first return (`u = v`) at the
+    /// biseries degree, for samples out to `r` with spacing `h` (both in `v` units).
+    /// `None` if the zone has no `diag` lines; infinite where the return map's
+    /// derivative cannot be bounded away from 0.
+    ///
+    /// Dropped terms: `sum_{n > deg} |S_n| r^n`. Derivative `dM/dv = sum n S_n v^(n-1)`,
+    /// bounded below at `|v| = r` by its largest term minus the others. The ratio grows
+    /// like `r^4`, so the frame's outer radius is where it is largest. Not certified
+    /// (PROB-13); later returns are not covered (their inputs do not depend on the frame).
+    fn truncation_shift(&self, r: f64, h: f64) -> Option<f64> {
+        if self.diag.is_empty() {
+            return None;
+        }
+        let lr = r.log2();
+        // log2 of each term's modulus: |S_n| r^n, and n |S_n| r^(n - 1) for dM/dv.
+        let rem: Vec<f64> = (self.deg + 1..self.diag.len()).map(|n| self.diag[n] + n as f64 * lr).collect();
+        let der: Vec<f64> = (1..=self.deg).map(|n| (n as f64).log2() + self.diag[n] + (n - 1) as f64 * lr).collect();
+        let top = der.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let others: f64 = der.iter().map(|&t| (t - top).exp2()).sum::<f64>() - 1.0;
+        if !top.is_finite() || others >= 1.0 {
+            return Some(f64::INFINITY);
+        }
+        let rtop = rem.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let rsum = rtop + rem.iter().map(|&t| (t - rtop).exp2()).sum::<f64>().log2();
+        Some((rsum - top - (1.0 - others).log2() - h.log2()).exp2())
+    }
 }
 
-/// Whether `zone` may render `view` (DEC-10 validity): every sample within `max_dc` of
-/// the nucleus.
+/// Whether `zone` may render `view` (DEC-10 validity), decided before rendering
+/// (DEC-19): every sample within `max_dc` of the nucleus and, for a zone with `diag`
+/// lines, a first-return truncation shift of at most [`SHIFT_PX`].
 pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String> {
     let (plane, _) = setup(view, p)?;
     let off = centre_offset(view, zone, &plane)?;
     let diagonal = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
-    if zone.f64_geometry(&plane) {
-        return Ok(off.absolute.abs() + plane.h() * diagonal <= zone.max_dc.to_f64());
-    }
     let spacing = ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale);
-    Ok(off.scaled.abs() + spacing * diagonal <= zone.max_dc.over(zone.scale))
+    let inside = if zone.f64_geometry(&plane) {
+        off.absolute.abs() + plane.h() * diagonal <= zone.max_dc.to_f64()
+    } else {
+        off.scaled.abs() + spacing * diagonal <= zone.max_dc.over(zone.scale)
+    };
+    let shift = zone.truncation_shift(off.scaled.abs() + spacing * diagonal, spacing);
+    Ok(inside && shift.is_none_or(|s| s <= SHIFT_PX))
 }
 
 /// Render `view` with the zone pipeline. Refused when the zone does not cover the view
@@ -1040,6 +1097,26 @@ mod tests {
         assert!(render_zone(&view("1e-40"), &params(&[Column::Nu, Column::Bound]), &z).is_err());
     }
 
+    /// PROB-20: the v0 band-top frames at 1280x720. Frames 431 and 432 (widths
+    /// 1.70834e-28, 1.46809e-28) failed `fd compare` on de; frame 435 (9.3172e-29) is
+    /// the first whose bounded first-return truncation shift is within [`SHIFT_PX`].
+    #[test]
+    fn band_top_frames_wait_for_the_truncation_guard() {
+        let z = v0();
+        let p = Params { nx: 1280, ny: 720, ..params(&[Column::Nu]) };
+        let at = |w: &str| zone_covers(&view(w), &p, &z).unwrap();
+        assert!(!at("1.70834e-28") && !at("1.46809e-28") && !at("1.0842e-28"));
+        assert!(at("9.3172e-29") && at("2e-49"));
+        // Bound at frame 431's outer radius: 2.622e-6 px from the mpmath series.
+        let (h, r) = (1.70834e-28 / 1280.0 / 1e-25, 1.70834e-28 / 1280.0 * 640f64.hypot(360.0) / 1e-25);
+        let s = z.truncation_shift(r, h).unwrap();
+        assert!((s / 2.622e-6 - 1.0).abs() < 0.01, "{s}");
+        // A zone without diag lines keeps the radius-only rule.
+        let old: String = include_str!("../../../bench/zones/v0-core.zone").lines().filter(|l| !l.starts_with("diag")).map(|l| format!("{l}\n")).collect();
+        let old = Zone::parse(&old).unwrap();
+        assert!(zone_covers(&view("1.70834e-28"), &p, &old).unwrap());
+    }
+
     #[test]
     fn parse_rejects_incomplete_zones() {
         assert!(Zone::parse("period 764\n").is_err());
@@ -1068,8 +1145,10 @@ mod tests {
             .lines().find(|line| line.starts_with("7676 ")).unwrap();
         let parts: Vec<_> = rung.split_whitespace().collect();
         assert_eq!(parts[1], "16116");
+        // v0's diag lines describe v0's map, not this one: dropped.
         let mut lines: Vec<String> = include_str!("../../../bench/zones/v0-core.zone")
             .lines()
+            .filter(|line| !line.starts_with("diag"))
             .map(|line| match line.split_whitespace().next().unwrap_or("") {
                 "c_exact" => format!("c_exact {} {}", parts[2], parts[3]),
                 "period" => "period 16116".into(),
