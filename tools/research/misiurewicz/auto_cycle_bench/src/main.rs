@@ -129,7 +129,7 @@ fn pixel(m:&Model,dc:Cx,h:f64, max_iter:u64,rot:f64)->Record {
 }
 fn main() {
     let args:Vec<String>=std::env::args().collect();
-    assert!(args.len()==9, "usage: native-cycles CONSTS OUT NXxNY WIDTH MAXITER THREADS ROT RESERVED");
+    assert!(args.len()==8, "usage: native-cycles CONSTS OUT NXxNY WIDTH MAXITER THREADS ROT");
     let m=read_model(&args[1]);
     let (nx,ny)=args[3].split_once('x').map(|(x,y)|(x.parse::<usize>().unwrap(),y.parse::<usize>().unwrap())).unwrap();
     let width:f64=args[4].parse().unwrap();
