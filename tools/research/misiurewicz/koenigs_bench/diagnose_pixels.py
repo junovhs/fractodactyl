@@ -126,7 +126,9 @@ def adjudicate(a, b, limit):
         z = row["err"].get("zone")
         if z is not None:
             # Score zone shading against mpmath even when fd did not escape.
-            bad = z["nu_px"] > 1e-3 or (truth[2] > 1e-3 and (
+            # A class-disputed escape has no fd shading reference or de floor.
+            score_shading = row["fd_class"] != 0 or truth[2] > 1e-3
+            bad = z["nu_px"] > 1e-3 or (score_shading and (
                 z["de_rel"] > 2e-3 or z["normal_deg"] > 0.2))
         else:
             bad = (row["zone_class"] == 0) != (truth[0] == "escaped")
