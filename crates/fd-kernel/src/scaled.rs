@@ -5,8 +5,7 @@
 //! of two, so it adds no rounding. Per step this costs one real-by-complex product more
 //! than the f64 kernel. With `S = 2^e` and `dc = 2^ed * a`:
 //! `w' = 2 Z w + S w^2 + a 2^(ed - e)`, `v' = 2 z v + 2^-g`.
-//! Interior: only exact cycle returns are detected (no Newton), so deep interior
-//! samples may stay `Unresolved` until the iteration budget runs out.
+//! A close cycle return without an attraction check is `Unresolved`, not interior.
 use crate::reference::Reference;
 use crate::sample::{resolvable, Outcome};
 use fd_fixed::exp2i;
@@ -64,7 +63,8 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
         if resolvable(xr, xi, f2) {
             let dist = (fr - sr).abs() + (fi - si).abs();
             if dist < 1e-13 * (sr.abs() + si.abs()) + 1e-300 {
-                return Outcome::Interior { n };
+                // Repelling cycles also return closely; attraction is not established.
+                return Outcome::Unresolved;
             }
         }
         if n == chk {
@@ -113,6 +113,42 @@ mod tests {
         match scaled::<true>(&r, 1.0, 0.5, -3000, 100_000, 1e20) {
             Outcome::Escaped { n, dexp, .. } => assert!(n > 1500 && n < 4000 && dexp > 2900, "{n} {dexp}"),
             o => panic!("{o:?}"),
+        }
+    }
+
+    /// At sub-f64 widths, a near-repelling or near-parabolic exterior is not interior.
+    #[test]
+    fn deep_repelling_and_near_parabolic_exteriors() {
+        // Direct mpmath at 1200 bits: c + 2^-1100 * (1 + 0.5i).
+        for (cr, ci, oracle_n) in [(0.0, 1.0, 887), (0.250001, 0.0, 3145), (-0.75, 0.01, 320)] {
+            let r = Reference::new(cr, ci, 20_000, 65536.0);
+            match scaled::<true>(&r, 1.0, 0.5, -1100, 20_000, 1e20) {
+                Outcome::Escaped { n, .. } => assert_eq!(n, oracle_n, "{cr}, {ci}"),
+                Outcome::Unresolved => {} // no attraction certificate
+                o => panic!("{cr}, {ci}: {o:?}"),
+            }
+        }
+    }
+
+    /// Samples inside the v0 ladder's 1e-100 minibrot may remain unresolved.
+    #[test]
+    fn deep_ladder_interior_stays_non_escaping() {
+        // k = 409 nucleus from tools/research/misiurewicz/ladder_rungs.txt.
+        let limbs = fd_fixed::limbs_for(1280);
+        let cr = fd_fixed::Fixed::parse(
+            "-0.743291890852430202931624325972510757176348558120774356370590210260840951728744990155474936011582556204309239952297545796655290288288531259645658145590048845370914634545066454",
+            limbs,
+        )
+        .unwrap();
+        let ci = fd_fixed::Fixed::parse(
+            "0.131240552308797604770845906581478143077114151158591754835109820677855616894736385331957444256069258907400140765662344877761310383645126000894706155294661737082962412611433299571783",
+            limbs,
+        )
+        .unwrap();
+        let r = Reference::from_fixed(&cr, &ci, 6000);
+        for (ar, ai) in [(1.0, 0.0), (0.0, 1.0)] {
+            let result = scaled::<true>(&r, ar, ai, -1100, 6000, 1e20);
+            assert!(matches!(result, Outcome::Interior { .. } | Outcome::Unresolved), "{result:?}");
         }
     }
 }
