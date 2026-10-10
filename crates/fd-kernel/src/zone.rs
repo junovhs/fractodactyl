@@ -67,6 +67,91 @@ impl Cx {
     }
 }
 
+/// Complex `m * 2^e` with `1 <= max(|m.re|, |m.im|) < 2` (or `m = 0`): the deep path's
+/// number, for zones whose constants, states or derivatives leave f64's range (DEC-21).
+#[derive(Clone, Copy, Default, Debug)]
+struct Fx {
+    m: Cx,
+    e: i64,
+}
+
+impl Fx {
+    const ONE: Fx = Fx { m: Cx(1.0, 0.0), e: 0 };
+
+    #[inline(always)]
+    fn new(m: Cx, e: i64) -> Fx {
+        Fx { m, e }.norm()
+    }
+    #[inline(always)]
+    fn norm(self) -> Fx {
+        let a = self.m.0.abs().max(self.m.1.abs());
+        if a == 0.0 || !a.is_finite() {
+            return Fx { m: self.m, e: if a == 0.0 { 0 } else { self.e } };
+        }
+        let k = ((a.to_bits() >> 52) & 0x7ff) as i64 - 1023;
+        if k == -1023 {
+            return Fx { m: self.m.scale(exp2i(64)), e: self.e - 64 }.norm();
+        }
+        Fx { m: self.m.scale(exp2i(-k)), e: self.e + k }
+    }
+    #[inline(always)]
+    fn is_zero(self) -> bool {
+        self.m.0 == 0.0 && self.m.1 == 0.0
+    }
+    #[inline(always)]
+    fn add(self, o: Fx) -> Fx {
+        if o.is_zero() {
+            return self;
+        }
+        if self.is_zero() {
+            return o;
+        }
+        let (a, b) = if self.e >= o.e { (self, o) } else { (o, self) };
+        let d = a.e - b.e;
+        if d > 110 {
+            return a;
+        }
+        Fx { m: a.m.add(b.m.scale(exp2i(-d))), e: a.e }.norm()
+    }
+    #[inline(always)]
+    fn sub(self, o: Fx) -> Fx {
+        self.add(Fx { m: o.m.scale(-1.0), e: o.e })
+    }
+    #[inline(always)]
+    fn mul(self, o: Fx) -> Fx {
+        Fx { m: self.m.mul(o.m), e: self.e + o.e }.norm()
+    }
+    #[inline(always)]
+    fn inv(self) -> Fx {
+        Fx { m: Cx(1.0, 0.0).div(self.m), e: -self.e }.norm()
+    }
+    /// Nearest f64 pair: 0 below f64's range, infinite above it.
+    #[inline(always)]
+    fn to_cx(self) -> Cx {
+        if self.is_zero() {
+            return Cx::default();
+        }
+        if self.e < -1100 {
+            return Cx::default();
+        }
+        self.m.scale(exp2i(self.e))
+    }
+    #[inline(always)]
+    fn ln_abs(self) -> f64 {
+        self.m.abs().ln() + self.e as f64 * std::f64::consts::LN_2
+    }
+    #[inline(always)]
+    fn arg(self) -> f64 {
+        self.m.1.atan2(self.m.0)
+    }
+    /// `exp(ln_mag + i angle)`.
+    fn polar(ln_mag: f64, angle: f64) -> Fx {
+        let e = (ln_mag / std::f64::consts::LN_2).floor();
+        let r = (ln_mag - e * std::f64::consts::LN_2).exp();
+        Fx::new(Cx(r * angle.cos(), r * angle.sin()), e as i64)
+    }
+}
+
 /// One tail patch: centre and half-width in `s = log w`, the steps `m` it covers (-1:
 /// invalid leaf, finish plainly), and the Taylor coefficients in `t = (s - centre) / r`.
 #[derive(Clone, Debug)]
@@ -151,6 +236,19 @@ pub struct Zone {
     /// (centre, first child or -1, leaf index or -1)
     nodes: Vec<(Cx, i64, i64)>,
     leaves: Vec<Leaf>,
+    /// Exact-range constants, set when the f64 ones are unusable (a deep ladder rung).
+    deep: Option<Deep>,
+}
+
+/// A deep zone's biseries, Koenigs entry offset and `phi` as mantissa + exponent
+/// (`biseries_x` and `z24_minus_alpha_x` lines): at the k = 7676 rung the coefficients
+/// reach ~1e500 and the offset ~1e-500, so the whole pixel runs on [`Fx`].
+#[derive(Clone, Debug)]
+struct Deep {
+    /// `bis[i][j]`: coefficient of `u^i v^j`.
+    bis: Vec<[Fx; 8]>,
+    z24ma: Fx,
+    phi: Vec<Fx>,
 }
 
 impl Zone {
@@ -183,8 +281,10 @@ impl Zone {
             patch_nx: 0,
             nodes: Vec::new(),
             leaves: Vec::new(),
+            deep: None,
         };
         let mut raw = vec![];
+        let (mut raw_x, mut z24ma_x) = (vec![], None);
         for (ln, line) in text.lines().enumerate().filter(|(_, l)| !l.starts_with('#') && !l.trim().is_empty()) {
             let f: Vec<&str> = line.split_whitespace().collect();
             let bad = |what: &str| format!("line {}: {what}", ln + 1);
@@ -192,6 +292,14 @@ impl Zone {
                 f.get(i).ok_or_else(|| bad("missing value"))?.parse::<f64>().map_err(|_| bad("bad number"))
             };
             let cx = |i: usize| -> Result<Cx, String> { Ok(Cx(n(i)?, n(i + 1)?)) };
+            let fx = |i: usize| -> Result<Fx, String> {
+                let e = f.get(i + 2).ok_or_else(|| bad("missing value"))?.parse::<i64>().map_err(|_| bad("bad exponent"))?;
+                let m = cx(i)?;
+                if !(m.0.is_finite() && m.1.is_finite()) {
+                    return Err(bad("non-finite mantissa"));
+                }
+                Ok(Fx::new(m, e))
+            };
             match f[0] {
                 "c_exact" => {
                     let (re, im) = (f.get(1).ok_or_else(|| bad("missing value"))?, f.get(2).ok_or_else(|| bad("missing value"))?);
@@ -207,8 +315,10 @@ impl Zone {
                 "alpha" => z.alpha = cx(1)?,
                 "rho" => z.rho = cx(1)?,
                 "z24_minus_alpha" => z.z24ma = cx(1)?,
+                "z24_minus_alpha_x" => z24ma_x = Some(fx(1)?),
                 "orbit" => z.orbit.push(cx(2)?),
                 "biseries" => raw.push((n(1)? as usize, n(2)? as usize, cx(3)?)),
+                "biseries_x" => raw_x.push((n(1)? as usize, n(2)? as usize, fx(3)?)),
                 "phi" => z.phi.push(cx(2)?),
                 "psi" => z.psi.push(cx(2)?),
                 "patch_root" => {
@@ -242,11 +352,6 @@ impl Zone {
         if z.orbit.len() != APPROACH {
             return Err(format!("expected {APPROACH} orbit points, got {}", z.orbit.len()));
         }
-        // Deep ladder rungs can have a nonzero Koenigs entry offset below
-        // f64's range. Jumping from a rounded zero would invent a result.
-        if z.z24ma.abs() == 0.0 {
-            return Err("Koenigs entry offset underflows f64; scaled jump required".into());
-        }
         if z.phi.is_empty() || z.psi.is_empty() {
             return Err("needs phi and psi series".into());
         }
@@ -263,8 +368,30 @@ impl Zone {
             return Err("biseries degree must be below 8".into());
         }
         z.bis = vec![vec![Cx::default(); z.deg + 1]; z.deg + 1];
-        for (i, j, a) in raw {
+        for &(i, j, a) in &raw {
             z.bis[i][j] = a;
+        }
+        // Deep ladder rungs have a Koenigs entry offset below f64's range and
+        // biseries coefficients above it. Rounded constants would invent a
+        // result, so such a zone renders only from its exact (`_x`) lines.
+        let f64_ok = z.scale.to_f64() >= f64::MIN_POSITIVE
+            && z.z24ma.abs() != 0.0
+            && raw.iter().all(|&(_, _, a)| a.0.is_finite() && a.1.is_finite());
+        if !f64_ok {
+            let Some(z24ma) = z24ma_x else {
+                return Err("Koenigs entry offset or biseries leaves f64's range; z24_minus_alpha_x and biseries_x lines required".into());
+            };
+            if raw_x.len() != raw.len() {
+                return Err("need one biseries_x line per biseries line".into());
+            }
+            let mut bis = vec![[Fx::default(); 8]; z.deg + 1];
+            for (i, j, a) in raw_x {
+                if i + j > z.deg {
+                    return Err("biseries_x term above the biseries degree".into());
+                }
+                bis[i][j] = a;
+            }
+            z.deep = Some(Deep { bis, z24ma, phi: z.phi.iter().map(|&a| Fx::new(a, 0)).collect() });
         }
         if z.max_dc.mant == 0.0 {
             z.max_dc = z.guard;
@@ -291,20 +418,24 @@ pub struct ZoneStats {
 struct CentreOffset {
     absolute: Cx,
     scaled: Cx,
+    /// The absolute difference at any depth.
+    exact: Fx,
 }
 
 /// Subtract exact decimal centres at the greater of the view and zone precisions.
 fn centre_offset(view: &View, zone: &Zone, plane: &Plane) -> Result<CentreOffset, String> {
     let bits = plane.bits.max(zone.scale.bits()).max(zone.guard.bits()).max(zone.max_dc.bits());
     let limbs = fd_fixed::limbs_for(bits);
-    let d = |a: &str, b: &str| -> Result<(f64, f64), String> {
+    let d = |a: &str, b: &str| -> Result<(f64, f64, (f64, i64)), String> {
         let diff = Fixed::parse(a, limbs)?.sub(&Fixed::parse(b, limbs)?);
+        let me = diff.frexp().unwrap_or((0.0, 0));
         let scaled = diff.frexp().map_or(0.0, |(m, e)| ZoneSize { mant: m, exp2: e }.over(zone.scale));
-        Ok((diff.to_f64(), scaled))
+        Ok((diff.to_f64(), scaled, me))
     };
-    let (re, sr) = d(&view.center_re, &zone.c_re)?;
-    let (im, si) = d(&view.center_im, &zone.c_im)?;
-    Ok(CentreOffset { absolute: Cx(re, im), scaled: Cx(sr, si) })
+    let (re, sr, (rm, rexp)) = d(&view.center_re, &zone.c_re)?;
+    let (im, si, (im_m, iexp)) = d(&view.center_im, &zone.c_im)?;
+    let exact = Fx::new(Cx(rm, 0.0), rexp).add(Fx::new(Cx(0.0, im_m), iexp));
+    Ok(CentreOffset { absolute: Cx(re, im), scaled: Cx(sr, si), exact })
 }
 
 impl Zone {
@@ -340,6 +471,8 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
     let (plane, tier) = setup(view, p)?;
     let off = centre_offset(view, zone, &plane)?;
     let legacy = zone.f64_geometry(&plane);
+    // Deep zones: v = (centre offset + pixel offset) / scale, all in Fx.
+    let inv_scale = Fx::new(Cx(1.0 / zone.scale.mant, 0.0), -zone.scale.exp2);
     let h = if legacy { plane.h() } else { ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale) };
     let cols = p.columns.with(Column::Class);
     let deriv = cols.needs_derivative();
@@ -360,6 +493,17 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                         let Some(mut row) = queue.lock().unwrap().next() else { break };
                         for i in 0..row.class.len() {
                             let (ux, uy) = plane.unit_offset(i, row.j);
+                            if let Some(deep) = &zone.deep {
+                                let v = off.exact.add(Fx::new(Cx(ux * plane.h_m, uy * plane.h_m), plane.h_e)).mul(inv_scale);
+                                let (o, w) = if deriv {
+                                    pixel_deep::<true>(zone, deep, v, p.max_iter, r2, &mut st)
+                                } else {
+                                    pixel_deep::<false>(zone, deep, v, p.max_iter, r2, &mut st)
+                                };
+                                its += w;
+                                store.put(&mut row, i, o);
+                                continue;
+                            }
                             let v = if legacy {
                                 Cx(off.absolute.0 + ux * h, off.absolute.1 + uy * h).scale(1.0 / zone.scale.to_f64())
                             } else {
@@ -462,7 +606,7 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
         let (w0, dphi) = series_d(&k.phi, h0);
         let lr = k.rho.abs().ln();
         let j = ((k.r0 / w0.abs()).ln() / lr).floor();
-        if let Some((zp, dzs, m)) = patch(k, w0, j) {
+        if let Some((zp, dzs, m)) = patch(k, w0.abs().ln(), w0.1.atan2(w0.0), j) {
             // z = P(t), t = (log w - centre) / r: dz/dc = P'(t) / r * phi'(h0) / w0 * dh0/dc.
             if D {
                 du = dzs.mul(dphi).mul(du).div(w0);
@@ -511,6 +655,208 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
             return (o, work);
         }
     }
+}
+
+/// [`pixel`] for a deep zone: the same four stages with states, constants and `dz/dc`
+/// in [`Fx`]. `v = (c - C) / scale`. Returns `dz/dc` as mantissa and `dexp`.
+fn pixel_deep<const D: bool>(k: &Zone, x: &Deep, v: Fx, max_iter: u64, r2: f64, st: &mut ZoneStats) -> (Outcome, u64) {
+    let mut b = [Fx::default(); 8];
+    let mut bv = [Fx::default(); 8];
+    let mut pv = [Cx(1.0, 0.0); 8];
+    for j in 1..=k.deg {
+        pv[j] = pv[j - 1].mul(v.m);
+    }
+    for i in 0..=k.deg {
+        b[i] = poly_fx(&x.bis[i], k.deg - i, &pv, v.e, 0);
+        if D {
+            bv[i] = poly_fx(&x.bis[i], k.deg - i, &pv, v.e, 1);
+        }
+    }
+    b[0] = b[0].add(Fx::new(k.bias, 0));
+    // Stage 1: returns.
+    let (mut u, mut du) = (v, Fx::ONE);
+    let mut n: u64 = 1;
+    let mut work = 0u64;
+    let guard = k.guard.over(k.scale);
+    while u.to_cx().abs() <= guard {
+        if n + k.period > max_iter {
+            return (Outcome::Unresolved, work);
+        }
+        // B(u), B'(u), dB/dv(u) term by term: u^i is u.m^i * 2^(i u.e), so each sum
+        // aligns and normalises once instead of after every Horner step.
+        let mut pw = [Cx(1.0, 0.0); 8];
+        for i in 1..=k.deg {
+            pw[i] = pw[i - 1].mul(u.m);
+        }
+        let s = poly_fx(&b, k.deg, &pw, u.e, 0);
+        let su = poly_fx(&b, k.deg, &pw, u.e, 1);
+        let sv = if D { poly_fx(&bv, k.deg, &pw, u.e, 0) } else { Fx::default() };
+        let step = s.sub(u);
+        if D {
+            du = su.mul(du).add(sv);
+        }
+        // As in `pixel`; `attracted` runs on the map conjugated by 2^u.e, which is f64.
+        let settled = su.to_cx().norm2() < 1.0 && step.m.norm2() * exp2i(2 * (step.e - u.e)) <= 1e-24 * u.m.norm2();
+        if settled || (work >= 16 && work.is_power_of_two() && attracted_deep(&b, k.deg, u)) {
+            st.returns += 1;
+            return (Outcome::Interior { n }, work + 1);
+        }
+        u = s;
+        n += k.period;
+        work += 1;
+        st.returns += 1;
+    }
+    // Stage 2: approach against C's critical orbit. Next to the O(1) orbit, d and dz/dc
+    // need no per-step normalisation: each is a mantissa with an exponent that is
+    // rescaled only when the mantissa drifts out of [2^-32, 2^32] (as in scaled.rs).
+    let mut d = Lazy::from(u.mul(Fx::new(Cx(k.scale.mant, 0.0), k.scale.exp2)));
+    let mut g = Lazy::from(du);
+    for z in &k.orbit {
+        if D {
+            g = g.step(z.add(d.to_cx()));
+        }
+        d = d.square_plus_2z(*z);
+    }
+    let d = d.fx();
+    du = g.fx();
+    n += APPROACH as u64;
+    work += APPROACH as u64;
+    // Stage 3: Koenigs jump from an entry offset h0 that may be far below f64's range.
+    let h0 = x.z24ma.add(d);
+    let mut z = k.alpha.add(h0.to_cx());
+    if h0.to_cx().abs() < k.r0 {
+        let (w0, dphi) = series_d_fx(&x.phi, h0);
+        let (lw, aw) = (w0.ln_abs(), w0.arg());
+        let (lr, ar) = (k.rho.abs().ln(), k.rho.1.atan2(k.rho.0));
+        let j = ((k.r0.ln() - lw) / lr).floor();
+        if let Some((zp, dzs, m)) = patch(k, lw, aw, j) {
+            if D {
+                du = Fx::new(dzs, 0).mul(dphi).mul(du).mul(w0.inv());
+            }
+            z = zp;
+            n += 2 * j as u64 + m;
+            st.jumps += 1;
+            st.patches += 1;
+        } else if j > 0.0 {
+            let w = Fx::polar(lw + j * lr, aw + j * ar).to_cx();
+            let (hw, dpsi) = series_d(&k.psi, w);
+            if D {
+                du = Fx::new(dpsi, 0).mul(Fx::polar(j * lr, j * ar)).mul(dphi).mul(du);
+            }
+            z = k.alpha.add(hw);
+            n += 2 * j as u64;
+            st.jumps += 1;
+        }
+        work += 1;
+    }
+    // Stage 4: plain steps at C.
+    let mut g = Lazy::from(du);
+    loop {
+        if n >= max_iter {
+            return (Outcome::Unresolved, work);
+        }
+        if D {
+            g = g.step(z);
+        }
+        z = z.mul(z).add(k.c);
+        n += 1;
+        work += 1;
+        st.plain += 1;
+        if z.norm2() > r2 {
+            let o = Outcome::Escaped {
+                n,
+                zr: z.0,
+                zi: z.1,
+                dr: g.m.0,
+                di: g.m.1,
+                dexp: g.e,
+                ez: f64::INFINITY,
+                ed: f64::INFINITY,
+            };
+            return (o, work);
+        }
+    }
+}
+
+/// `m 2^e` normalised only when `m` leaves `[2^-32, 2^32]`, with `2^e` and `2^-e` cached:
+/// the deep path's numbers next to an O(1) orbit, where per-step [`Fx`] normalisation
+/// would be the main cost.
+#[derive(Clone, Copy)]
+struct Lazy {
+    m: Cx,
+    e: i64,
+    up: f64,
+    down: f64,
+}
+
+impl Lazy {
+    #[inline(always)]
+    fn from(x: Fx) -> Lazy {
+        Lazy { m: x.m, e: x.e, up: exp2i(x.e), down: exp2i((-x.e).min(1023)) }
+    }
+    #[inline(always)]
+    fn fx(self) -> Fx {
+        Fx::new(self.m, self.e)
+    }
+    #[inline(always)]
+    fn to_cx(self) -> Cx {
+        self.m.scale(self.up)
+    }
+    #[inline(always)]
+    fn renorm(self) -> Lazy {
+        let a = self.m.0.abs().max(self.m.1.abs());
+        if a > 4294967296.0 || (a < 1.0 / 4294967296.0 && a != 0.0) {
+            Lazy::from(self.fx())
+        } else {
+            self
+        }
+    }
+    /// `dz/dc <- 2 z dz/dc + 1`.
+    #[inline(always)]
+    fn step(self, z: Cx) -> Lazy {
+        Lazy { m: z.mul(self.m).scale(2.0).add(Cx(self.down, 0.0)), ..self }.renorm()
+    }
+    /// `d <- 2 z d + d^2` (`d^2` is negligible next to `2 z d` whenever `2^e` underflows).
+    #[inline(always)]
+    fn square_plus_2z(self, z: Cx) -> Lazy {
+        Lazy { m: z.scale(2.0).mul(self.m).add(self.m.mul(self.m).scale(self.up)), ..self }.renorm()
+    }
+}
+
+/// `sum_i c_i u^i` (`d = 0`) or its derivative `sum_i i c_i u^(i-1)` (`d = 1`), with
+/// `pw[i] = u.m^i` and `u = u.m 2^ue`.
+#[inline(always)]
+fn poly_fx(c: &[Fx; 8], deg: usize, pw: &[Cx; 8], ue: i64, d: usize) -> Fx {
+    let terms = || c[..=deg].iter().enumerate().skip(d).filter(|(_, a)| !a.is_zero());
+    let Some(top) = terms().map(|(i, a)| a.e + (i - d) as i64 * ue).max() else {
+        return Fx::default();
+    };
+    let mut sum = Cx::default();
+    for (i, a) in terms() {
+        let k = if d == 1 { i as f64 } else { 1.0 };
+        sum = sum.add(a.m.mul(pw[i - d]).scale(k * exp2i(a.e + (i - d) as i64 * ue - top)));
+    }
+    Fx::new(sum, top)
+}
+
+/// [`attracted`] for an [`Fx`] state: the return map conjugated by `x = u / 2^u.e`
+/// (coefficients `b_i 2^(u.e (i - 1))`), which keeps the cycle test in f64.
+fn attracted_deep(b: &[Fx; 8], deg: usize, u: Fx) -> bool {
+    let mut bt = [Cx::default(); 8];
+    for (i, (t, a)) in bt.iter_mut().zip(b).enumerate().take(deg + 1) {
+        *t = Fx { m: a.m, e: a.e + u.e * (i as i64 - 1) }.to_cx();
+    }
+    attracted(&bt, deg, u.m)
+}
+
+/// [`series_d`] in [`Fx`].
+fn series_d_fx(c: &[Fx], x: Fx) -> (Fx, Fx) {
+    let (mut s, mut d) = (Fx::default(), Fx::default());
+    for (i, a) in c.iter().enumerate().rev() {
+        s = s.add(*a).mul(x);
+        d = d.mul(x).add(a.mul(Fx::new(Cx((i + 1) as f64, 0.0), 0)));
+    }
+    (s, d)
 }
 
 /// `B(u)`, `B'(u)` and `B''(u)` for `B(u) = sum b[i] u^i`, `i <= deg`.
@@ -577,16 +923,16 @@ fn series_d(c: &[Cx], x: Cx) -> (Cx, Cx) {
     (s, d)
 }
 
-/// Tail patch for the jumped point `w0 rho^j`: `f_C^m(A + psi(w))`, its derivative in
-/// `s = log w`, and `m`.
+/// Tail patch for the jumped point `w0 rho^j` (`w0` given as `ln|w0|` and `arg w0`):
+/// `f_C^m(A + psi(w))`, its derivative in `s = log w`, and `m`.
 #[inline]
-fn patch(k: &Zone, w0: Cx, j: f64) -> Option<(Cx, Cx, u64)> {
+fn patch(k: &Zone, ln_w0: f64, arg_w0: f64, j: f64) -> Option<(Cx, Cx, u64)> {
     if k.nodes.is_empty() || j < 0.0 {
         return None;
     }
     let tau = std::f64::consts::TAU;
-    let re = w0.abs().ln() + j * k.rho.abs().ln();
-    let im = (w0.1.atan2(w0.0) + j * k.rho.1.atan2(k.rho.0)).rem_euclid(tau);
+    let re = ln_w0 + j * k.rho.abs().ln();
+    let im = (arg_w0 + j * k.rho.1.atan2(k.rho.0)).rem_euclid(tau);
     let mut node = ((im / (tau / k.patch_nx as f64)) as usize).min(k.patch_nx - 1);
     while k.nodes[node].1 >= 0 {
         let c = k.nodes[node].0;
@@ -733,7 +1079,7 @@ mod tests {
             })
             .collect();
         lines.push("max_dc 1.0511037747648835 -3320".into()); // 4e-1000
-        let z = Zone::parse(&lines.join("\n")).unwrap();
+        let z = Zone::parse(&with_exact_lines(&lines.join("\n"))).unwrap();
         let mut v = View { center_re: parts[2].into(), center_im: parts[3].into(), width: "5e-1000".into(), rotation: 0.3 };
         let p = params(&[Column::Nu]);
         assert!(zone_covers(&v, &p, &z).unwrap());
@@ -756,4 +1102,83 @@ mod tests {
         assert!(!zone_covers(&v, &p, &z).unwrap());
     }
 
+    #[test]
+    fn fx_keeps_values_far_outside_f64() {
+        let (a, b) = (Fx::new(Cx(0.3, -1.7), -3000), Fx::new(Cx(-2.5, 0.25), 3000));
+        let p = a.mul(b).to_cx();
+        let q = Cx(0.3, -1.7).mul(Cx(-2.5, 0.25));
+        assert!((p.0 - q.0).abs() < 1e-15 && (p.1 - q.1).abs() < 1e-15, "{p:?} {q:?}");
+        let s = a.add(Fx::new(Cx(0.1, 0.0), -3000)).sub(a).mul(Fx::new(Cx(1.0, 0.0), 3000)).to_cx();
+        assert!((s.0 - 0.1).abs() < 1e-15 && s.1.abs() < 1e-15, "{s:?}");
+        let r = a.mul(a.inv()).to_cx();
+        assert!((r.0 - 1.0).abs() < 1e-15 && r.1.abs() < 1e-15, "{r:?}");
+        assert_eq!(a.to_cx(), Cx::default());
+        let w = Fx::polar(-1500.0, 0.7);
+        assert!((w.ln_abs() + 1500.0).abs() < 1e-12 && (w.arg() - 0.7).abs() < 1e-12);
+    }
+
+    /// `z` with its f64 constants copied into the deep (Fx) representation.
+    fn as_deep(mut z: Zone) -> Zone {
+        let fx = |a: &Cx| Fx::new(*a, 0);
+        z.deep = Some(Deep {
+            bis: z.bis.iter().map(|r| std::array::from_fn(|j| r.get(j).map_or(Fx::default(), fx))).collect(),
+            z24ma: fx(&z.z24ma),
+            phi: z.phi.iter().map(fx).collect(),
+        });
+        z
+    }
+
+    #[test]
+    fn deep_path_matches_the_f64_path_on_v0() {
+        let (old, new) = (v0(), as_deep(v0()));
+        let p = params(&[Column::Nu, Column::De, Column::Normal]);
+        for w in ["1e-36", "2e-48"] {
+            let v = view(w);
+            let (_, a, _, sa) = render_zone(&v, &p, &old).unwrap();
+            let (_, b, _, sb) = render_zone(&v, &p, &new).unwrap();
+            assert_eq!(a.class, b.class, "{w}");
+            assert_eq!((sa.returns, sa.jumps, sa.patches), (sb.returns, sb.jumps, sb.patches), "{w}");
+            let (an, bn) = (a.nu.as_ref().unwrap(), b.nu.as_ref().unwrap());
+            let (ad, bd) = (a.de.as_ref().unwrap(), b.de.as_ref().unwrap());
+            let (am, bm) = (a.normal.as_ref().unwrap(), b.normal.as_ref().unwrap());
+            for i in 0..a.class.len() {
+                if a.class[i].kind() != Some(fd_samples::Kind::Escaped) || ad[i] < 1e-3 {
+                    continue;
+                }
+                // fd compare's displacement, 1000x tighter than its 1e-3 px gate.
+                let px = (an[i] - bn[i]).abs() * f64::from(ad[i]) * std::f64::consts::LN_2 / 2.0;
+                assert!(px <= 1e-6, "{w} {i}: {px} px");
+                assert!((bd[i] / ad[i] - 1.0).abs() < 1e-5, "{w} {i}: de {} {}", ad[i], bd[i]);
+                let da = am[i].wrapping_sub(bm[i]).min(bm[i].wrapping_sub(am[i]));
+                assert!(da <= 1, "{w} {i}: normal {} {}", am[i], bm[i]);
+            }
+        }
+    }
+
+    /// Zone text plus `_x` lines copied from the v0 core zone's f64 constants.
+    fn with_exact_lines(text: &str) -> String {
+        let core = include_str!("../../../bench/zones/v0-core.zone");
+        let mut out = text.to_string();
+        for l in core.lines().filter(|l| l.starts_with("biseries ")) {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            out.push_str(&format!("\nbiseries_x {} {} {} {} 0", f[1], f[2], f[3], f[4]));
+        }
+        let z24 = core.lines().find(|l| l.starts_with("z24_minus_alpha ")).unwrap();
+        out.push_str(&format!("\nz24_minus_alpha_x {} 0", &z24["z24_minus_alpha ".len()..]));
+        out
+    }
+
+    #[test]
+    fn deep_zone_needs_exact_lines() {
+        let text = include_str!("../../../bench/zones/v0-core.zone");
+        let broken: String = text
+            .lines()
+            .map(|l| if l.starts_with("biseries 2 0 ") { "biseries 2 0 inf -inf".to_string() } else { l.to_string() })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(Zone::parse(&broken).unwrap_err().contains("_x"));
+        let z = Zone::parse(&with_exact_lines(&broken)).unwrap();
+        assert!(z.deep.is_some());
+        assert!(v0().deep.is_none());
+    }
 }

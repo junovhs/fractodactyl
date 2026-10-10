@@ -98,6 +98,44 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-19: the k = 7676 (~1e-1000) rung renders; three-rung table (2026-10-10)
+
+**Measured locally** (Ryzen 9 3900X, 24 threads, 480x270, best of 3 runs per frame, max_iter 40P, nu/de/normal). Command: `THREADS=24 RUNS=3 SIZE=480x270 RUNGS="0 409 7676" FRAMES="5000 500 50 5" bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob19`. Same exact centres and widths as PROB-17; every one of 129,600 pixels per frame scored with `fd compare`. The rival is `fd control --bla per-frame`. At v0 and k=409 that is BLA (`bla.use=used`). At k=7676 the scaled tier has no BLA (`bla.use=none`, FIX-03), so it is plain scaled perturbation.
+
+| Rung | Width / minibrot size | Zone build s | Zone frame s | fd frame s | Speed-up | Map returns/px | nu >1e-3 px | Max nu px | Real class errors | FIX-04 pairs |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| v0, P=764 (~4e-50) | 5000 | 11.9 | 0.00768 | 0.162 | 21x | 3.033 | 0 | 2.0e-8 | 0 | 0 |
+| v0 | 500 | | 0.00788 | 0.186 | 24x | 4.009 | 0 | 1.4e-9 | 0 | 1 |
+| v0 | 50 | | 0.00877 | 0.176 | 20x | 4.789 | 0 | 1.2e-7 | 0 | 117 |
+| v0 | 5 | | 0.01065 | 0.177 | 17x | 9.633 | 0 | 6.2e-8 | 0 | 11904 |
+| k=409, P=1582 (~9e-101) | 5000 | 13.7 | 0.00900 | 0.168 | 19x | 4.103 | 0 | 4.0e-6 | 0 | 0 |
+| k=409 | 500 | | 0.00843 | 0.182 | 22x | 5.016 | 0 | 1.5e-8 | 0 | 1 |
+| k=409 | 50 | | 0.00854 | 0.189 | 22x | 6.071 | 0 | 1.4e-6 | 0 | 120 |
+| k=409 | 5 | | 0.01103 | 0.189 | 17x | 10.611 | 0 | 1.7e-7 | 0 | 11902 |
+| **k=7676, P=16116 (~1e-1000)** | 5000 | 158.5 | 0.0232 | 22.9 | 990x | 8.002 | 0 | 1.4e-8 | 0 | 0 |
+| k=7676 | 500 | | 0.0239 | 25.0 | 1050x | 8.171 | 0 | 1.2e-8 | 0 (1 fd fault) | 0 |
+| k=7676 | 50 | | 0.0250 | 27.5 | 1100x | 9.243 | 0 | 9.4e-9 | 0 (1 fd fault) | 118 |
+| k=7676 | 5 | | 0.0295 | 42.2 | 1430x | 13.620 | 0 | 1.8e-8 | 0 (1 fd fault) | 11903 |
+
+- **Correctness (DEC-17, nu/class): passes at all three rungs.** Every frame has 0 nu samples over 1e-3 px, 0 non-finite, 0 de over 0.2% and 0 normal over 0.2 deg. The maxima are de 2.8e-4 and normal 0.016 deg, both at k=409.
+- **The three k=7676 class disagreements are fd's errors.** They are pixels (184,201), (306,79) and (112,119) in frames 500/50/5: fd says Unresolved, the zone says escaped. 1200-digit mpmath escapes them at n = 145079, 161229 and 209590, and the zone matches within 1e-14 px on nu, 3.3e-8 on de and 0 deg on the normal. Filed as FIX-41 (scaled kernel close-return early-out).
+- **FIX-04 pairs** (fd Unresolved, zone Interior) remain and are listed, not waived.
+- **Independent check before the run:** 12 spread k=7676 pixels against 1200-digit mpmath. The zone agrees on 10 escapes within 2e-13 px on nu, 5.5e-8 on de and 0 deg on the normal; the other 2 are minibrot interior (mpmath does not escape by max_iter).
+
+**Cost criterion: not met as stated.** The issue keeps the result if zone time per frame grows no faster than the return count. From v0 to k=7676, zone time grows 3.02/3.03/2.85/2.77x at widths 5000/500/50/5, while returns per pixel grow 2.64/2.04/1.93/1.41x. Each return at k=7676 costs 1.15-2.0x a v0 return.
+
+The reason is arithmetic, not more returns. At k=7676 the return-map coefficients reach 2^1666 and the states and entry offset reach 2^-1661, so the deep path computes stage 1 and the Koenigs entry in mantissa + binary exponent. Two changes in this issue cut that path's frame time by about 30%:
+- term-wise polynomial sums that align and normalise once;
+- lazy-exponent approach and tail steps.
+
+k=409 still runs on the f64 path; its time grows 0.97-1.17x against returns 1.10-1.35x, within the criterion.
+
+**What it means:** a full 1e-1000 minibrot frame costs about 3x a 1e-50 one with the zone, against roughly 130-240x for fd without BLA (0.16 s at v0 vs 23-42 s at k=7676). The 1e-1000 rival has no BLA (FIX-03), so the ~1000x is against the best fd renderer available at that depth, not against a BLA-equipped one.
+
+**Zone file:** `make_zone.sh` writes `biseries_x` and `z24_minus_alpha_x` lines (mantissa pair + binary exponent) next to the f64 lines. `zone.rs` uses the exact lines only when the f64 constants under- or overflow, and refuses a zone with neither (fail closed, DEC-21). Old zone files load unchanged, and on v0 the deep path matches the f64 path within 1e-6 px (unit test).
+
+**Method note (FIX-40):** two separately built fd binaries (shared incremental target vs a fresh `-p fd-cli` build) of the *same source* differed by ~10% in speed. Compare only binaries built the same way, timed interleaved.
+
 ### PROB-18: noncontiguous passing frames (2026-10-10)
 
 **Local full-path result (manager, Ryzen 9 3900X, 24 threads, 1280x720, max_iter 1e5):** 314 frames accepted, 5 rejected (431, 432, 742, 747, 748), 431 frames uncovered by the guard. On the accepted frames fd takes 379.4 s and Koenigs 15.9 s (23.8x). Whole film: 611.7 s with fd alone vs 248.3 s with Koenigs on the accepted frames, **2.46x end-to-end measured**. Every accepted frame has 0 wrong pixels, 0 class mismatches beyond FIX-04, and 0 de/normal over tolerance. Max nu displacement 5.1e-4 px.
@@ -243,7 +281,7 @@ scaled Koenigs entry/jump is necessary before `--zone` can render any
 k=7676 landing. Also, on the scaled tier `fd control --bla per-frame`
 has no usable BLA (`bla.use=none`; FIX-03). **No k=7676 frame seconds,
 return counts or class/nu/de/normal score can be claimed.** The
-logarithmic-growth hypothesis at k=7676 is still open.
+logarithmic-growth hypothesis at k=7676 is still open. **Superseded by PROB-19 above:** the k=7676 rung now renders and is scored.
 
 Reproduce on Ryzen 9 3900X (24 threads) from the repo root (Python 3,
 mpmath and NumPy installed):
