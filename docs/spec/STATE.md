@@ -109,12 +109,20 @@ Ishoo is the source of truth for order: `ishoo_status`, then `ishoo_plan op:next
 plans were reorganised on 2026-10-09 by outcome, with dependency edges. In order of
 priority:
 
+0. **Fix the correctness gate first** (external code review, 2026-10-09; all findings
+   confirmed in the code). GATE-01 (`fd compare` passes NaN/inf and compares widths as
+   f64, so 1e-1000 equals 1e-2000) → GATE-02 (score de and normal, not just class and ν)
+   → FIX-35 (scaled kernel declares Interior without a contraction check) → FIX-36
+   (.fds bound column and reader caps). PROB-14, PROB-10, PROB-17 and KERN-02 depend on
+   these. Also filed from the review: KERN-04 (zones at any depth; the 512-bit centre
+   can't reach 1e-1000) and FILM-09 (fd film widths are f64, with a ceiling around 1e-308).
 1. **Fast path everywhere** (active). PROB-14 (mid-band jump, whole frames in Rust; read
    `docs/research/10-9-26/HANDOFF-mid-band-jump.md` first) → PROB-10 (v0 deep band, whole
    frames) → PROB-17 (render the 1e-100 and 1e-1000 ladder rungs; cost should grow only
    like log2) → PROB-11 (handover near 1e-27) → PROB-16 (census of famous zooms) →
    KERN-02 (mid-band path inside `fd --zone`; this is what makes films faster) →
-   PROB-12 (`fd zone` for any location) → PROB-15, KERN-03, PROB-06, PROB-13, PROB-05.
+   PROB-12 (`fd zone` for any location) → PROB-15, KERN-03, KERN-04, PROB-06, PROB-13.
+   PROB-05 (frame transfer) moved to Parked.
    KERN-01 (deep band in fd) is done.
 2. **Films.** FILM-07 (restore places/spiral-on-spiral.place; coordinates are in the
    issue) → FIX-04 → EXPL-09 → FX-05 (GPU shading) → GPU-02 (float32 GPU film kernel,
