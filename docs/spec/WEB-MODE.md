@@ -6,8 +6,8 @@ implements Ishoo issues and pushes branches. The agent picks the issue, sends th
 runs what only this machine can run, reviews, and lands through Ishoo. Use web mode only
 when the owner asks for it in that session; otherwise the agent does the work itself.
 
-Scripts: `tools/web-mode/` (`brief.py`, `send.sh`, `wait_push.sh`, `review.sh`, `head.txt`).
-Set `WEB_DIR` to the session scratchpad; it holds briefs and messages.
+Scripts: `tools/web-mode/` (`brief.py`, `send.sh`, `wait_done.sh`, `review.sh`, `head.txt`).
+Set `WEB_DIR` to the session scratchpad; it holds briefs, messages and saved chat URLs.
 
 ## Rules (from the owner)
 
@@ -16,7 +16,12 @@ Set `WEB_DIR` to the session scratchpad; it holds briefs and messages.
   verifies and runs the Ishoo landing. Exception: the owner says "take over".
 - **Never hand-type long text.** Briefs come from the Ishoo store (`brief.py`), and replies
   are assembled by script from report files (grep the lines that matter). Keep the
-  agent's context nearly empty. Look at screenshots only to check state, at reduced size.
+  agent's context nearly empty.
+- **Light touch on chatgpt.com (OpenAI's terms).** The agent only sends: plain keystrokes
+  in the owner's normal Chrome, one message per turn, one chat at a time, no polling of
+  the site, no headless browser or remote debugging, never ChatGPT's private API. It
+  never reads ChatGPT's replies (no screenshots of them, no "copy response"): ChatGPT
+  reports through the done file it pushes to GitHub (step 3).
 - **Plain Chat mode, never "Work" mode.** Work mode spends the rate limit. The sidebar's
   "N% usage remaining" counter is about Work mode only; ignore it in Chat mode.
 - **Leave the effort setting alone.** The owner sets it (Medium as of 2026-10-10).
@@ -39,20 +44,23 @@ Set `WEB_DIR` to the session scratchpad; it holds briefs and messages.
    the scope first if it is wrong or contradicts itself; `ishoo_edit` does that. AUTO-01
    said "out of scope: merging the research branch", which made landing impossible.
    Add any needed note to a file.
-2. **Send.** `tools/web-mode/send.sh new ID [--note FILE]` opens chatgpt.com, clears any
-   stale draft, pastes the brief and sends it. It prints the chat title. Check one
-   reduced screenshot to confirm the brief was sent whole.
-3. **Wait.** Run `tools/web-mode/wait_push.sh ID` in the background; it reports a push
-   after a 10-minute settle, since ChatGPT often pushes several commits. A push is not
-   "done": check that the chat shows "Worked for ..." with the final summary and no stop
-   button before reviewing.
+2. **Send.** `tools/web-mode/send.sh new ID [--note FILE]` opens chatgpt.com in a new tab
+   (the owner's tabs are never touched), pastes the brief and sends it, then saves the
+   chat's URL to `$WEB_DIR/chat-ID.url` for replies.
+3. **Wait.** Run `tools/web-mode/wait_done.sh ID` in the background. The brief
+   (`head.txt`) tells ChatGPT to end every turn by pushing `web-mode/ID.done` on `gpt/ID`
+   with STATUS, COMMIT, SUMMARY, TESTED, RUN (commands for this machine) and QUESTIONS.
+   The watcher checks GitHub every 30 s and exits, printing that file, as soon as a new
+   version arrives; its exit wakes the agent. If it times out with no done file, check
+   one reduced screenshot of the chat for an error or a question.
 4. **Review.** `ishoo_start ID`, then `tools/web-mode/review.sh ID`, which merges
-   `gpt/ID` into the worktree and runs `cargo test` and clippy. Check the issue's proof of
+   `gpt/ID` into the worktree, drops the `web-mode/` done files so they never land, and
+   runs `cargo test` and clippy. Run the done file's RUN commands. Check the issue's proof of
    done against what was pushed. If ChatGPT cites a GitHub Actions run, confirm with
    `gh run view` that it succeeded and ran on the landed code, or that later commits are
    docs only.
 5. **Reply or land.** If something fails, send one complete message:
-   `send.sh reply FILE`, with FILE assembled by script. Otherwise run `ishoo_resolve`
+   `send.sh reply ID FILE`, with FILE assembled by script. Otherwise run `ishoo_resolve`
    (credit ChatGPT in What changed) and `ishoo_done`. Pull with `--ff-only` first. Then
    `git push origin --delete gpt/ID` and start the next issue with step 1.
 
@@ -68,14 +76,15 @@ reachable and scored before asking for fixes. If the renderer is being restored,
 
 ## Gotchas
 
-- **Screen layout.** `send.sh` clicks fixed coordinates for the owner's layout: the
-  composer is at (600, 982) on a new chat and at (600, 1990) in a running chat. If a
-  screenshot shows a different layout, adjust them. Find the window with `wmctrl -l`,
-  or set `WEB_WIN`.
+- **Focus.** `send.sh` relies on ChatGPT focusing its message box when a page loads, so
+  it clicks nothing. Do not use Shift+Esc (ChatGPT's "focus input" shortcut): Chrome on
+  Linux takes it and opens its Task Manager. If no Chrome window is found, set `WEB_WIN`
+  (`wmctrl -l`). Each send opens a tab; close old ChatGPT tabs now and then.
 - **Stale drafts.** The composer can keep a stale draft. `send.sh` clears it with
   ctrl+a and BackSpace before pasting.
-- **Copying from ChatGPT.** Its code-block copy button does not reach `xclip`. Read
-  commands from a full-resolution crop of the screenshot instead.
+- **Commands from ChatGPT** come from the done file's RUN lines, never from the chat. If
+  a command fails on a CLI limit (e.g. `fd film` needs at least 2 frames), fix the flag
+  and tell ChatGPT in the next reply.
 - **`koenigs_bench/run.sh` (path mode)** sends fd's stderr to log files under the output
   directory, not to the terminal. To find diagnostics, grep the logs.
 - **`pkill -f PATTERN`** also matches the agent's own shell when the pattern appears in

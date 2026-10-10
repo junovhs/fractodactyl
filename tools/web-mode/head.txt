@@ -6,6 +6,13 @@ RULES
 - `cargo test --workspace` must pass. Run any experiments/benchmarks the issue asks for yourself if your environment allows, and log results where the issue says (usually docs/spec/METHOD.md). If you cannot run something, say exactly what is left for me to run locally, with the command.
 - Project rules: every shortcut needs a validity/error/fallback contract (DEC-10); deep centres/widths never pass through f64 (DEC-21); a per-pixel shortcut is kept only after whole-frame every-pixel checks (DEC-17).
 - Work in few, complete rounds: push one finished change with a test that proves it, not a series of guesses. If something needs my machine (Rust builds, long renders), push the code and give me the shortest command that answers the question; I will run it and paste the output back.
-- When done, reply with: the branch name, the commit hash, a 3-6 line summary of what changed, and what you tested.
+- END EVERY TURN WITH A DONE FILE. After everything else is pushed, as your LAST commit of the turn, write `web-mode/ISSUEID.done` on `gpt/ISSUEID` (overwrite it if it exists; a new turn must change it) and push. My tooling watches GitHub for this file and does not read this chat, so put everything I need in it, as plain text:
+  STATUS: done | needs-run (I must run something on my machine) | blocked
+  COMMIT: <hash of your last code/doc commit>
+  SUMMARY: 3-6 lines on what changed
+  TESTED: what you ran and the result
+  RUN: the exact shell commands for me to run from the repo root, one per line, verified against the CLI's flags and limits (or `none`)
+  QUESTIONS: anything you need from me (or `none`)
+- Your chat reply can be one line; the done file is what counts.
 
 ISSUE
