@@ -566,11 +566,20 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                             } else {
                                 Cx(off.scaled.0 + ux * h, off.scaled.1 + uy * h)
                             };
-                            let (o, w) = if deriv {
-                                pixel::<true>(zone, v, p.max_iter, r2, &mut st)
+                            let (mut o, w) = if deriv {
+                                pixel::<true>(zone, v, p.max_iter, r2, false, &mut st)
                             } else {
-                                pixel::<false>(zone, v, p.max_iter, r2, &mut st)
+                                pixel::<false>(zone, v, p.max_iter, r2, false, &mut st)
                             };
+                            if let Outcome::Escaped { n, dr, di, .. } = &mut o {
+                                if deriv && *n >= p.max_iter.saturating_sub(1000) {
+                                    let spacing = if legacy { h / zone.scale.to_f64() } else { h };
+                                    if let Some(g) = late_derivative(zone, v, spacing, *n) {
+                                        *dr = g.0;
+                                        *di = g.1;
+                                    }
+                                }
+                            }
                             its += w;
                             store.put(&mut row, i, o);
                         }
@@ -595,7 +604,7 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
 /// Returns the outcome and the work it took (biseries returns + approach + jump +
 /// patch + plain steps, each counted once).
 #[inline]
-fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneStats) -> (Outcome, u64) {
+fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, at_n: bool, st: &mut ZoneStats) -> (Outcome, u64) {
     // Biseries coefficients in u, with the v powers folded in: b_i(v) and db_i/dv.
     let mut b = [Cx::default(); 8];
     let mut bv = [Cx::default(); 8];
@@ -637,7 +646,7 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
         // 32, 64, ... returns) u provably lies in the basin of an attracting cycle of
         // the return map of period <= 4 (an attracting q-cycle of the minibrot's
         // return map is an attracting qP-cycle of f_c: the minibrot or one of its bulbs).
-        if (su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()) || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u)) {
+        if !at_n && ((su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()) || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u))) {
             st.returns += 1;
             return (Outcome::Interior { n }, work + 1);
         }
@@ -689,6 +698,12 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
     // Stage 4: plain steps at C.
     loop {
         if n >= max_iter {
+            if at_n && n == max_iter {
+                return (Outcome::Escaped {
+                    n, zr: z.0, zi: z.1, dr: 0.0, di: 0.0, dexp: 0,
+                    ez: f64::INFINITY, ed: f64::INFINITY,
+                }, work);
+            }
             return (Outcome::Unresolved, work);
         }
         if D {
@@ -712,6 +727,48 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
             return (o, work);
         }
     }
+}
+
+/// Re-evaluate the escape point at the same iteration for a nearby parameter.
+fn value_at(k: &Zone, v: Cx, n: u64) -> Option<Cx> {
+    let (o, _) = pixel::<false>(k, v, n, f64::INFINITY, true, &mut ZoneStats::default());
+    if let Outcome::Escaped { zr, zi, .. } = o {
+        if zr.is_finite() && zi.is_finite() {
+            return Some(Cx(zr, zi));
+        }
+    }
+    None
+}
+
+/// Independent derivative for a very late escape, checked at two pixel scales.
+/// The truncated return map may preserve z but lose dz/dc over many returns.
+fn late_derivative(k: &Zone, v: Cx, spacing: f64, n: u64) -> Option<Cx> {
+    let scale = k.scale.to_f64();
+    if !(spacing > 0.0 && scale > 0.0) {
+        return None;
+    }
+    let sample = |step: f64| -> Option<Cx> {
+        let a = value_at(k, v.add(Cx(step, 0.0)), n)?;
+        let b = value_at(k, v.add(Cx(-step, 0.0)), n)?;
+        let c = value_at(k, v.add(Cx(0.0, step)), n)?;
+        let d = value_at(k, v.add(Cx(0.0, -step)), n)?;
+        let real = Cx((a.0 - b.0) / (2.0 * step * scale),
+                      (a.1 - b.1) / (2.0 * step * scale));
+        let imag = Cx((c.1 - d.1) / (2.0 * step * scale),
+                      (d.0 - c.0) / (2.0 * step * scale));
+        if (real.0 - imag.0).hypot(real.1 - imag.1) > 5e-4 * real.abs() {
+            return None;
+        }
+        Some(Cx((real.0 + imag.0) * 0.5, (real.1 + imag.1) * 0.5))
+    };
+    let coarse = sample(spacing * 1e-4)?;
+    let fine = sample(spacing * 5e-5)?;
+    if fine.abs() == 0.0
+        || (fine.0 - coarse.0).hypot(fine.1 - coarse.1) > 5e-4 * fine.abs()
+    {
+        return None;
+    }
+    Some(fine)
 }
 
 /// [`pixel`] for a deep zone: the same four stages with states, constants and `dz/dc`
