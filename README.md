@@ -11,7 +11,7 @@ The previous twin-minibrot swap prototype is intentionally absent from this bran
 0. **Start with `docs/spec/STATE.md`** (where we are, what to do next), then `ishoo_status`.
 1. Read `SPEC.md`.
 2. Read `docs/spec/ARCHITECTURE.md`.
-3. Read `docs/spec/ISHOO-LEDGER.md`.
+3. Run `ishoo_status`; Ishoo holds the live issues, plans and ADRs (`docs/spec/ISHOO-LEDGER.md` is the historical bootstrap list).
 4. Read the research reports under `docs/research/` (one folder per date).
 5. Read `docs/spec/METHOD.md` (how we work).
 

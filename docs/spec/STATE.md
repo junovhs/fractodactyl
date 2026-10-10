@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-09, late)
+# Where We Are (updated 2026-10-10)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -29,6 +29,30 @@ with 0 wrong pixels out of 777,600**. It is a per-frame technique (DEC-15). The
 interpolated exit table (PROB-04) stays rejected; the Koenigs jump replaced it. Full
 write-up: `docs/research/10-8-26/misiurewicz-frame-transfer.md`. Conversation context:
 `PHILO-HANDOFF.md`.
+
+## Six-agent research (2026-10-10): what to build next
+
+Read `docs/research/10-10-26/six-agent-final-takeaways-and-issue-roadmap.md` first. Six
+agents studied acceleration ideas; the synthesis ranks them. Their baselines differ, so the
+speed-ups must not be added up.
+
+- **Factored ladder returns (Agent #3), highest upside, unmeasured.** A long minibrot
+  period on the v0 ladder is "entry + a power of the 2-cycle's Koenigs multiplier + exit".
+  If the whole return operator can be built without stepping through all P iterations,
+  the 1e-1000 rung (P = 16,116) gets cheap. → FACT-01, then FACT-02 (full frames).
+- **Automatic cycle compiler (Agent #1), working prototype.** Branch
+  `research/auto-misiurewicz-discovery` finds a repelling cycle from the camera, builds a
+  Koenigs jump and declines when unprofitable: 1.44x (c = i) and 1.17x over per-frame BLA,
+  cold, at 960x540. Its acceptance used a retrospective BLA frame, and it rounds deep
+  centres to f64. → AUTO-01 (guards, exact coordinates), AUTO-02 (blind corpus).
+- **GPU (Agent #5), nothing new measured.** The all-FP64 OpenCL zone kernel (82-131 ms per
+  1080p frame, ~35x CPU BLA) is the opponent. → GPU-03 (freeze it on both GPUs), GPU-04
+  (queue A/B, keep at >1.25x), GPU-05 (float-float, keep at >=1.5x).
+- **Near-parabolic transits (#2), exterior fields (#4), film atlas (#6):** falsifiable
+  spikes only. → PARA-01, FIEL-01, ATLA-04 (parked until operator build cost is material).
+- New rules: DEC-19 (shortcuts are authorized by a pre-render guard and may abstain),
+  DEC-20 (lossy GPU precision keeps an FP64 checkpoint; GPU work is scored against our FP64
+  GPU kernel), DEC-21 (deep centres and widths never pass through f64).
 
 ## Mid bands (2026-10-09, evening): a strong sampled lead
 
@@ -92,8 +116,8 @@ palettes, terraces and terrain lines; their favourite is ice with lines.
 - **Bigger levers:**
   - **Mid bands (PROB-14):** if the co-moving chart works from about 1e-9 down, the
     estimate is about 8x on the whole v0 film.
-  - **GPU (BENC-09 → GPU-01):** the only lever that speeds up every frame. The laptop
-    GPU kernel ran about 35x faster than fd.
+  - **GPU (GPU-03 → GPU-04/GPU-05):** the only lever that speeds up every frame. The
+    laptop GPU kernel ran about 35x faster than fd.
 - **Parameter-transfer report**
   (`docs/research/10-8-26/parameter-dependant-transfer-maps-rendering.md`), read
   2026-10-08:
@@ -103,39 +127,43 @@ palettes, terraces and terrain lines; their favourite is ice with lines.
   - Its "direct bivariate transfer patches" amount to higher-order BLA → ACC-03, with
     modest gains expected.
 
-## Do next (2026-10-09, late): follow Ishoo
+## Do next (2026-10-10): follow Ishoo
 
-Ishoo is the source of truth for order: `ishoo_status`, then `ishoo_plan op:next`. The
-plans were reorganised on 2026-10-09 by outcome, with dependency edges. In order of
-priority:
+Ishoo is the source of truth for order: `ishoo_status`, then `ishoo_plan op:next`. Plans
+are organised by outcome, with dependency edges. In priority order:
 
-0. **Fix the correctness gate first** (external code review, 2026-10-09; all findings
-   confirmed in the code). GATE-01 (`fd compare` passes NaN/inf and compares widths as
-   f64, so 1e-1000 equals 1e-2000) → GATE-02 (score de and normal, not just class and ν)
-   → FIX-35 (scaled kernel declares Interior without a contraction check) → FIX-36
-   (.fds bound column and reader caps). PROB-14, PROB-10, PROB-17 and KERN-02 depend on
-   these. Also filed from the review: KERN-04 (zones at any depth; the 512-bit centre
-   can't reach 1e-1000) and FILM-09 (fd film widths are f64, with a ceiling around 1e-308).
+0. **Correctness gate first** (external review 2026-10-09; all findings confirmed).
+   GATE-01 (`fd compare` passes NaN/inf and compares widths as f64) → GATE-02 (score de
+   and normal) → FIX-35 (scaled kernel declares Interior without a contraction check) →
+   FIX-36 (.fds bound column and reader caps), in plan "Proving suite". Almost every
+   speed issue below depends on GATE-01/GATE-02. KERN-04 (zones at any depth) and FILM-09
+   (film widths past 1e-308) apply DEC-21.
+   **Can run now, in parallel:** FACT-01 (factored-return probe, no blockers).
 1. **Fast path everywhere** (active). PROB-14 (mid-band jump, whole frames in Rust; read
-   `docs/research/10-9-26/HANDOFF-mid-band-jump.md` first) → PROB-10 (v0 deep band, whole
-   frames) → PROB-17 (render the 1e-100 and 1e-1000 ladder rungs; cost should grow only
-   like log2) → PROB-11 (handover near 1e-27) → PROB-16 (census of famous zooms) →
-   KERN-02 (mid-band path inside `fd --zone`; this is what makes films faster) →
-   PROB-12 (`fd zone` for any location) → PROB-15, KERN-03, KERN-04, PROB-06, PROB-13.
-   PROB-05 (frame transfer) moved to Parked.
-   KERN-01 (deep band in fd) is done.
-2. **Films.** FILM-07 (restore places/spiral-on-spiral.place; coordinates are in the
-   issue) → FIX-04 → EXPL-09 → FX-05 (GPU shading) → GPU-02 (float32 GPU film kernel,
-   allowed by DEC-18 only behind FILM-08) → EXPL-02.
-3. **Feature map and trip design.** MAP-01 (`fd features`) → MAP-03 (`fd trip`) →
-   MAP-02 → MAP-04. Waits on PROB-12. The idea and the full feature list are in
-   `docs/spec/FEATURE-MAP.md`.
-4. **Proving suite.** TRUT-01 → PROB-01 → FILM-08 (film-equivalence check, DEC-18) →
-   FIX-10 → BENC-02 → BENC-03.
-5. **Cold renderer: fast BLA for any location.** FIX-09, FIX-03, RESE-02, PROB-02,
-   ACC-03, REF-05, LOD-06, BENC-09, GPU-01.
-6. **Credibility.** BENC-08, BENC-05, BENC-07, BENC-06.
-7. **Parked: atlas ideas.** 12 leftover atlas-gate issues; revisit only if a probe earns it.
+   `docs/research/10-9-26/HANDOFF-mid-band-jump.md`) → PROB-10 (v0 deep band, whole
+   frames) → PROB-17 (1e-100 and 1e-1000 ladder rungs, conventional construction) →
+   PROB-11 → PROB-16 (census of famous zooms) → KERN-02 (mid-band path in `fd --zone`;
+   this is what makes films faster) → PROB-12 (`fd zone`, now waits on AUTO-02) →
+   PROB-15, KERN-03, KERN-04, PROB-13.
+2. **Compiled dynamics: depth and generality** (new). FACT-01 → FACT-02 (correct
+   ~1e-1000 frames from a factored operator; lands after FIX-03 so the opponent is real
+   BLA) · AUTO-01 → AUTO-02 (blind corpus) · PARA-01 · FIEL-01.
+3. **GPU: beat our own FP64 kernel** (new). GPU-03 (absorbs BENC-09) → GPU-04 → GPU-05.
+   GPU-02 (GPU film kernel, in Films) now waits on GPU-05.
+4. **Films.** FILM-07 → FIX-04 → EXPL-09 → FX-05 → GPU-02 → EXPL-02.
+5. **Feature map and trip design.** MAP-01 → MAP-03 → MAP-02 → MAP-04. Waits on PROB-12.
+6. **Proving suite.** The gate issues above, then TRUT-01 → PROB-01 → FILM-08 → FIX-10 →
+   BENC-02 → BENC-03.
+7. **Cold renderer.** FIX-09 → FIX-03 (scaled-tier BLA; also the fair opponent at
+   1e-1000) → RESE-02.
+8. **Credibility.** BENC-08 (FractalShark; its float32 part moved to GPU-05), BENC-05,
+   BENC-07, BENC-06.
+9. **Parked: atlas ideas.** ATLA-04, PROB-05, PROB-02, ACC-02, ACC-03, REF-05, LOD-03,
+   LOD-04, LOD-06. Revisit only if a probe earns it.
+
+Retired on 2026-10-10 (kept in Ishoo as knowledge): RET-01, RET-02 → FACT-01; GPU-01 →
+GPU-04; BENC-09 → GPU-03; CERT-01 → PROB-13; PROB-06 → AUTO-01. Declined as atlas-era
+work DEC-15 rules out: TILE-01, SAMP-01, SAMP-02, REF-03, REF-04, INTE-01.
 
 Key findings from 2026-10-09 (all in the METHOD.md results log):
 - **Mid bands:** the jump at each pixel's own cycle point passed probes A-F (sampled, not
@@ -153,17 +181,19 @@ Key findings from 2026-10-09 (all in the METHOD.md results log):
 
 ## Decisions to know
 
-- DEC-01 to DEC-10: the atlas principles.
+- DEC-01 to DEC-10: the atlas principles. DEC-13 (orbit slabs) is accepted as the
+  atlas store format; DEC-11 (tile sizes) and DEC-12 (offline certificates) are
+  superseded by DEC-15 and DEC-19.
 - DEC-14: fast probes against fair opponents.
 - DEC-15: Gate C's lesson. The atlas must hold work that is expensive to rebuild or
   inherently cross-frame.
-- DEC-16 (**PROPOSED, needs the owner**): theorem-backed frame transfer counts as
-  genuine depth under an error contract. Only PROB-05 depends on it.
-- DEC-17 (accepted 2026-10-09): a per-pixel shortcut is kept only after it passes every
-  pixel of whole frames, not just sampled points.
-- DEC-18 (accepted 2026-10-09): films may use shortcuts viewers cannot tell apart
-  (measured by FILM-08) if no visible work is skipped and the precision is named;
+- DEC-16 (accepted 2026-10-10): pixels derived from shallower data at the same location
+  by proven dynamics are genuine, under an error contract with fallback. Look-alikes stay
+  forbidden (DEC-01).
+- DEC-17: a per-pixel shortcut is kept only after it passes every pixel of whole frames.
+- DEC-18: films may use shortcuts viewers cannot tell apart (measured by FILM-08);
   benchmarks keep 1e-3 px.
+- DEC-19, DEC-20, DEC-21 (accepted 2026-10-10): see "Six-agent research" above.
 
 ## Things that exist for the owner
 
@@ -177,6 +207,8 @@ Key findings from 2026-10-09 (all in the METHOD.md results log):
 
 - On Windows, the `bench.rs`/`control.rs` tests expect Linux peak-RSS fields (FIX-10).
 - The ACC-01 worktree leaked (`.ishoo/worktrees/ACC-01`); clean it with Ishoo.
+- `docs/spec/ISHOO-LEDGER.md` is the 2026-10-06 bootstrap ledger, kept as history only;
+  the live ledger is the Ishoo store.
 - The Ishoo binary is behind its source (`ishoo reinstall`).
 - Cloud sessions without Ishoo push research straight to main. Pull before pushing, and
   file their results on the matching issues.

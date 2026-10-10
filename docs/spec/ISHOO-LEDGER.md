@@ -1,5 +1,7 @@
 # Ishoo Ledger Reconciliation
 
+> **Historical (2026-10-06 bootstrap).** This was the one-time list used to seed Ishoo after the reset. It is not the live ledger: issues, plans and ADRs live in the Ishoo store (`ishoo_status`, `ishoo_list`), and the current order is in [STATE.md](STATE.md). Several items below are done, superseded or declined.
+
 A local agent with Ishoo access should reconcile the project ledger before large implementation work.
 
 ## New active plan

@@ -2,6 +2,7 @@
 
 **Status:** authoritative project reset  
 **Date:** 2026-10-06  
+**Outcome since the reset (2026-10-10):** Atlas v0 was built and answered the first decisive question below with **no**: caching cheap per-frame work ties independent rendering (BENCH.md, DEC-15). The project now pursues per-frame dynamical operators (Koenigs jumps, return maps), compiled automatically, guarded, and run on CPU and GPU; cross-frame reuse is kept only for operators that are expensive to rebuild. See docs/spec/STATE.md.  
 **Historical prototype:** `ishoo/POC-02` @ `790be5b6f42e4525cc71f794aa044ff1c57b7666`
 
 ## North star
@@ -153,7 +154,7 @@ Treat these as valid research outcomes:
 ## Read next
 
 - `docs/spec/ARCHITECTURE.md` — tile/storage/GPU/LOD design and open technical questions.
-- `docs/spec/ISHOO-LEDGER.md` — exact ADR/issue/plan structure to file locally.
+- `docs/spec/STATE.md` — current state and work order (the live ledger is the Ishoo store; `docs/spec/ISHOO-LEDGER.md` is the historical bootstrap list).
 - `docs/research/10-6-26/01-depth-independent-per-frame-cost.md`
 - `docs/research/10-6-26/02-google-maps-mathematical-atlas.md`
 - `docs/research/10-8-26/zoom-computation-reuse.md` (cross-frame reuse, exponential maps)
