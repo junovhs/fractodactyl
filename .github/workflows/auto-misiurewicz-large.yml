@@ -1,0 +1,54 @@
+name: auto-misiurewicz-large
+on:
+  push:
+    branches: [research/auto-misiurewicz-discovery]
+    paths:
+      - ".github/workflows/auto-misiurewicz-large.yml"
+  workflow_dispatch:
+jobs:
+  larger-frame:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath numpy
+      - run: cargo build --release -j 4
+      - run: cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Large entire frames and independent derivative oracle
+        shell: bash
+        run: |
+          set +e
+          mkdir -p out/auto-large
+          bad=0
+          run() {
+            local name="$1" re="$2" im="$3"
+            python tools/research/misiurewicz/auto_discover.py \
+              --fd target/release/fd \
+              --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+              --re "$re" --im "$im" --width 1e-95 --size 960x540 \
+              --iter 20000 --threads 4 --out "out/auto-large/$name"
+            test $? -eq 0 || bad=$((bad+1))
+          }
+          run i-960 0 1
+          run q3p2-960 \
+            0.4196433776070805662759262823266433002120893730487961233893793197021016110409832128692177097141535071 \
+            0.606290729207199369259342197028023002949570668386421712214899686318868275281145662031327930379402341
+          python - <<'PY'
+          import json,pathlib
+          for f in sorted(pathlib.Path("out/auto-large").glob("*/report.json")):
+              j=json.loads(f.read_text())
+              print(f.parent.name,"decision",j.get("decision"),"q",j.get("q"),"p",j.get("p"),
+                    "baseline",j.get("baseline_seconds"),"compile",j.get("compile_seconds"),
+                    "render",j.get("render_seconds"),"speedup",j.get("speedup_vs_fd_cold"),
+                    "full_frame",j.get("full_frame"))
+          PY
+          test "$bad" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-misiurewicz-large
+          path: out/auto-large/**/report.json
