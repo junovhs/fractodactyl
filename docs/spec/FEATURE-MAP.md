@@ -40,6 +40,7 @@ How a feature can be found decides which issue owns it.
 | Cusp | A cardioid's sharp point (0.25 for the main one) | The multiplier = 1 root of a cardioid |
 | Misiurewicz point, branch point, tip, terminal point | 0 is eventually periodic: preperiod q, period r (M(q,r)) | Newton on the preperiodic equation; |λ| > 1 (repelling) |
 | Spiral centre: single, double, triple, quadruple, multi-arm spiral, pinwheel | A Misiurewicz point; the spiral's arm and branch count comes from its cycle | Misiurewicz solve, then arm count from the cycle and multiplier |
+| Misiurewicz ladder | Minibrots lined up on a spiral centre m, each rung closer by 1/\|ρ\| and smaller by 1/\|ρ\|². v0 is rung 0 of a ladder on M(24,2), with rungs found down to 1e-1000 (docs/research/10-9-26/misiurewicz-ladders.md) | One-term guess m + (c_0 − m)ρ⁻ᵏ, then Newton (2-5 steps). This gives exact minibrot destinations at any chosen depth |
 | Period-doubling cascade, Feigenbaum point | Bulbs of period 2, 4, 8, ... and their limit (−1.401155189 on the real axis) | Chain of root solves |
 | Wake, limb, external ray | Region cut off by a pair of external rays; the branch hanging off a root | External-ray tracing (a later follow-up, if trips need it) |
 | Equipotential line | Curves of constant escape potential, outside the set | Already in the smooth escape value fd computes |
