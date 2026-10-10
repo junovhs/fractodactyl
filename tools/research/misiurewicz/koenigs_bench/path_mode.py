@@ -64,6 +64,13 @@ def run(cmd, dest):
     return [r for r in records if r.get("record") == "frame"]
 
 
+def accepted_times(times, scores):
+    """Keep each independently passing frame; rejected candidates use fd."""
+    if len(times) != len(scores):
+        raise ValueError("incomplete frame scores")
+    return [t for t, s in zip(times, scores) if s["valid_shortcut"]]
+
+
 def valid(score, zone_used):
     if not zone_used or "error" in score:
         return False
@@ -101,16 +108,16 @@ def main(fd, out, source, size, threads, runs, maxit):
     indices = [i for i, f in enumerate(path) if covered(f, centre, (nx, ny), guard)]
     if not indices:
         raise RuntimeError("no full frames fit the Koenigs guard")
-    if indices != list(range(indices[0], len(path))):
-        raise RuntimeError("guard-covered frames are not a deep suffix of the path")
+    covered_set = set(indices)
+    uncovered = [i for i in range(len(path)) if i not in covered_set]
 
-    (out / "outside-path.txt").write_text(lines(path[:indices[0]]))
+    (out / "outside-path.txt").write_text(lines([path[i] for i in uncovered]))
     (out / "band-path.txt").write_text(lines([path[i] for i in indices]))
     common = ["--size", size, "--iter", str(maxit), "--columns", "nu,de,normal",
               "--threads", str(threads), "--bla", "per-frame", "--runs", str(runs)]
     outside = []
-    if indices[0]:
-        print(f"== outside guard: {indices[0]} fd frames", flush=True)
+    if uncovered:
+        print(f"== outside guard: {len(uncovered)} fd frames", flush=True)
         outside = run([fd, "control", str(out / "outside-path.txt"), *common],
                       out / "outside.jsonl")
 
@@ -151,11 +158,8 @@ def main(fd, out, source, size, threads, runs, maxit):
     (out / "times.jsonl").write_text("".join(json.dumps(r) + "\n" for r in times))
     (out / "scores.jsonl").write_text("".join(json.dumps(r) + "\n" for r in scores))
 
-    # A shortcut may be retained only across a contiguous passing deep suffix.
-    accepted = len(scores)
-    while accepted and scores[accepted - 1]["valid_shortcut"]:
-        accepted -= 1
-    accepted_rows = times[accepted:]
+    # A failed frame does not invalidate passing neighbours (DEC-17).
+    accepted_rows = accepted_times(times, scores)
     fd_outside = sum(r["timing"]["cold_seconds"] for r in outside)
     fd_band = sum(r["fd_seconds"] for r in times)
     fast_band = sum(r["koenigs_seconds"] for r in times)
@@ -172,18 +176,17 @@ def main(fd, out, source, size, threads, runs, maxit):
         f"{runs} cold run(s)/frame; max_iter {maxit}.",
         f"- Guard: {guard} from zone; {len(indices)} full-frame-covered candidates "
         f"(frames {indices[0]}–{indices[-1]}).",
-        f"- Passing deep suffix: {len(accepted_rows)} frames; shallowest passing width "
-        f"`{path[indices[accepted]][2] if accepted_rows else 'none'}`"
-        f" (frame {indices[accepted] if accepted_rows else 'none'}). "
-        "Shallower frames remain on fd.",
+        f"- Independently accepted: {len(accepted_rows)} passing frames; "
+        f"{len(failures)} rejected candidates and {len(uncovered)} uncovered frames "
+        "remain on fd.",
         f"- Guard-band fd: {fd_band:.3f} s; Koenigs: {fast_band:.3f} s; "
         f"ratio: {fd_band / fast_band:.2f}x.",
-        f"- Accepted suffix fd: {accepted_fd:.3f} s; Koenigs: {accepted_fast:.3f} s; "
+        f"- Accepted frames fd: {accepted_fd:.3f} s; Koenigs: {accepted_fast:.3f} s; "
         f"ratio: {accepted_fd / accepted_fast:.2f}x" if accepted_fast else
-        "- No accepted suffix.",
+        "- No accepted frames.",
         f"- Whole-film fd: {film_fd:.3f} s; accepted band fraction: "
         f"{accepted_fd / film_fd:.2%}; guard candidate fraction: {fd_band / film_fd:.2%}.",
-        f"- Estimated film with accepted Koenigs suffix: {projected:.3f} s; "
+        f"- Estimated film with accepted Koenigs frames: {projected:.3f} s; "
         f"end-to-end speed-up: {film_fd / projected:.2f}x.",
         f"- FIX-04 known fd Unresolved → zone Interior: {gap} samples, "
         "reported separately (not counted as shortcut failures).",

@@ -99,6 +99,98 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-18: noncontiguous passing frames (2026-10-10)
+
+**Local full-path result (manager, Ryzen 9 3900X, 24 threads, 1280x720, max_iter 1e5):** 314 frames accepted, 5 rejected (431, 432, 742, 747, 748), 431 frames uncovered by the guard. On the accepted frames fd takes 379.4 s and Koenigs 15.9 s (23.8x). Whole film: 611.7 s with fd alone vs 248.3 s with Koenigs on the accepted frames, **2.46x end-to-end measured**. Every accepted frame has 0 wrong pixels, 0 class mismatches beyond FIX-04, and 0 de/normal over tolerance. Max nu displacement 5.1e-4 px.
+
+**mpmath adjudication (diagnose_pixels.py, 180 digits):**
+- **431 and 432 (band top, about 1.5e-28): Koenigs fault.** The 82 and 4 disputed samples all escape (mpmath agrees with fd's class). The Koenigs de is off by 0.20–0.36% relative (tolerance 0.2%) and the normal by up to 0.19°; fd's de matches mpmath within 3e-8. The error is shading accuracy near the top of the guard band. A guard starting just below 1.4e-28 would exclude both frames.
+- **441:** no disputed samples in the single-frame repro (it passed this run too).
+- **742 and 747: fd fault.** fd reports class 2 while Koenigs says escaped. mpmath escapes at n = 99,976–99,981 and 99,901, just under max_iter = 100,000, so Koenigs has the right class. Its de/normal for these near-max-iteration escapes is poor (de rel up to 33, normal up to 153°).
+- **748: fd fault.** fd says escaped, while Koenigs and mpmath both say unresolved at 100,000.
+- **Conclusion:** the remaining class mismatches are fd errors at the max_iter boundary, not Koenigs errors. The only Koenigs defect is de accuracy at the band top, which a tighter guard removes. Still open: a prospective pre-render guard (DEC-19); acceptance here is decided after rendering.
+
+**Retrospective full-path replay, not a new render.** Recomputed independent
+per-frame selection on the complete 750-frame, 1280x720, max_iter=100000,
+4-thread [PROB-10 Actions run 38045874904](https://github.com/junovhs/fractodactyl/actions/runs/38045874904)
+(artifact: outside.jsonl, times.jsonl, scores.jsonl). All 319 guard-covered
+frames were previously scored at every one of 921,600 pixels. The independent
+gate accepts **314 frames**, rejecting 431, 432, 742, 747 and 748; the other
+431 frames are outside the pre-render guard. Across *every accepted frame*:
+**0 wrong nu pixels, 0 other class mismatches beyond FIX-04, 0 nonfinite,
+0 de over 0.2%, 0 normal over 0.2°**. The separate fd-Unresolved/zone-Interior
+FIX-04 gap is 232,543 samples on accepted frames.
+
+| Full-path replay (same Actions 4-thread runner) | Seconds |
+|---|---:|
+| fd on all 750 frames | 3302.122 |
+| fd on the 314 accepted frames | 2060.809 |
+| Koenigs on the 314 accepted frames | 84.286 |
+| Estimated fd + accepted Koenigs film | **1325.600** |
+
+End-to-end **2.491x projected** from measured per-frame times, not an
+independent execution of the mixed film. On the owner's 24-thread Ryzen,
+PROB-10 measured 621.0 s fd-only and 313/319 passing candidates; the new
+mixed film timing is still to be measured locally. The gate scores complete
+frames *after* rendering; it is not a prospective production guard (DEC-19).
+
+**Six reported failures, all independently gated.** The observed comparison
+failure is known, but neither side is adjudicated without high-precision
+truth for the disputed pixels:
+
+| Frame | Failure mode beyond FIX-04 | Disposition |
+|---:|---|---|
+| 431 | 82 de and 1 normal over tolerance (local and Actions) | fd |
+| 432 | 4 de over tolerance (local and Actions) | fd |
+| 441 | 1 de over locally; passed Actions at 4 threads | fd if failing, otherwise Koenigs |
+| 742 | 2 fd-Unresolved/zone-Escaped (Actions) | fd |
+| 747 | 1 fd-Unresolved/zone-Escaped (Actions) | fd |
+| 748 | 1 fd-Escaped/zone-Unresolved (Actions) | fd |
+
+The historical artifact has scores, but not the paired FDS columns identifying
+those pixels. To decide which renderer is wrong (rather than merely recording
+the failure mode), use the exact per-pixel 180-dps mpmath tool
+tools/research/misiurewicz/koenigs_bench/diagnose_pixels.py on paired FDS
+outputs. Reproduce each of the six frames separately:
+
+```bash
+cargo build --release
+mkdir -p out/prob18-repro
+python3 - <<'PY'
+from pathlib import Path
+import sys
+sys.path.insert(0, "tools/research/misiurewicz/koenigs_bench")
+from path_mode import read_path, lines
+frames = read_path("bench/path-atlas-v0.txt")
+for i in (431, 432, 441, 742, 747, 748):
+    Path(f"out/prob18-repro/{i}.txt").write_text(lines([frames[i]]))
+PY
+bash tools/research/misiurewicz/make_zone.sh out/prob18-repro/v0.zone
+for i in 431 432 441 742 747 748; do
+  mkdir -p "out/prob18-repro/fd-$i" "out/prob18-repro/zone-$i"
+  target/release/fd control "out/prob18-repro/$i.txt" --size 1280x720 \
+    --iter 100000 --columns nu,de,normal --threads 24 --bla per-frame \
+    --runs 1 -o "out/prob18-repro/fd-$i" > "out/prob18-repro/fd-$i.jsonl"
+  target/release/fd control "out/prob18-repro/$i.txt" --size 1280x720 \
+    --iter 100000 --columns nu,de,normal --threads 24 --bla per-frame \
+    --runs 1 --zone out/prob18-repro/v0.zone \
+    -o "out/prob18-repro/zone-$i" > "out/prob18-repro/zone-$i.jsonl"
+  python3 tools/research/misiurewicz/koenigs_bench/diagnose_pixels.py \
+    "out/prob18-repro/fd-$i/frame-00000.fds" \
+    "out/prob18-repro/zone-$i/frame-00000.fds" \
+    > "out/prob18-repro/oracle-$i.txt"
+done
+```
+
+Run the full path locally (Ryzen 9 3900X, 24 threads; Python needs mpmath,
+gmpy2, numpy) and record its new report.md here:
+
+```bash
+THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 \
+  bash tools/research/misiurewicz/koenigs_bench/run.sh \
+  target/release/fd out/prob18-full bench/path-atlas-v0.txt
+```
+
 ### PROB-17: conventional zones down the v0 ladder (2026-10-10)
 
 **Measured on GitHub Actions:** [whole-frame run](https://github.com/junovhs/fractodactyl/actions/runs/38052204667), Ubuntu, 4 threads, 480x270, one run per frame, max iteration budget 40P, columns nu/de/normal. For each rung the same exact centre and width were rendered with `fd control --zone` and with fresh `fd control --bla per-frame` (`bla.use=used` at v0 and k=409). Every one of 129,600 pixels/frame was scored using `fd compare`; all frames used the zone. The v0 and k=409 zones have degree-4 biseries, guard 1e-3 of the zone state scale, 12 phi terms, 18 psi terms, and depth-6 tail patches. Zone builds include the whole patch atlas. Times below are one-run frame seconds, **not hardware-independent benchmarks**.
