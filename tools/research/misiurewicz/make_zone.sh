@@ -9,3 +9,19 @@ here=$(cd "$(dirname "$0")" && pwd)
 cd "$here"
 python3 koenigs_bench_consts.py 4 1e-28 12 0.03 "$out" 18
 python3 tail_patches.py 16 1e-11 6 6 rel "$out"
+# Encode zone lengths as mantissa * 2^exponent; legacy one-number files still load.
+python3 - "$out" <<'PY'
+import math
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+lines = []
+for line in path.read_text().splitlines():
+    fields = line.split()
+    if fields and fields[0] in ("scale", "guard", "max_dc"):
+        mant, exp = math.frexp(float(fields[1]))
+        line = f"{fields[0]} {mant * 2!r} {exp - 1}"
+    lines.append(line)
+path.write_text("\n".join(lines) + "\n")
+PY

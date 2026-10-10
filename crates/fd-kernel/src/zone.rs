@@ -25,7 +25,8 @@
 use crate::grid::{header, setup, Params, Stats};
 use crate::sample::Outcome;
 use crate::store::{Row, Store};
-use fd_fixed::Fixed;
+use crate::view::Plane;
+use fd_fixed::{exp2i, Fixed};
 use fd_samples::{Column, Header, Samples, View};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -76,6 +77,50 @@ struct Leaf {
     coef: [Cx; PATCH_D],
 }
 
+/// Positive scale as a mantissa times a power of two.
+#[derive(Clone, Copy, Debug)]
+pub struct ZoneSize {
+    mant: f64,
+    exp2: i64,
+}
+
+impl ZoneSize {
+    fn parse(f: &[&str]) -> Result<Self, String> {
+        if !(2..=3).contains(&f.len()) {
+            return Err("scale needs a mantissa and optional binary exponent".into());
+        }
+        let mant = f[1].parse::<f64>().map_err(|_| "bad scale mantissa")?;
+        let exp2 = if f.len() == 3 { f[2].parse::<i64>().map_err(|_| "bad scale exponent")? } else { 0 };
+        if !mant.is_finite() || mant < 0.0 || (f.len() == 3 && mant != 0.0 && !(1.0..2.0).contains(&mant)) {
+            return Err("scale must be finite and positive (new mantissas in [1, 2))".into());
+        }
+        Ok(Self { mant, exp2 })
+    }
+
+    fn to_f64(self) -> f64 {
+        self.mant * exp2i(self.exp2)
+    }
+
+    fn over(self, other: Self) -> f64 {
+        (self.mant / other.mant) * exp2i(self.exp2.saturating_sub(other.exp2))
+    }
+
+    fn bits(self) -> u64 {
+        (128.0 - self.mant.log2() - self.exp2 as f64).max(128.0).ceil() as u64
+    }
+}
+
+impl std::fmt::LowerExp for ZoneSize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let value = self.to_f64();
+        if value > 0.0 && value.is_finite() {
+            std::fmt::LowerExp::fmt(&value, f)
+        } else {
+            write!(f, "{:e} * 2^{}", self.mant, self.exp2)
+        }
+    }
+}
+
 /// Per-zone constants (a zone file).
 #[derive(Clone, Debug)]
 pub struct Zone {
@@ -85,10 +130,10 @@ pub struct Zone {
     c: Cx,
     /// Minibrot period `P`.
     pub period: u64,
-    scale: f64,
-    guard: f64,
+    scale: ZoneSize,
+    guard: ZoneSize,
     /// Largest `|c - C|` over a frame's samples for which the zone renders it.
-    pub max_dc: f64,
+    pub max_dc: ZoneSize,
     r0: f64,
     bias: Cx,
     alpha: Cx,
@@ -122,9 +167,9 @@ impl Zone {
             c_im: String::new(),
             c: Cx::default(),
             period: 0,
-            scale: 0.0,
-            guard: 0.0,
-            max_dc: 0.0,
+            scale: ZoneSize { mant: 0.0, exp2: 0 },
+            guard: ZoneSize { mant: 0.0, exp2: 0 },
+            max_dc: ZoneSize { mant: 0.0, exp2: 0 },
             r0: 0.0,
             bias: Cx::default(),
             alpha: Cx::default(),
@@ -154,9 +199,9 @@ impl Zone {
                 }
                 "c" => z.c = cx(1)?,
                 "period" => z.period = n(1)? as u64,
-                "scale" => z.scale = n(1)?,
-                "guard" => z.guard = n(1)?,
-                "max_dc" => z.max_dc = n(1)?,
+                "scale" | "size" => z.scale = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
+                "guard" => z.guard = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
+                "max_dc" => z.max_dc = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
                 "r0" => z.r0 = n(1)?,
                 "bias" => z.bias = cx(1)?,
                 "alpha" => z.alpha = cx(1)?,
@@ -191,7 +236,7 @@ impl Zone {
         if z.c_re.is_empty() {
             return Err("no c_exact line (the nucleus as exact decimals)".into());
         }
-        if raw.is_empty() || z.period == 0 || z.scale <= 0.0 || z.guard <= 0.0 || z.r0 <= 0.0 {
+        if raw.is_empty() || z.period == 0 || z.scale.mant <= 0.0 || z.guard.mant <= 0.0 || z.r0 <= 0.0 {
             return Err("incomplete zone: needs period, scale, guard, r0 and biseries".into());
         }
         if z.orbit.len() != APPROACH {
@@ -216,7 +261,7 @@ impl Zone {
         for (i, j, a) in raw {
             z.bis[i][j] = a;
         }
-        if z.max_dc == 0.0 {
+        if z.max_dc.mant == 0.0 {
             z.max_dc = z.guard;
         }
         Ok(z)
@@ -236,20 +281,45 @@ pub struct ZoneStats {
     pub plain: u64,
 }
 
-/// Offset `centre - C` of `view` as f64 (exact decimals subtracted in fixed point).
-fn centre_offset(view: &View, zone: &Zone) -> Result<Cx, String> {
-    let l = fd_fixed::limbs_for(512);
-    let d = |a: &str, b: &str| -> Result<f64, String> { Ok(Fixed::parse(a, l)?.sub(&Fixed::parse(b, l)?).to_f64()) };
-    Ok(Cx(d(&view.center_re, &zone.c_re)?, d(&view.center_im, &zone.c_im)?))
+/// Centre difference in absolute and zone-scale units.
+#[derive(Clone, Copy)]
+struct CentreOffset {
+    absolute: Cx,
+    scaled: Cx,
+}
+
+/// Subtract exact decimal centres at the greater of the view and zone precisions.
+fn centre_offset(view: &View, zone: &Zone, plane: &Plane) -> Result<CentreOffset, String> {
+    let bits = plane.bits.max(zone.scale.bits()).max(zone.guard.bits()).max(zone.max_dc.bits());
+    let limbs = fd_fixed::limbs_for(bits);
+    let d = |a: &str, b: &str| -> Result<(f64, f64), String> {
+        let diff = Fixed::parse(a, limbs)?.sub(&Fixed::parse(b, limbs)?);
+        let scaled = diff.frexp().map_or(0.0, |(m, e)| ZoneSize { mant: m, exp2: e }.over(zone.scale));
+        Ok((diff.to_f64(), scaled))
+    };
+    let (re, sr) = d(&view.center_re, &zone.c_re)?;
+    let (im, si) = d(&view.center_im, &zone.c_im)?;
+    Ok(CentreOffset { absolute: Cx(re, im), scaled: Cx(sr, si) })
+}
+
+impl Zone {
+    fn f64_geometry(&self, plane: &Plane) -> bool {
+        plane.h() > 0.0
+            && [self.scale, self.guard, self.max_dc].iter().all(|size| size.to_f64() > 0.0 && size.to_f64().is_finite())
+    }
 }
 
 /// Whether `zone` may render `view` (DEC-10 validity): every sample within `max_dc` of
 /// the nucleus.
 pub fn zone_covers(view: &View, p: &Params, zone: &Zone) -> Result<bool, String> {
     let (plane, _) = setup(view, p)?;
-    let off = centre_offset(view, zone)?;
-    let reach = plane.h() * (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
-    Ok(off.abs() + reach <= zone.max_dc)
+    let off = centre_offset(view, zone, &plane)?;
+    let diagonal = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
+    if zone.f64_geometry(&plane) {
+        return Ok(off.absolute.abs() + plane.h() * diagonal <= zone.max_dc.to_f64());
+    }
+    let spacing = ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale);
+    Ok(off.scaled.abs() + spacing * diagonal <= zone.max_dc.over(zone.scale))
 }
 
 /// Render `view` with the zone pipeline. Refused when the zone does not cover the view
@@ -260,11 +330,12 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
         return Err("--columns bound: the zone pipeline carries no error radii (PROB-13)".into());
     }
     if !zone_covers(view, p, zone)? {
-        return Err(format!("the zone (nucleus within {:e}) does not cover this view", zone.max_dc));
+        return Err(format!("the zone (nucleus within {:e} * 2^{}) does not cover this view", zone.max_dc.mant, zone.max_dc.exp2));
     }
     let (plane, tier) = setup(view, p)?;
-    let off = centre_offset(view, zone)?;
-    let h = plane.h();
+    let off = centre_offset(view, zone, &plane)?;
+    let legacy = zone.f64_geometry(&plane);
+    let h = if legacy { plane.h() } else { ZoneSize { mant: plane.h_m, exp2: plane.h_e }.over(zone.scale) };
     let cols = p.columns.with(Column::Class);
     let deriv = cols.needs_derivative();
     let store = Store::new(&plane, p.ss);
@@ -284,7 +355,11 @@ pub fn render_zone(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samp
                         let Some(mut row) = queue.lock().unwrap().next() else { break };
                         for i in 0..row.class.len() {
                             let (ux, uy) = plane.unit_offset(i, row.j);
-                            let v = Cx(off.0 + ux * h, off.1 + uy * h).scale(1.0 / zone.scale);
+                            let v = if legacy {
+                                Cx(off.absolute.0 + ux * h, off.absolute.1 + uy * h).scale(1.0 / zone.scale.to_f64())
+                            } else {
+                                Cx(off.scaled.0 + ux * h, off.scaled.1 + uy * h)
+                            };
                             let (o, w) = if deriv {
                                 pixel::<true>(zone, v, p.max_iter, r2, &mut st)
                             } else {
@@ -334,7 +409,11 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
     let (mut u, mut du) = (v, Cx(1.0, 0.0));
     let mut n: u64 = 1;
     let mut work = 0u64;
-    while u.abs() * k.scale <= k.guard {
+    let scale = k.scale.to_f64();
+    let guard_f64 = k.guard.to_f64();
+    let legacy = scale > 0.0 && guard_f64 > 0.0;
+    let guard = k.guard.over(k.scale);
+    while (legacy && u.abs() * scale <= guard_f64) || (!legacy && u.abs() <= guard) {
         if n + k.period > max_iter {
             return (Outcome::Unresolved, work);
         }
@@ -362,7 +441,7 @@ fn pixel<const D: bool>(k: &Zone, v: Cx, max_iter: u64, r2: f64, st: &mut ZoneSt
         st.returns += 1;
     }
     // Stage 2: approach against C's critical orbit (fixed parameter C).
-    let mut d = u.scale(k.scale);
+    let mut d = u.scale(scale);
     for z in &k.orbit {
         if D {
             du = z.add(d).mul(du).scale(2.0).add(Cx(1.0, 0.0));
@@ -615,4 +694,61 @@ mod tests {
         assert!(Zone::parse("period 764\n").is_err());
         assert!(Zone::parse("c_exact -0.75 0.1\nbogus 1\n").is_err());
     }
+
+    #[test]
+    fn v0_binary_scales_keep_the_same_samples() {
+        let old = v0();
+        let text = include_str!("../../../bench/zones/v0-core.zone")
+            .replace("scale 1e-25", "scale 1.9342813113834068 -84")
+            .replace("guard 1e-28", "guard 1.9807040628566084 -94");
+        let new = Zone::parse(&text).unwrap();
+        let (v, p) = (view("1e-36"), params(&[Column::Nu, Column::De, Column::Normal]));
+        let (_, a, _, _) = render_zone(&v, &p, &old).unwrap();
+        let (_, b, _, _) = render_zone(&v, &p, &new).unwrap();
+        assert_eq!(a.class, b.class);
+        assert_eq!(a.nu, b.nu);
+        assert_eq!(a.de, b.de);
+        assert_eq!(a.normal, b.normal);
+    }
+
+    #[test]
+    fn rung_7676_zone_covers_five_sizes_but_not_ten_away() {
+        let rung = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
+            .lines().find(|line| line.starts_with("7676 ")).unwrap();
+        let parts: Vec<_> = rung.split_whitespace().collect();
+        assert_eq!(parts[1], "16116");
+        let mut lines: Vec<String> = include_str!("../../../bench/zones/v0-core.zone")
+            .lines()
+            .map(|line| match line.split_whitespace().next().unwrap_or("") {
+                "c_exact" => format!("c_exact {} {}", parts[2], parts[3]),
+                "period" => "period 16116".into(),
+                "scale" => "scale 1.0511037747648835 -3322".into(), // 1e-1000
+                "guard" => "guard 1.0763302653592406 -3332".into(), // 1e-1003
+                _ => line.to_string(),
+            })
+            .collect();
+        lines.push("max_dc 1.0511037747648835 -3320".into()); // 4e-1000
+        let z = Zone::parse(&lines.join("\n")).unwrap();
+        let mut v = View { center_re: parts[2].into(), center_im: parts[3].into(), width: "5e-1000".into(), rotation: 0.3 };
+        let p = params(&[Column::Nu]);
+        assert!(zone_covers(&v, &p, &z).unwrap());
+        // Increase the magnitude of the negative real centre by 1e-999 (ten sizes).
+        let (prefix, fraction) = v.center_re.split_once('.').unwrap();
+        let mut digits = fraction.as_bytes().to_vec();
+        let mut i = 998;
+        loop {
+            if digits[i] != b'9' {
+                digits[i] += 1;
+                break;
+            }
+            digits[i] = b'0';
+            i -= 1;
+        }
+        v.center_re = format!("{prefix}.{}", String::from_utf8(digits).unwrap());
+        let (plane, _) = setup(&v, &p).unwrap();
+        let off = centre_offset(&v, &z, &plane).unwrap();
+        assert!((off.scaled.0.abs() - 10.0).abs() < 1e-9);
+        assert!(!zone_covers(&v, &p, &z).unwrap());
+    }
+
 }
