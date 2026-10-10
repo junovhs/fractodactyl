@@ -1,0 +1,11 @@
+You are working as a contributor on my GitHub repo junovhs/fractodactyl (connected to this ChatGPT; Rust workspace, genuine deep-zoom Mandelbrot renderer; read docs/spec/STATE.md and docs/spec/METHOD.md for context). Please implement the issue below, then push your work.
+
+RULES
+- Branch from the latest `main` into a new branch named exactly `gpt/ISSUEID`. Push ONLY that branch. Do NOT push to main, do not open or merge anything into main, do not touch the `.ishoo/` directory. I (the manager) will review and land it.
+- Keep the diff minimal and in the style of the surrounding code (short doc comments, no new dependencies). `cargo clippy --workspace --all-targets` should stay warning-free.
+- `cargo test --workspace` must pass. Run any experiments/benchmarks the issue asks for yourself if your environment allows, and log results where the issue says (usually docs/spec/METHOD.md). If you cannot run something, say exactly what is left for me to run locally, with the command.
+- Project rules: every shortcut needs a validity/error/fallback contract (DEC-10); deep centres/widths never pass through f64 (DEC-21); a per-pixel shortcut is kept only after whole-frame every-pixel checks (DEC-17).
+- Work in few, complete rounds: push one finished change with a test that proves it, not a series of guesses. If something needs my machine (Rust builds, long renders), push the code and give me the shortest command that answers the question; I will run it and paste the output back.
+- When done, reply with: the branch name, the commit hash, a 3-6 line summary of what changed, and what you tested.
+
+ISSUE
