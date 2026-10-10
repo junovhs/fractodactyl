@@ -60,20 +60,21 @@ def pixel(dc,first_order,exact_lam=True):
         zz=zz*zz+cd; s+=1
     if s>=5000: return None,s
     return n+s+1-math.log2(math.log2(abs(zz))), n0+s
-random.seed(11)
-print('error = |dnu|*ln2*de_px, 1920 px frame, bar 1e-3 px; every arm is IEEE double per pixel')
-for wexp in (6,9,12,15,18,24):
-    w=mpf(10)**(-wexp); arms={'first-order k, exact lambda(c)':(True,True),'frozen k, exact lambda(c)':(False,True),'frozen k, frozen lambda':(False,False)}
-    res={a:[] for a in arms}; left=[]
-    for _ in range(NPIX):
-        off=w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16); c=C+off
-        nu_t,s_t,zT,dzT=P.escape(mpc(0),c,0,mpc(0))
-        if nu_t is None: continue
-        de_px=float(2*abs(zT)*log(abs(zT))/abs(dzT)/(w/1920))
-        for a,(fo,el) in arms.items():
-            nu,st=pixel(complex(off),fo,el)
-            res[a].append(float('inf') if nu is None else abs(nu-float(nu_t))*math.log(2)*de_px)
-            if a.startswith('first'): left.append(st)
-    left.sort(); print(f'1e-{wexp}: steps left {left[len(left)//2]}')
-    for a,e in res.items():
-        e.sort(); print(f'    {a:32s} max {e[-1]:.1e}  p50 {e[len(e)//2]:.1e}  bad {sum(x>1e-3 for x in e)}/{len(e)}',flush=True)
+if __name__=='__main__':
+    random.seed(11)
+    print('error = |dnu|*ln2*de_px, 1920 px frame, bar 1e-3 px; every arm is IEEE double per pixel')
+    for wexp in (6,9,12,15,18,24):
+        w=mpf(10)**(-wexp); arms={'first-order k, exact lambda(c)':(True,True),'frozen k, exact lambda(c)':(False,True),'frozen k, frozen lambda':(False,False)}
+        res={a:[] for a in arms}; left=[]
+        for _ in range(NPIX):
+            off=w*mpc(random.uniform(-.5,.5),random.uniform(-.5,.5)*9/16); c=C+off
+            nu_t,s_t,zT,dzT=P.escape(mpc(0),c,0,mpc(0))
+            if nu_t is None: continue
+            de_px=float(2*abs(zT)*log(abs(zT))/abs(dzT)/(w/1920))
+            for a,(fo,el) in arms.items():
+                nu,st=pixel(complex(off),fo,el)
+                res[a].append(float('inf') if nu is None else abs(nu-float(nu_t))*math.log(2)*de_px)
+                if a.startswith('first'): left.append(st)
+        left.sort(); print(f'1e-{wexp}: steps left {left[len(left)//2]}')
+        for a,e in res.items():
+            e.sort(); print(f'    {a:32s} max {e[-1]:.1e}  p50 {e[len(e)//2]:.1e}  bad {sum(x>1e-3 for x in e)}/{len(e)}',flush=True)
