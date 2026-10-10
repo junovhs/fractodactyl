@@ -242,6 +242,11 @@ impl Zone {
         if z.orbit.len() != APPROACH {
             return Err(format!("expected {APPROACH} orbit points, got {}", z.orbit.len()));
         }
+        // Deep ladder rungs can have a nonzero Koenigs entry offset below
+        // f64's range. Jumping from a rounded zero would invent a result.
+        if z.z24ma.abs() == 0.0 {
+            return Err("Koenigs entry offset underflows f64; scaled jump required".into());
+        }
         if z.phi.is_empty() || z.psi.is_empty() {
             return Err("needs phi and psi series".into());
         }

@@ -19,9 +19,18 @@ MAXDEPTH = int(sys.argv[3]) if len(sys.argv) > 3 else 8
 GAIN = int(sys.argv[4]) if len(sys.argv) > 4 else 6
 _mode = sys.argv[5] if len(sys.argv) > 5 else ''
 _out = sys.argv[6] if len(sys.argv) > 6 else ''
+centre = sys.argv[7:]
+if len(centre) not in (0, 3):
+    raise SystemExit("expected RE IM PERIOD together")
 sys.argv = [sys.argv[0], 'unused']
 import mpmath as mp
 import koenigs_tail as kt, psi_series as ps
+if centre:
+    re, im, period = centre
+    kt.DPS = max(kt.DPS, 80 + max(0, int(period) - 764) // 16)
+    mp.mp.dps = kt.DPS
+    kt.C = mp.mpc(re, im)
+    kt.P = int(period)
 # rel mode: TOL bounds the equivalent shift in s, |dz| <= TOL*|dF/ds| (a pixel error of
 # |ds|/|ds/dpx|; measured |ds/dpx| >= ~1e-6 at 1080p on the six frames, so 1e-11 is 1e-5 px).
 REL = _mode == 'rel'

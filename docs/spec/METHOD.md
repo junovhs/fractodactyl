@@ -14,6 +14,7 @@ No hypothesis gets an expensive run until it has won a cheap one.
 
 | Gate | Budget | Input | Purpose |
 |---|---|---|---|
+| 2026-10-10 | PROB-10: how much of the actual 750-frame v0 film is covered by the full-frame 1e-28 guard, and what is the end-to-end gain over per-frame BLA at 1280x720? | `gh workflow run koenigs-bench.yml --ref gpt/PROB-10 -f path=true -f path_file=bench/path-atlas-v0.txt -f path_size=1280x720 -f path_runs=1 -f path_maxit=100000 -f threads=4`; branch-push Actions run [38045874904](https://github.com/junovhs/fractodactyl/actions/runs/38045874904) began the full run. Reproduce on Ryzen 9 3900X: `THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/prob10-local bench/path-atlas-v0.txt` after `cargo build --release` and Python `mpmath gmpy2 numpy` setup. | **Measured locally (Ryzen 9 3900X, 24 threads, 1280x720, max_iter 100000); band not yet promoted.** Guard 1e-28 covers 319 frames (431–749), 63.3% of whole-film fd time (393.2 of 621.0 s). Across those 319 frames Koenigs takes 16.7 s vs fd 393.2 s (23.6x; per-frame 19–30x). 313 frames pass every-pixel: 0 wrong pixels and 0 non-finite values. 6 fail: frames 431, 432, 441 (band top, ~1.5e-28 width) on de over tolerance (82, 4, 1 samples; one normal), and frames 742, 747, 748 (deepest) with 2, 1, 1 class mismatches beyond FIX-04. Max nu displacement 5.1e-4 px. FIX-04 Unresolved→Interior: 367,389 samples, reported separately. The harness's contiguous-deep-suffix rule then accepts only frame 749 (0.25% of the film), so end-to-end it is 1.00x as built. If the 6 failures are fixed (or a per-frame guard abstains on them), the band would cut the film to about 244 s, about 2.5x overall. Follow-ups: the de fault at the band top and the class mismatches at the deepest frames. |
 | **Probe** | under 30 s | hundreds to a few thousand points or samples, one tile, a few tiny frames | kill or keep. Run constantly |
 | **Promotion** | under 5 min | 20-50 frames at 160x90 to 320x180 | check cross-frame behaviour and an honest wall-clock time |
 | **Full benchmark** | as long as it takes | the real path at real size | confirm a win the first two gates already showed |
@@ -98,11 +99,90 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-17: conventional zones down the v0 ladder (2026-10-10)
+
+**Measured on GitHub Actions:** [whole-frame run](https://github.com/junovhs/fractodactyl/actions/runs/38052204667), Ubuntu, 4 threads, 480x270, one run per frame, max iteration budget 40P, columns nu/de/normal. For each rung the same exact centre and width were rendered with `fd control --zone` and with fresh `fd control --bla per-frame` (`bla.use=used` at v0 and k=409). Every one of 129,600 pixels/frame was scored using `fd compare`; all frames used the zone. The v0 and k=409 zones have degree-4 biseries, guard 1e-3 of the zone state scale, 12 phi terms, 18 psi terms, and depth-6 tail patches. Zone builds include the whole patch atlas. Times below are one-run frame seconds, **not hardware-independent benchmarks**.
+
+| Rung | Frame width / minibrot size | Build s | Zone frame s | BLA frame s | Map returns/px | nu >1e-3 px | Max nu px | Real class errors | FIX-04 Unresolved/Interior |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| v0, P=764 | 5000 | 10.337 | 0.033418 | 0.717314 | 3.033 | 0 | 1.96e-8 | 0 | 0 |
+| v0 | 500 | — | 0.033022 | 0.814273 | 4.009 | 0 | 1.43e-9 | 0 | 1 |
+| v0 | 50 | — | 0.037331 | 0.769993 | 4.789 | 0 | 1.17e-7 | 0 | 117 |
+| v0 | 5 | — | 0.046035 | 0.766539 | 9.633 | 0 | 6.23e-8 | 0 | 11904 |
+| k=409, P=1582 (size ~9.2e-101) | 5000 | 11.137 | 0.035667 | 0.685252 | 4.103 | 0 | 4.05e-6 | 0 | 0 |
+| k=409 | 500 | — | 0.034337 | 0.769040 | 5.016 | 0 | 1.48e-8 | 0 | 1 |
+| k=409 | 50 | — | 0.036591 | 0.772772 | 6.071 | 0 | 1.43e-6 | 0 | 120 |
+| k=409 | 5 | — | 0.047289 | 0.766662 | 10.611 | 0 | 1.71e-7 | 0 | 11902 |
+
+Across all eight 480x270 frames: **0 nu samples over 1e-3 px, 0 nonfinite,
+0 de tolerance failures, 0 normal tolerance failures, 0 real class errors**;
+FIX-04 Unresolved-vs-Interior pairs remain (24045 total, strictly failing
+`fd compare` on six frames). Maximum de relative difference is 2.751e-4
+(0.02751%, below the 0.2% tolerance) and maximum normal-angle difference is
+0.01648 degrees (below 0.2 degrees). These values score escaped pixels in
+both frames, with the usual near-boundary exception for de/normal. FIX-04
+pairs are listed separately, not silently waived; the strict whole-frame
+class gate remains **unpassed** at widths 500/50/5.
+
+**Cost gate at 1e-100:** at 5000 sizes wide, the k=409/v0 counted-map-return
+ratio is 4.103/3.033 = 1.35, and zone-time ratio is 0.035667/0.033418 =
+1.07, below the cost-growth limit. At widths 500/50/5, zone-time ratios
+are 1.04/0.98/1.03 versus return-count ratios 1.25/1.27/1.10.
+Map-return counts exclude the initial orbit period; add one for comparison
+with Probe H's steps/P on escaped pixels. At 5000 sizes wide this gives
+~4.03 and ~5.10 periods/px, broadly consistent with Probe H's six-point
+4.03/4.99. BLA time did **not** grow across these two rungs; the claimed
+growth with depth exponent was not established here. This is a positive
+speed/correctness probe at 1e-100, **not a three-rung keep result**.
+
+The initial [48x27 diagnostic](https://github.com/junovhs/fractodactyl/actions/runs/38051482894)
+failed numerically at k=409 (1230/1210/1026 outliers at widths 5000/50/5):
+the generator incorrectly scaled the map by `size * 1e25` rather than
+`sqrt(size)`. The corrected state scale plus high-precision map construction
+passed the subsequent [48x27 check](https://github.com/junovhs/fractodactyl/actions/runs/38051966768)
+with zero nu/de/normal failures; the 480x270 rows above use the correction.
+The failed diagnostic is not counted as a result of the final implementation.
+
+**k=7676, P=16116, size ~1e-1000:** the high-precision zone **built in
+43.708 seconds** on the same runner (14.6 MB zone file, including 16190
+patch leaves; 33.75 s spent generating constants and 8.1 s on patches).
+It preserves the nucleus as exact decimal text and the size as mantissa
+times binary exponent (~2^-1661). However, `z24_minus_alpha` is ~1e-500
+and rounds to zero in the existing Rust zone data structure. The parser
+explicitly declines this case instead of producing an invalid jump; a
+scaled Koenigs entry/jump is necessary before `--zone` can render any
+k=7676 landing. Also, on the scaled tier `fd control --bla per-frame`
+has no usable BLA (`bla.use=none`; FIX-03). **No k=7676 frame seconds,
+return counts or class/nu/de/normal score can be claimed.** The
+logarithmic-growth hypothesis at k=7676 is still open.
+
+Reproduce on Ryzen 9 3900X (24 threads) from the repo root (Python 3,
+mpmath and NumPy installed):
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --release
+THREADS=24 RUNS=3 SIZE=480x270 RUNGS="0 409" FRAMES="5000 500 50 5" \
+  bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob17
+BUILD_ONLY=1 RUNGS="7676" FRAMES="5000" \
+  bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob17
+```
+
+The comparison command exits nonzero on the known FIX-04 class mismatches;
+the per-frame JSONL and exact class-pair scores are still written.
+After a scaled Koenigs jump and scaled-tier BLA become available, rerun
+the k=7676 frames with
+`THREADS=24 RUNS=3 SIZE=480x270 RUNGS=7676 FRAMES="5000 500 50 5" bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob17`.
+Before those fixes this fails by design. GitHub Actions passed
+`cargo test --workspace`, Clippy with `-D warnings`, shell syntax
+and Python compilation. The Actions run reports failure because strict
+`fd compare` rejects the documented FIX-04 class pairs.
+
 FACT-01 measurement contract: normalized parameter scale `s_c = 4.1205e-50 * abs(rho)^(-2k)`, state scale `s_z = sqrt(s_c)`; errors are `abs(delta state)/s_z` and `abs(delta (dz/dc))*s_c/s_z`. All deep coordinates and widths stay in mpmath. Cold build includes centre parsing and one 48-term parameter-dependent chart; chart rebuild is timed separately for each of eight pixel parameters; evaluation/direct times are totals for 16 one-return calls. Bytes count decimal-serialized complex coefficients and parameter jets, not Python object heap. Chart entry/output radius <=1e-3, inverse residual and amplified last-eight-term estimate guard evaluations; **this is not a certified bound**. On rejection return a reason and use direct jet iteration as fallback. Only 16 sampled inputs, not whole frames (DEC-17); timing is Python-on-sandbox, not Rust benchmark.
 
 | Date | Question | Probe | Answer |
 |---|---|---|---|
-| 2026-10-10 | PROB-10: how much of the actual 750-frame v0 film is covered by the full-frame 1e-28 guard, and what is the end-to-end gain over per-frame BLA at 1280x720? | `gh workflow run koenigs-bench.yml --ref gpt/PROB-10 -f path=true -f path_file=bench/path-atlas-v0.txt -f path_size=1280x720 -f path_runs=1 -f path_maxit=100000 -f threads=4`; branch-push Actions run [38045874904](https://github.com/junovhs/fractodactyl/actions/runs/38045874904) began the full run. Reproduce on Ryzen 9 3900X: `THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/prob10-local bench/path-atlas-v0.txt` after `cargo build --release` and Python `mpmath gmpy2 numpy` setup. | **Measured locally (Ryzen 9 3900X, 24 threads, 1280x720, max_iter 100000); band not yet promoted.** Guard 1e-28 covers 319 frames (431–749), 63.3% of whole-film fd time (393.2 of 621.0 s). Across those 319 frames Koenigs takes 16.7 s vs fd 393.2 s (23.6x; per-frame 19–30x). 313 frames pass every-pixel: 0 wrong pixels and 0 non-finite values. 6 fail: frames 431, 432, 441 (band top, ~1.5e-28 width) on de over tolerance (82, 4, 1 samples; one normal), and frames 742, 747, 748 (deepest) with 2, 1, 1 class mismatches beyond FIX-04. Max nu displacement 5.1e-4 px. FIX-04 Unresolved→Interior: 367,389 samples, reported separately. The harness's contiguous-deep-suffix rule then accepts only frame 749 (0.25% of the film), so end-to-end it is 1.00x as built. If the 6 failures are fixed (or a per-frame guard abstains on them), the band would cut the film to about 244 s, about 2.5x overall. Follow-ups: the de fault at the band top and the class mismatches at the deepest frames. |
 | 2026-10-10 | FACT-01, P=764: can a parameter-dependent period-764 return and total dz/dc be built without 764 raw steps? | `python tools/research/misiurewicz/factored_return.py --period 764`; mpmath 135 dps; 48 Koenigs coefficients and their parameter jets; q=24, jump 189 two-cycles, direct exit 360 steps. Eight genuine pixel parameters (4 offsets at 5 and 5,000 minibrot sizes), first two biseries-loop inputs each; 16 direct high-precision state/derivative jets. | **KEEP as research probe (not DEC-17 production promotion).** Cold build 0.080 s; 8 pixel-parameter chart rebuilds 0.643 s; 16 evaluations 0.260 s vs 0.182 s direct; serialized operator 26,829 bytes; chart coverage 16/16; failures 0; max normalized state error 7.156e-106 and dz/dc error 5.116e-109. Coefficient conditioning: max abs(K_j) 1.182e21, max abs(dK_j/dc) 7.047e23, min abs(rho^j-rho) 0.6062. |
 | 2026-10-10 | FACT-01, P=1,582 (k=409): does the same chart work at the ~1e-100 rung? | `python tools/research/misiurewicz/factored_return.py --period 1582`; mpmath 185 dps, same eight parameter positions and two consecutive direct-jet return inputs (16 comparisons); q=24, chart jump, 502 direct exit steps. | **KEEP as research probe.** Cold build 0.082 s; 8 chart rebuilds 0.670 s; 16 evaluations 0.327 s vs 0.376 s direct; serialized operator 36,771 bytes; coverage 16/16; failures 0; max normalized state 1.504e-130 and dz/dc 1.075e-133. Coefficient maxima 1.182e21 / 7.047e23, min denominator 0.6062. |
 | 2026-10-10 | FACT-01, P=16,116 (k=7,676): is build genuinely sublinear and the return jet accurate near ~1e-1000? | `python tools/research/misiurewicz/factored_return.py --period 16116`; mpmath 1,080 dps, same 16 real consecutive-loop inputs; q=24, multiplier power, 502 direct exit steps; no P-length work during construction. | **KEEP FACT-01 for FACT-02 only, not as a kept per-pixel production shortcut.** Cold build 0.645 s (8.1x P=764 vs 21.1x raw period); 8 chart rebuilds 4.719 s; 16 evaluations 1.864 s vs 19.090 s direct; serialized operator 212,182 bytes; coverage 16/16; failures 0; max normalized state 1.588e-575 and dz/dc 1.136e-578. Coefficient maxima 1.182e21 / 7.047e23, min denominator 0.6062. The 1e-3 normalized research budget passes; **whole-frame every-pixel/class/nu/DE/normal verification remains for FACT-02**. |

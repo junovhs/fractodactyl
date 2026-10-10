@@ -136,7 +136,32 @@ def freeze(jobs):
     print(f'frozen {len(rows)} direct-iteration points at {DPS} dps: {TRUTH}')
 
 
+def build_map_mp(degree):
+    """Build a deep return map without overflowing intermediate double coefficients."""
+    start = time.perf_counter()
+    terms = [(i, j) for i in range(degree + 1)
+             for j in range(degree + 1 - i) if i + j]
+    a = {(1, 0): mp.mpc(1)}
+    z = C
+    for _ in range(P):
+        b = {k: 2 * z * v for k, v in a.items()}
+        for (i, j), x in a.items():
+            for (h, l), y in a.items():
+                if i + j + h + l <= degree:
+                    k = (i + h, j + l)
+                    b[k] = b.get(k, mp.mpc(0)) + SCALE * x * y
+        b[(0, 1)] = b.get((0, 1), mp.mpc(0)) + 1
+        a = b
+        z = z*z + C
+    return [(i, j, encode(a.get((i, j), mp.mpc(0)))) for i, j in terms], \
+        encode((z - C) / SCALE), time.perf_counter() - start
+
+
 def build_map(degree):
+    # A deep rung's long orbit makes intermediate double coefficients
+    # inaccurate even when the completed map fits in f64.
+    if SCALE < mp.mpf('1e-30'):
+        return build_map_mp(degree)
     import numpy as np
     start = time.perf_counter()
     # z=Z+s*t, c=C+s*v => t_next=2*Z*t+s*t*t+v.

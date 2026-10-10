@@ -1,0 +1,45 @@
+name: prob17
+on:
+  push:
+    branches: [gpt/PROB-17]
+    paths:
+      - ".github/workflows/prob17.yml"
+  workflow_dispatch:
+
+jobs:
+  check-and-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath gmpy2 numpy
+      - run: |
+          cargo test --workspace
+          cargo clippy --workspace --all-targets -- -D warnings
+          bash -n tools/research/misiurewicz/make_zone.sh
+          bash -n tools/research/misiurewicz/run_rungs.sh
+          python -m py_compile tools/research/misiurewicz/koenigs_bench_consts.py tools/research/misiurewicz/returns_exit_tail.py tools/research/misiurewicz/tail_patches.py
+      - run: cargo build --release -j 4
+      - name: 480x270 whole-frame ladder probe
+        run: |
+          RUNGS="0 409" FRAMES="5000 500 50 5" THREADS=4 RUNS=1 SIZE=480x270 \
+            bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob17
+      - name: Build period-16116 zone (generation only)
+        if: always()
+        timeout-minutes: 20
+        run: |
+          if [ -x target/release/fd ]; then
+            BUILD_ONLY=1 RUNGS="7676" FRAMES="5000" \
+              bash tools/research/misiurewicz/run_rungs.sh target/release/fd out/prob17
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: prob17-results
+          path: out/prob17/
