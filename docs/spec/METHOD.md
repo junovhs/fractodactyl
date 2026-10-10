@@ -98,6 +98,17 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### FIX-42: late-escape derivative fallback (pending local adjudication)
+
+The zone's truncated return-map derivative is unreliable on late escapes. A zone
+escape within 1000 iterations of max_iter is recomputed using the independent
+per-pixel kernel; its entire outcome replaces the zone's (DEC-10), including an
+Unresolved result. A reference orbit is built lazily only if a pixel needs fallback.
+This does not cure fd's separately documented max_iter-boundary class errors.
+
+Local validation pending: cargo test, clippy, 1280x720 frames 742/747 against
+mpmath (de < 0.2%, normal < 0.2 degrees), then all 750 v0 frames.
+
 ### PROB-20: v0 film frames decided before rendering (2026-10-10)
 
 **Measured locally** (Ryzen 9 3900X, 24 threads, 1280x720, 1 run per frame, max_iter 1e5). Command: `THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/prob20 bench/path-atlas-v0.txt`. Both films are single `fd control` executions over all 750 frames. In the mixed film, `fd control --zone` decides each frame before rendering it.
