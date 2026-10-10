@@ -1,0 +1,38 @@
+name: auto-misiurewicz-mixed-class
+on:
+  push:
+    branches: [research/auto-misiurewicz-discovery]
+    paths:
+      - ".github/workflows/auto-misiurewicz-mixed-class.yml"
+  workflow_dispatch:
+jobs:
+  mixed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install mpmath numpy
+      - run: cargo build --release -j 4
+      - run: cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Odd-grid frame with exact nonescaping Misiurewicz centre pixel
+        run: |
+          python tools/research/misiurewicz/auto_discover.py \
+            --fd target/release/fd \
+            --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+            --re 0 --im 1 --width 1e-95 --size 961x541 \
+            --iter 20000 --threads 4 --out out/auto-mixed
+          python - <<'PY'
+          import json
+          j=json.load(open('out/auto-mixed/report.json'))
+          print('mixed_class',j['decision'],'classes',j['full_frame'])
+          assert j['full_frame']['class_mismatches']==0
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto-misiurewicz-mixed-class
+          path: out/auto-mixed/report.json
