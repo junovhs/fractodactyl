@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-09, evening)
+# Where We Are (updated 2026-10-09, late)
 
 Read this first in a new session, then run `ishoo_status`. Rules for how we work are in
 METHOD.md (DEC-14). Every result with its numbers is in the METHOD.md results log.
@@ -103,30 +103,45 @@ palettes, terraces and terrain lines; their favourite is ice with lines.
   - Its "direct bivariate transfer patches" amount to higher-order BLA → ACC-03, with
     modest gains expected.
 
-## Do next, in order
+## Do next (2026-10-09, late): follow Ishoo
 
-Earlier steps (PROB-03/04/07/08/09, BENC-04) are done; see the METHOD.md results log.
+Ishoo is the source of truth for order: `ishoo_status`, then `ishoo_plan op:next`. The
+plans were reorganised on 2026-10-09 by outcome, with dependency edges. In order of
+priority:
 
-1. **PROB-10.** Every v0-path frame in the band at full resolution, every pixel scored,
-   total time, and the fraction of the whole film. Runs on GitHub Actions.
-2. **KERN-01.** The PROB-09 pipeline inside `fd render/control/play`. The de/normal
-   columns are required (the owner's relief look needs them). This is the first point
-   where films actually get faster.
-3. **PROB-14.** Co-moving Koenigs chart probe at 1e-9 / 1e-15 / 1e-24: can the fast
-   path cover the mid bands?
-4. **PROB-12.** Structural miner: find zones automatically along any path.
-5. **BENC-09.** Desktop RX 5700 XT run of the float64 GPU kernel. If it wins big,
-   promote GPU-01.
-6. Later: PROB-11 (Rust follow-up of PROB-14 if it keeps), PROB-13 (certification),
-   PROB-06 (nested chains), PROB-05 (frame transfer; demoted to mid, not on the path to
-   usable speed).
-7. Head-to-heads (BENC-05/06/07/08) moved to the plan "Credibility: head-to-heads
-   against rival renderers". They build credibility, not speed.
-8. In parallel, cheaper-frame fixes from prior art: FIX-03 (BLA beyond 1e-270), FIX-04
-   (deep interior detection), FIX-09 (BLA slower than plain at 1e-14 to 1e-29).
-9. The research engine: TRUT-01 (frozen truth pack), then PROB-01 (`fd probe`). PROB-02
-   (exponential-map strips, prior art: 2-11x) is still worth measuring. RESE-02 is the
-   Imagina/NanoMB source read (lower-degree or LA/AT returns).
+1. **Fast path everywhere** (active). PROB-14 (mid-band jump, whole frames in Rust; read
+   `docs/research/10-9-26/HANDOFF-mid-band-jump.md` first) → PROB-10 (v0 deep band, whole
+   frames) → PROB-17 (render the 1e-100 and 1e-1000 ladder rungs; cost should grow only
+   like log2) → PROB-11 (handover near 1e-27) → PROB-16 (census of famous zooms) →
+   KERN-02 (mid-band path inside `fd --zone`; this is what makes films faster) →
+   PROB-12 (`fd zone` for any location) → PROB-15, KERN-03, PROB-06, PROB-13, PROB-05.
+   KERN-01 (deep band in fd) is done.
+2. **Films.** FILM-07 (restore places/spiral-on-spiral.place; coordinates are in the
+   issue) → FIX-04 → EXPL-09 → FX-05 (GPU shading) → GPU-02 (float32 GPU film kernel,
+   allowed by DEC-18 only behind FILM-08) → EXPL-02.
+3. **Feature map and trip design.** MAP-01 (`fd features`) → MAP-03 (`fd trip`) →
+   MAP-02 → MAP-04. Waits on PROB-12. The idea and the full feature list are in
+   `docs/spec/FEATURE-MAP.md`.
+4. **Proving suite.** TRUT-01 → PROB-01 → FILM-08 (film-equivalence check, DEC-18) →
+   FIX-10 → BENC-02 → BENC-03.
+5. **Cold renderer: fast BLA for any location.** FIX-09, FIX-03, RESE-02, PROB-02,
+   ACC-03, REF-05, LOD-06, BENC-09, GPU-01.
+6. **Credibility.** BENC-08, BENC-05, BENC-07, BENC-06.
+7. **Parked: atlas ideas.** 12 leftover atlas-gate issues; revisit only if a probe earns it.
+
+Key findings from 2026-10-09 (all in the METHOD.md results log):
+- **Mid bands:** the jump at each pixel's own cycle point passed probes A-F (sampled, not
+  yet whole frames). About 64 steps per pixel at every width from 1e-6 to 1e-24, in
+  doubles, with ν, de and normal. The finish must stay double; all-float32 is about
+  1e-2 px.
+- **Ladders (probe G):** v0's minibrot is rung 0 of an exact ladder on M(24,2). Rungs at
+  1e-100 and 1e-1000 were found by Newton in seconds (`ladder_rungs.txt`): exact film
+  destinations at any depth.
+- **Cost down a ladder (probe H):** returns per pixel grow like log2(n) (about 4 at v0, 5
+  at 1e-100, 8 at 1e-1000), not flat. The "universal landing" lookup is rejected.
+- **Long cycles (probe E):** the jump works on period-197/655 cycles in "Eye of the
+  Universe", but its radius is small; nested minibrots need return maps there.
+- **Killed:** hex sample lattices; OpenAI's 2026-10-06 math release as a speed lever.
 
 ## Decisions to know
 
@@ -135,9 +150,12 @@ Earlier steps (PROB-03/04/07/08/09, BENC-04) are done; see the METHOD.md results
 - DEC-15: Gate C's lesson. The atlas must hold work that is expensive to rebuild or
   inherently cross-frame.
 - DEC-16 (**PROPOSED, needs the owner**): theorem-backed frame transfer counts as
-  genuine depth under an error contract. It is not twin substitution.
-- DEC-17 (**PROPOSED, needs the owner**): a per-pixel shortcut is kept only after it
-  passes every pixel of whole frames, not just sampled points.
+  genuine depth under an error contract. Only PROB-05 depends on it.
+- DEC-17 (accepted 2026-10-09): a per-pixel shortcut is kept only after it passes every
+  pixel of whole frames, not just sampled points.
+- DEC-18 (accepted 2026-10-09): films may use shortcuts viewers cannot tell apart
+  (measured by FILM-08) if no visible work is skipped and the precision is named;
+  benchmarks keep 1e-3 px.
 
 ## Things that exist for the owner
 
@@ -152,8 +170,8 @@ Earlier steps (PROB-03/04/07/08/09, BENC-04) are done; see the METHOD.md results
 - On Windows, the `bench.rs`/`control.rs` tests expect Linux peak-RSS fields (FIX-10).
 - The ACC-01 worktree leaked (`.ishoo/worktrees/ACC-01`); clean it with Ishoo.
 - The Ishoo binary is behind its source (`ishoo reinstall`).
-- The plan "Atlas Gate C" still lists LOD-04/05/06, REF-04/05; they are not the priority
-  now (see DEC-15).
+- Cloud sessions without Ishoo push research straight to main. Pull before pushing, and
+  file their results on the matching issues.
 - Pushes occasionally fail an LFS lock check; it cleared on retry. If it persists:
   `git config lfs.https://github.com/junovhs/fractodactyl.git/info/lfs.locksverify false`
   (needs the owner's OK).
