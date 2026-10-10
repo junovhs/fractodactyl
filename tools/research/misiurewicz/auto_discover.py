@@ -165,7 +165,7 @@ def discover(re, im, width, maxiter, qmax=64, pmax=128, order=14):
                     v=(v+coef)*w
                 return v
             h=eval_poly(k,kw)
-            g=h
+            g=s+h
             for _ in range(p):
                 g=g*g+c
             err=abs((g-s)-eval_poly(k,lam*kw))
