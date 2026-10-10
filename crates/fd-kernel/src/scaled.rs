@@ -5,7 +5,9 @@
 //! of two, so it adds no rounding. Per step this costs one real-by-complex product more
 //! than the f64 kernel. With `S = 2^e` and `dc = 2^ed * a`:
 //! `w' = 2 Z w + S w^2 + a 2^(ed - e)`, `v' = 2 z v + 2^-g`.
-//! A close cycle return without an attraction check is `Unresolved`, not interior.
+//! A close cycle return that contracts ends the sample as `Unresolved`, not interior;
+//! one that expands (a shadowed repelling cycle) keeps iterating.
+use crate::interior::contracting;
 use crate::reference::Reference;
 use crate::sample::{resolvable, Outcome};
 use fd_fixed::exp2i;
@@ -21,7 +23,7 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
     let (mut dr, mut di) = (ar, ai); // dc / 2^e
     let (mut vr, mut vi, mut g, mut inv) = (0.0f64, 0.0f64, 0i64, 1.0f64);
     let (mut m, mut n) = (0usize, 0u64);
-    let (mut sr, mut si, mut chk) = (0.0f64, 0.0f64, 16u64);
+    let (mut sr, mut si, mut chk, mut sn, mut returns) = (0.0f64, 0.0f64, 16u64, 0u64, 0u32);
     while n < max_iter {
         if D {
             let (fr, fi) = (zr[m] + s * wr, zi[m] + s * wi);
@@ -77,15 +79,22 @@ pub(crate) fn scaled<const D: bool>(r: &Reference, ar: f64, ai: f64, ed: i64, ma
                 (dr, di) = (ar * q, ai * q);
             }
         }
-        if resolvable(xr, xi, f2) {
+        if returns < 4 && resolvable(xr, xi, f2) {
             let dist = (fr - sr).abs() + (fi - si).abs();
             if dist < 1e-13 * (sr.abs() + si.abs()) + 1e-300 {
-                // Repelling cycles also return closely; attraction is not established.
-                return Outcome::Unresolved;
+                // An orbit shadowing a weakly repelling cycle (the M(24,2) 2-cycle at
+                // the k = 7676 rung) returns as closely but expands over the return
+                // (FIX-41). Only a contracting return ends the sample; it is still not
+                // an attraction certificate, so the answer is Unresolved.
+                let dc = exp2i(ed);
+                if contracting(r, m, xr, xi, ar * dc, ai * dc, n - sn) {
+                    return Outcome::Unresolved;
+                }
+                returns += 1;
             }
         }
         if n >= chk {
-            (sr, si, chk) = (fr, fi, chk * 2);
+            (sr, si, sn, chk) = (fr, fi, n, chk * 2);
         }
     }
     Outcome::Unresolved
@@ -212,15 +221,7 @@ mod tests {
     /// reference sits on 0 must keep `2^e w^2`, `dc` and `dz/dc` below f64 range (FIX-40).
     #[test]
     fn deep_nucleus_neighbour_escapes_at_the_oracle_count() {
-        let rung = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
-            .lines()
-            .find(|line| line.starts_with("7676 "))
-            .unwrap();
-        let f: Vec<&str> = rung.split_whitespace().collect();
-        let limbs = fd_fixed::limbs_for(3456);
-        let cr = fd_fixed::Fixed::parse(f[2], limbs).unwrap();
-        let ci = fd_fixed::Fixed::parse(f[3], limbs).unwrap();
-        let r = Reference::from_fixed(&cr, &ci, 140_000);
+        let (_, _, r) = rung_7676(140_000);
         // Pixel (5, 5) of a 96x54 frame 5000 minibrot sizes wide; mpmath at 1200
         // digits: escape (|z| > 1e10) at n = 133115, z = -2.7519423631080235e10 - ...,
         // log2 |dz/dc| = 3359.4391791173814.
@@ -238,6 +239,36 @@ mod tests {
         // z^2 to 0 and the pixel never escaped. mpmath: escape at n = 139850.
         match scaled::<true>(&r, 0.006749565204064256, 0.10124347806096384, -3310, 140_000, 1e20) {
             Outcome::Escaped { n, .. } => assert_eq!(n, 139_850),
+            o => panic!("{o:?}"),
+        }
+    }
+
+    /// The k = 7676 ladder nucleus (~1e-1000 minibrot) as decimal strings and a
+    /// reference of length `len`.
+    fn rung_7676(len: u64) -> (String, String, Reference) {
+        let rung = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
+            .lines()
+            .find(|line| line.starts_with("7676 "))
+            .unwrap();
+        let f: Vec<&str> = rung.split_whitespace().collect();
+        let limbs = fd_fixed::limbs_for(3456);
+        let cr = fd_fixed::Fixed::parse(f[2], limbs).unwrap();
+        let ci = fd_fixed::Fixed::parse(f[3], limbs).unwrap();
+        (f[2].to_string(), f[3].to_string(), Reference::from_fixed(&cr, &ci, len))
+    }
+
+    /// PROB-19's k = 7676 frame 500 minibrot sizes wide (480x270), pixel (184, 201):
+    /// the orbit shadows the weakly repelling M(24,2) 2-cycle (|rho| ~ 1.15) to within
+    /// 1e-13 for many laps, which the close-return check took for a settled cycle and
+    /// returned Unresolved (FIX-41). mpmath at 1200 digits: escape at n = 145079.
+    #[test]
+    fn repelling_cycle_shadow_at_the_7676_rung_escapes() {
+        let (re, im, r) = rung_7676(150_000);
+        let v = fd_samples::View { center_re: re, center_im: im, width: "5.050000000000E-998".into(), rotation: 0.0 };
+        let pl = crate::Plane::new(&v, 480, 270).unwrap();
+        let (ux, uy) = pl.unit_offset(184, 201);
+        match scaled::<true>(&r, ux * pl.h_m, uy * pl.h_m, pl.h_e, 644_640, 1e20) {
+            Outcome::Escaped { n, .. } => assert_eq!(n, 145_079),
             o => panic!("{o:?}"),
         }
     }
