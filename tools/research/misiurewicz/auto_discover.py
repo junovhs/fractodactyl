@@ -328,6 +328,46 @@ def score(ref,ours,px=1e-3):
             "ok":bool(mismatch==0 and not np.any(disp>px) and np.max(de_err)<1e-3 and np.max(ang)<1e-3)}
 
 
+
+def high_precision_spotcheck(re, im, width, nx, ny, rot, maxiter, fd, ours, indices):
+    """Independent orbit-and-derivative oracle for worst disagreement pixels."""
+    mp.mp.dps = min(1200,max(90,int(-math.log10(float(width)))+60))
+    c0=mp.mpc(re,im)
+    h=mp.mpf(width)/nx
+    phase=mp.exp(mp.j*mp.mpf(rot))
+    cls,nu0,de0,n0=fd
+    checks=[]
+    for idx in sorted(set(map(int,indices))):
+        i,j=idx%nx,idx//nx
+        dx=mp.mpf(i)+mp.mpf("0.5")-nx/2
+        dy=ny/2-mp.mpf(j)-mp.mpf("0.5")
+        c=c0+phase*h*mp.mpc(dx,dy)
+        z,d=mp.mpc(0),mp.mpc(0)
+        truth=None
+        for n in range(1,maxiter+1):
+            d=2*z*d+1
+            z=z*z+c
+            if abs(z)>mp.mpf("1e10"):
+                smooth=mp.mpf(n)+1-mp.log(mp.log(abs(z),2),2)
+                distance=2*abs(z)*mp.log(abs(z))/(abs(d)*h)
+                angle=(mp.mpf(rot)-mp.arg(z/d))%(2*mp.pi)
+                truth=float(smooth),float(distance),float(angle)
+                break
+        if truth is None:
+            checks.append({"index":idx,"oracle_class":"unresolved"})
+            continue
+        nu,de,ang=truth
+        circ=lambda a,b:abs(math.atan2(math.sin(a-b),math.cos(a-b)))
+        checks.append({"index":idx,"x":i,"y":j,
+            "oracle_class":"escaped","oracle_nu":nu,"oracle_de_px":de,
+            "fd_nu_error":abs(float(nu0[idx])-nu),
+            "candidate_nu_error":abs(float(ours["nu"][idx])-nu),
+            "fd_de_relative_error":abs(float(de0[idx])/de-1),
+            "candidate_de_relative_error":abs(float(ours["de"][idx])/de-1),
+            "fd_normal_error_rad":circ(float(n0[idx])*math.tau/65536,ang),
+            "candidate_normal_error_rad":circ(float(ours["normal"][idx]),ang)})
+    return checks
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name,required in [("re",True),("im",True),("width",True)]:
