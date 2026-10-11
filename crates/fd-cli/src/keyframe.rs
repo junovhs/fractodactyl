@@ -27,6 +27,8 @@ pub(crate) struct Keyframes<'a> {
     re: String,
     im: String,
     w0: f64,
+    /// Rendered keyframe footprint relative to the nominal zoom width.
+    footprint: f64,
     /// Output size in pixels.
     out: (usize, usize),
     /// Keyframe render parameters (M x the output size, ss 1).
@@ -72,6 +74,7 @@ impl<'a> Keyframes<'a> {
             re,
             im,
             w0,
+            footprint: 1.0,
             out: (out.0 as usize, out.1 as usize),
             p,
             zone,
@@ -98,6 +101,26 @@ impl<'a> Keyframes<'a> {
         }
     }
 
+    /// Enlarge rotated keyframes to at least `footprint` x the nominal width, keeping the
+    /// unrotated sample pitch (so shading sees the same pixel scale).
+    pub(crate) fn cover_rotations(&mut self, footprint: f64) -> Result<(), String> {
+        let m = self.p.nx as f64 / self.out.0 as f64;
+        let multiple = (m * footprint).ceil();
+        if !(footprint.is_finite() && footprint >= 1.0 && multiple.is_finite()) {
+            return Err("rotated keyframe footprint is out of range".into());
+        }
+        let (nx, ny) = (self.out.0 as f64 * multiple, self.out.1 as f64 * multiple);
+        if nx > u32::MAX as f64 || ny > u32::MAX as f64 {
+            return Err("rotated keyframe grid is too large".into());
+        }
+        let multiple = multiple as u32;
+        self.p.nx = self.out.0 as u32 * multiple;
+        self.p.ny = self.out.1 as u32 * multiple;
+        // The grid's actual enlargement, so width / pixels stays the unrotated pitch.
+        self.footprint = f64::from(multiple) / m;
+        Ok(())
+    }
+
     /// Try GPU shading; unsupported devices and looks retain the CPU film path.
     pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
         let multiple = self.p.nx as usize / self.out.0;
@@ -112,7 +135,7 @@ impl<'a> Keyframes<'a> {
     }
 
     fn width_str(&self, j: usize) -> String {
-        sig6(self.w0 / 2f64.powi(j as i32))
+        sig6(self.w0 * self.footprint / 2f64.powi(j as i32))
     }
 
     fn width(&self, j: usize) -> f64 {
@@ -162,16 +185,23 @@ impl<'a> Keyframes<'a> {
     }
 
     /// The frame at width `w`, centred `off` (complex, re/im) from the keyframe centre,
-    /// shaded by `look` at appearance `a`.
+    /// rotated by `rotation` radians and shaded at appearance `a`.
     pub fn frame(
         &mut self,
         w: f64,
         off: (f64, f64),
+        rotation: f64,
         look: &dyn Pass,
         a: &Appearance,
     ) -> Result<&Rgb8, String> {
-        let req = coverage(w, off, (self.out.0 as u32, self.out.1 as u32));
-        let k = self.octave(req);
+        let req = coverage_rotated(w, off, (self.out.0 as u32, self.out.1 as u32), rotation);
+        // Rotated keyframes are enlarged by `footprint`: pick the octave by the frame's
+        // scale against the nominal widths, as an unrotated film would.
+        let k = self.octave(if self.footprint > 1.0 {
+            w * self.footprint
+        } else {
+            req
+        });
         self.ensure(k, k, a)?;
         self.ensure(k + 1, k, a)?;
         let cache = &self.cache;
@@ -179,13 +209,21 @@ impl<'a> Keyframes<'a> {
         let (outer, inner) = (get(k), get(k + 1));
         let sa = Appearance { dither: true, ..*a };
         let (ow, oh) = self.out;
-        let u = (outer.1 / req).log2().clamp(0.0, 1.0) as f32;
+        let aspect = ow as f32 / oh as f32;
+        let (sin, cos) = rotation.sin_cos();
+        let (sin, cos) = (sin as f32, cos as f32);
+        let ramp_width = if self.footprint > 1.0 {
+            w * self.footprint
+        } else {
+            req
+        };
+        let u = (outer.1 / ramp_width).log2().clamp(0.0, 1.0) as f32;
         let ramp = (u / 0.25).min(1.0);
         let margin = 0.1 * (1.0 - u) + 1e-3;
         let (zo, zi) = ((w / outer.1) as f32, (w / inner.1) as f32);
         // The frame centre in each keyframe, in its widths (x) and heights (y, down).
-        let aspect = ow as f64 / oh as f64;
-        let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect) as f32);
+        let aspect64 = ow as f64 / oh as f64;
+        let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect64) as f32);
         let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
         let (owidth, oheight) = outer.2.pixels();
         let (iwidth, iheight) = inner.2.pixels();
@@ -196,12 +234,12 @@ impl<'a> Keyframes<'a> {
         #[cfg(not(test))]
         let reference_shading = false;
         let ro = if (outer.4.is_some() || self.gpu.is_some()) && !reference_shading {
-            needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo)
+            needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo, sin, cos)
         } else {
             (0, 0, owidth, oheight)
         };
         let ri = if (inner.4.is_some() || self.gpu.is_some()) && !reference_shading {
-            needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi)
+            needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi, sin, cos)
         } else {
             (0, 0, iwidth, iheight)
         };
@@ -279,7 +317,8 @@ impl<'a> Keyframes<'a> {
                         let yn = (py as f32 + 0.5) / oh as f32 - 0.5;
                         for px in 0..ow {
                             let xn = (px as f32 + 0.5) / ow as f32 - 0.5;
-                            let (xi, yi) = (xn * zi + oxi, yn * zi + oyi);
+                            let (rx, ry) = rotated(xn, yn, sin, cos, aspect);
+                            let (xi, yi) = (rx * zi + oxi, ry * zi + oyi);
                             let d = (2.0 * xi.abs()).max(2.0 * yi.abs());
                             let wi = ramp * ((1.0 - d) / margin).clamp(0.0, 1.0);
                             let mut col = [0f32; 3];
@@ -287,8 +326,8 @@ impl<'a> Keyframes<'a> {
                                 let o = gather(
                                     so,
                                     lut,
-                                    xn * zo + oxo,
-                                    yn * zo + oyo,
+                                    rx * zo + oxo,
+                                    ry * zo + oyo,
                                     TENT * zo * owidth as f32 / ow as f32,
                                     ro,
                                     (owidth, oheight),
@@ -321,41 +360,51 @@ impl<'a> Keyframes<'a> {
     }
 }
 
-/// The keyframe width needed to hold a frame of width `w` centred `off` (complex) from
-/// the keyframe centre, for output size `out` (same aspect as the keyframes).
-pub(crate) fn coverage(w: f64, off: (f64, f64), out: (u32, u32)) -> f64 {
-    (w + 2.0 * off.0.abs()).max(w + 2.0 * off.1.abs() * out.0 as f64 / out.1 as f64)
+/// The width needed to cover every rotated output corner, including any centre offset.
+pub(crate) fn coverage_rotated(w: f64, off: (f64, f64), out: (u32, u32), rotation: f64) -> f64 {
+    let aspect = out.0 as f64 / out.1 as f64;
+    let (sin, cos) = rotation.sin_cos();
+    let x = w * (cos.abs() + sin.abs() / aspect) + 2.0 * off.0.abs();
+    let y = w * (cos.abs() + sin.abs() * aspect) + 2.0 * off.1.abs() * aspect;
+    x.max(y)
 }
 
-/// Tent-filtered linear colour of image `img` around the point `x` image widths and `y`
-/// image heights from its centre, over a footprint of half-width `f` image pixels (at
-/// least one, so the filter never degenerates to point sampling).
-/// Conservative global rectangle of samples touched by any output tent.
+/// Width of an unrotated frame, including its complex centre offset.
+pub(crate) fn coverage(w: f64, off: (f64, f64), out: (u32, u32)) -> f64 {
+    coverage_rotated(w, off, out, 0.0)
+}
+
+/// Screen coordinates of an output pixel in the unrotated sample-grid axes.
+fn rotated(x: f32, y: f32, sin: f32, cos: f32, aspect: f32) -> (f32, f32) {
+    (cos * x + sin * y / aspect, cos * y - sin * x * aspect)
+}
+
+/// Conservative bounds on source samples touched by any rotated output tent.
 fn needed_rect(
     out: (usize, usize),
     image: (usize, usize),
     z: f32,
     ox: f32,
     oy: f32,
+    sin: f32,
+    cos: f32,
 ) -> (usize, usize, usize, usize) {
-    let bounds = |out_n: usize, in_n: usize, offset: f32| {
-        let extent = 0.5 - 0.5 / out_n as f32;
-        let c0 = (-extent * z + offset) * in_n as f32 + in_n as f32 / 2.0;
-        let c1 = (extent * z + offset) * in_n as f32 + in_n as f32 / 2.0;
-        let f = (TENT * z * in_n as f32 / out.0 as f32).max(1.0);
-        let lo = ((c0.min(c1) - f).floor() as i64 - 3).clamp(0, in_n as i64 - 1) as usize;
-        let hi = ((c0.max(c1) + f).ceil() as i64 + 4).clamp(lo as i64 + 1, in_n as i64) as usize;
+    let ex = 0.5 - 0.5 / out.0 as f32;
+    let ey = 0.5 - 0.5 / out.1 as f32;
+    let aspect = out.0 as f32 / out.1 as f32;
+    let dx = z * (ex * cos.abs() + ey * sin.abs() / aspect);
+    let dy = z * (ey * cos.abs() + ex * sin.abs() * aspect);
+    let f = (TENT * z * image.0 as f32 / out.0 as f32).max(1.0);
+    let bounds = |n: usize, offset: f32, extent: f32| {
+        let c0 = (offset - extent) * n as f32 + n as f32 / 2.0;
+        let c1 = (offset + extent) * n as f32 + n as f32 / 2.0;
+        let lo = ((c0.min(c1) - f).floor() as i64 - 3).clamp(0, n as i64 - 1) as usize;
+        let hi = ((c0.max(c1) + f).ceil() as i64 + 4).clamp(lo as i64 + 1, n as i64) as usize;
         (lo, hi - lo)
     };
-    let (x, w) = bounds(out.0, image.0, ox);
-    // The footprint is specified in horizontal output pixels in gather().
-    let extent = 0.5 - 0.5 / out.1 as f32;
-    let c0 = (-extent * z + oy) * image.1 as f32 + image.1 as f32 / 2.0;
-    let c1 = (extent * z + oy) * image.1 as f32 + image.1 as f32 / 2.0;
-    let f = (TENT * z * image.0 as f32 / out.0 as f32).max(1.0);
-    let y = ((c0.min(c1) - f).floor() as i64 - 3).clamp(0, image.1 as i64 - 1) as usize;
-    let end = ((c0.max(c1) + f).ceil() as i64 + 4).clamp(y as i64 + 1, image.1 as i64) as usize;
-    (x, y, w, end - y)
+    let (x, w) = bounds(image.0, ox, dx);
+    let (y, h) = bounds(image.1, oy, dy);
+    (x, y, w, h)
 }
 
 /// Tent-filtered linear colour; the stored image may be a cropped source rectangle.
@@ -444,38 +493,42 @@ mod tests {
         let lut: [f32; 256] = std::array::from_fn(|i| (i as f32 / 255.0).powf(2.2));
         let out = (64, 36);
         for (z, ox, oy) in [(0.55, 0.0, 0.0), (0.81, 0.2, -0.13), (1.7, -0.28, 0.23)] {
-            let rect = needed_rect(out, (full.w, full.h), z, ox, oy);
-            let mut data = Vec::new();
-            for y in rect.1..rect.1 + rect.3 {
-                let i = (y * full.w + rect.0) * 3;
-                data.extend_from_slice(&full.data[i..i + rect.2 * 3]);
-            }
-            let cropped = Rgb8 {
-                w: rect.2,
-                h: rect.3,
-                data,
-            };
-            for py in 0..out.1 {
-                let yn = (py as f32 + 0.5) / out.1 as f32 - 0.5;
-                for px in 0..out.0 {
-                    let xn = (px as f32 + 0.5) / out.0 as f32 - 0.5;
-                    let x = xn * z + ox;
-                    let y = yn * z + oy;
-                    let f = TENT * z * full.w as f32 / out.0 as f32;
-                    let a = gather(
-                        &full,
-                        &lut,
-                        x,
-                        y,
-                        f,
-                        (0, 0, full.w, full.h),
-                        (full.w, full.h),
-                    );
-                    let b = gather(&cropped, &lut, x, y, f, rect, (full.w, full.h));
-                    assert!(
-                        a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5),
-                        "z {z} at {px},{py}: {a:?} vs {b:?}"
-                    );
+            for angle in [0.0f32, 0.3, std::f32::consts::FRAC_PI_4, -1.2] {
+                let (sin, cos) = angle.sin_cos();
+                let rect = needed_rect(out, (full.w, full.h), z, ox, oy, sin, cos);
+                let mut data = Vec::new();
+                for y in rect.1..rect.1 + rect.3 {
+                    let i = (y * full.w + rect.0) * 3;
+                    data.extend_from_slice(&full.data[i..i + rect.2 * 3]);
+                }
+                let cropped = Rgb8 {
+                    w: rect.2,
+                    h: rect.3,
+                    data,
+                };
+                for py in 0..out.1 {
+                    let yn = (py as f32 + 0.5) / out.1 as f32 - 0.5;
+                    for px in 0..out.0 {
+                        let xn = (px as f32 + 0.5) / out.0 as f32 - 0.5;
+                        let (rx, ry) = rotated(xn, yn, sin, cos, out.0 as f32 / out.1 as f32);
+                        let x = rx * z + ox;
+                        let y = ry * z + oy;
+                        let f = TENT * z * full.w as f32 / out.0 as f32;
+                        let a = gather(
+                            &full,
+                            &lut,
+                            x,
+                            y,
+                            f,
+                            (0, 0, full.w, full.h),
+                            (full.w, full.h),
+                        );
+                        let b = gather(&cropped, &lut, x, y, f, rect, (full.w, full.h));
+                        assert!(
+                            a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5),
+                            "z {z}, angle {angle} at {px},{py}: {a:?} vs {b:?}"
+                        );
+                    }
                 }
             }
         }
@@ -520,10 +573,39 @@ mod tests {
                 dither: true,
                 ..Appearance::STILL
             };
-            let a = cached.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
-            let b = reference.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
+            let a = cached
+                .frame(w, (0.0, 0.0), 0.0, &pass, &appearance)
+                .unwrap();
+            let b = reference
+                .frame(w, (0.0, 0.0), 0.0, &pass, &appearance)
+                .unwrap();
             assert_eq!(a.data, b.data, "real-centre frame {frame}, octave {u}");
         }
+    }
+
+    #[test]
+    fn rotated_footprint_preserves_keyframe_sample_pitch() {
+        let p = Params {
+            nx: 640,
+            ny: 360,
+            ss: 1,
+            max_iter: 10,
+            escape_radius: 1e10,
+            columns: crate::render::columns("nu").unwrap(),
+            threads: 1,
+            tier: None,
+        };
+        let mut k = Keyframes::new("0", "0", 4.0, (320, 180), 2, &p, None, None);
+        k.cover_rotations(2.05).unwrap();
+        assert_eq!((k.p.nx, k.p.ny), (1600, 900));
+        // A larger world-space footprint must not make sample spacing coarser.
+        assert!((k.width(0) / f64::from(k.p.nx) - 4.0 / 640.0).abs() < 1e-12);
+        assert!((k.width(1) / f64::from(k.p.nx) - 2.0 / 640.0).abs() < 1e-12);
+        assert_eq!(k.octave(2.0 * k.footprint), 1);
+        assert!(
+            k.width(1)
+                >= coverage_rotated(2.0, (0.0, 0.0), (320, 180), std::f64::consts::FRAC_PI_2,)
+        );
     }
 
     #[test]
@@ -550,5 +632,17 @@ mod tests {
         assert!((coverage(1.0, (0.3, 0.0), (2, 1)) - 1.6).abs() < 1e-12);
         assert!((coverage(1.0, (0.0, 0.1), (2, 1)) - 1.4).abs() < 1e-12);
         assert_eq!(coverage(2.0, (0.0, 0.0), (16, 9)), 2.0);
+        for angle in [0.2f64, std::f64::consts::FRAC_PI_4, -1.0] {
+            let req = coverage_rotated(2.0, (0.0, 0.0), (16, 9), angle);
+            let (sin, cos) = angle.sin_cos();
+            for (x, y) in [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)] {
+                let (re, down) = (
+                    2.0 * (cos * x + sin * y * 9.0 / 16.0),
+                    2.0 * (cos * y - sin * x * 16.0 / 9.0),
+                );
+                assert!(re.abs() <= req / 2.0 + 1e-12);
+                assert!(down.abs() <= req / 2.0 + 1e-12);
+            }
+        }
     }
 }
