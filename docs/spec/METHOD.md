@@ -98,6 +98,30 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-23 round 3: NumPy scalar boundary crash (2026-10-11)
+
+**Desktop failure at 4990c50:** planning ended after 0.28 s in
+`harvest_nuclei`: mpmath 1.3.0 rejected `mp.mpf(np.int64(81))`.
+The pre-existing test suite passed because it did not exercise the
+new search/harvest path with NumPy-generated grid indices.
+
+**Fix:** convert sampled grid indices to Python `int` before use,
+and normalize NumPy integer, floating and complex scalar inputs at
+the search-to-mpmath boundary (including roots, widths, nuclei and
+sizes). Deep decimal strings and mpmath values remain exact; no
+new f64 conversion for DEC-21. Extend normalization to the nucleus,
+spiral and visibility entry points. Add an fd-free regression that
+actually calls `harvest_nuclei` and `search_targets` with mocked
+NumPy 2.x `int64/int32/float32/float64` grid/seed/nucleus values.
+
+**Local focused probe:** using mpmath 1.3.0 and NumPy 2.3.5,
+the previously rejected `np.int64` input is accepted at the
+conversion boundary; a mocked 160x90 harvest gives a 47.92-decade
+target with Python integer period and mpmath centre/size. Explicit
+int32/int64, float32/float64 and complex128 conversions pass.
+This is not a real fd planning run; desktop rerun is required.
+
+
 ### PROB-23 round 2: deeper, ranked visual arc search (2026-10-11)
 
 **Owner's measured round-1 negative:** planning took 38.0 s (34 nuclei, only 3
