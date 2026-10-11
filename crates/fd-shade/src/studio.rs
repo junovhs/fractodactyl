@@ -345,6 +345,7 @@ pub struct PreparedStudio {
     aa: bool,
     unresolved_interior: bool,
     points: Vec<PreparedPoint>,
+    static_rgb: Vec<[u8; 4]>,
 }
 
 struct PreparedPoint {
@@ -372,7 +373,7 @@ impl PreparedStudio {
         let (lx, ly) = (lc, -ls);
         let ss = h.ss as f32;
         let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
-        let points = s
+        let points: Vec<PreparedPoint> = s
             .class
             .iter()
             .enumerate()
@@ -412,17 +413,48 @@ impl PreparedStudio {
             })
             .collect();
         let (w, h) = h.pixels();
+        // Reuse already encoded bytes only for samples whose palette is
+        // provably phase-independent. Film always dithers source samples.
+        let inside = linear(l.interior);
+        let static_rgb: Vec<[u8; 4]> = points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                let col = match p.kind {
+                    0 if a.aa && p.band == 0.0 && p.t.is_finite() && p.light.is_finite() => {
+                        let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
+                        [0, 1, 2].map(|j| mean[j] * m * p.light)
+                    }
+                    1 => inside,
+                    2 if a.unresolved_interior => inside,
+                    2 => [0.25, 0.0, 0.25],
+                    _ => return [0; 4],
+                };
+                let px = i % w;
+                let py = i / w;
+                let mut rgb = [0u8; 4];
+                rgb[3] = 1;
+                for j in 0..3 {
+                    let d = crate::resolve::DITHER_LEVELS
+                        * crate::resolve::tpdf((py as u32) << 16 ^ (px as u32) << 2 ^ j as u32);
+                    rgb[j] = (col[j].clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + d)
+                        .clamp(0.0, 255.0) as u8;
+                }
+                rgb
+            })
+            .collect();
         Some(Self {
             w,
             h,
             stops,
-            inside: linear(l.interior),
+            inside,
             mean,
             ramp_mean,
             terrace: l.terrace,
             aa: a.aa,
             unresolved_interior: a.unresolved_interior,
             points,
+            static_rgb,
         })
     }
 
@@ -434,6 +466,20 @@ impl PreparedStudio {
         a: &Appearance,
         out: &mut Rgb8,
     ) {
+        self.shade_rect(rect, a, out);
+    }
+
+    /// Film source shading shares the exact arithmetic with all studio looks.
+    pub fn shade_rect_film_into(
+        &self,
+        rect: (usize, usize, usize, usize),
+        a: &Appearance,
+        out: &mut Rgb8,
+    ) {
+        self.shade_rect(rect, a, out);
+    }
+
+    fn shade_rect(&self, rect: (usize, usize, usize, usize), a: &Appearance, out: &mut Rgb8) {
         let (x0, y0, w, h) = rect;
         assert!(x0 + w <= self.w && y0 + h <= self.h);
         assert_eq!(self.aa, a.aa);
@@ -454,7 +500,12 @@ impl PreparedStudio {
                         let py = y0 + c * rows_per + r;
                         for (dx, rgb) in row.chunks_mut(3).enumerate() {
                             let px = x0 + dx;
-                            let p = &self.points[py * self.w + px];
+                            let i = py * self.w + px;
+                            if a.dither && self.static_rgb[i][3] != 0 {
+                                rgb.copy_from_slice(&self.static_rgb[i][..3]);
+                                continue;
+                            }
+                            let p = &self.points[i];
                             let col = if p.kind == 0 {
                                 let x = ((p.t + phase).rem_euclid(1.0) * n as f64) as f32;
                                 let k = (x as usize).min(n - 1);
@@ -491,8 +542,9 @@ impl PreparedStudio {
                                 } else {
                                     0.0
                                 };
-                                *dst = (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + t)
-                                    .clamp(0.0, 255.0) as u8;
+                                let v = v.clamp(0.0, 1.0);
+                                *dst =
+                                    (v.powf(1.0 / 2.2) * 255.0 + 0.5 + t).clamp(0.0, 255.0) as u8;
                             }
                         }
                     }
@@ -556,6 +608,32 @@ mod tests {
             PreparedStudio::new(&l, &h, &s, &a).is_none(),
             "breathing needs full shader"
         );
+    }
+
+    #[test]
+    fn film_tables_match_every_source_pixel_of_master_ice() {
+        let (mut h, s) = crate::tests::fixture();
+        h.ss = 1;
+        let l = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let a = Appearance {
+            flow: l.flow,
+            aa: true,
+            dither: true,
+            unresolved_interior: true,
+            ..Appearance::STILL
+        };
+        let prepared = PreparedStudio::new(&l, &h, &s, &a).unwrap();
+        for time in [0.0, 1.0 / 30.0, 3.7, 22.0] {
+            let at = Appearance { time, ..a };
+            let exact = Studio(l.clone()).shade_with(&h, &s, &at);
+            let mut fast = Rgb8 {
+                w: 0,
+                h: 0,
+                data: Vec::new(),
+            };
+            prepared.shade_rect_film_into((0, 0, exact.w, exact.h), &at, &mut fast);
+            assert_eq!(fast.data, exact.data, "time {time}: byte drift");
+        }
     }
 
     #[test]
