@@ -1288,3 +1288,84 @@ render count against three independent segment caches. This environment has no C
 or ffmpeg and cannot execute those tests or a real film. Run `cargo test --workspace`
 and `cargo clippy --workspace --all-targets` on the owner's machine before landing;
 a visual/MP4 probe is still required to establish the lack of a *visible* join.
+
+
+### FILM-13: keyframe palette and gamma tables (2026-10-10; owner-run pending)
+
+The FILM-11 output tent is already row-parallel; remaining per-frame work repeats
+studio cosine/terrace powers and RGB gamma powers over shaded source pixels and
+resampled output pixels. FILM-13 precomputes 4097-entry tables at keyframe setup:
+fractional palette ease/terrace and quadratically spaced gamma. Film shading and
+resampling interpolate them; their non-film/excluded-look paths still use exact
+math. The keyframe geometry, original sample dither coordinates, blending, zoom
+widths and fractal math are unchanged. Validity: only already-prepared studio
+looks (ss=1, no contour lines, no breathing) take the table path; otherwise
+fall back to original shading/gamma. Approximation: synthetic full-source,
+whole-frame per-channel test versus original studio at four animation times,
+plus 100001 gamma values; both require max 1 RGB level error. Real target
+MP4 SSIM >= 0.999 and <= 0.08 s/frame must still be measured on owner's
+idle machine, comparing against the main-before-FILM-13 binary. Baseline as
+reported by owner: 0.152 s/frame at 1920x1080, --rate 0.05. This sandbox
+has no Rust toolchain or access to the user's rendered movie, so no performance
+or real-frame visual claims are made.
+
+Run cargo fmt, tests and Clippy from repo root, then the issue's exact 1200-frame
+fd film command on gpt/FILM-13 with --mp4 F-13.mp4 and again on the saved
+main-before-FILM-13 binary with --mp4 F-main.mp4. Compare with
+`ffmpeg -i F-main.mp4 -i F-13.mp4 -lavfi ssim -f null -`, reading All: on
+stderr. Both clips need matching FFmpeg settings and frame counts.
+
+### FILM-13 round 2: byte-stable shade and unreachable samples (2026-10-10)
+
+Owner's idle Ryzen 9 3900X round-1 timings: 0.1140 s/frame (prepare
+6.569, sample shade 102.684, resample 27.348 s, 1,200 frames); current main
+0.1515 s/frame (prepare 6.658, sample shade 144.716, resample 30.232 s)
+was measured under heavy load. FFmpeg SSIM main versus round 1 was
+0.990404, below 0.999; source one-byte error was not a sufficient visual
+contract. These are owner measurements, not new local benchmarks.
+
+Round 2 drops the approximate palette cosine/terrace table entirely.
+Gamma interpolation runs only if its result is farther than 0.05 RGB
+levels from a byte boundary or clamp; all other values use exact powf.
+The estimated gamma interpolation error is <0.005 RGB levels for the
+quadratic 4097-entry table, with a conservative allowance for f32 rounding.
+Nonnegative finite palette phases use a floor in place of fmod; other
+phases retain rem_euclid. Once the inner blend saturates to one, a
+conservatively padded centre square of outer samples can never reach
+any output tent and is not shaded. Earlier blending and unsupported looks
+retain the exact path (DEC-10). Tests require byte-equal synthetic
+whole-frame studio shading at four times, exact gamma bytes on 500,005
+value/dither pairs, and unaltered every-output-pixel gathers with the
+unused-outer mask at seven octave positions and two offsets (DEC-17).
+Full real-target time and MP4 SSIM must be checked by the owner.
+
+### FILM-13 round 3: exact film RGB and time-invariant samples
+
+The owner's round-2 sample shading was 127.843 s across 1,200 frames
+(0.10654 s/frame) on a heavily loaded Ryzen 9 3900X; aggregate
+shade was 0.1399 s/frame. Different-load main was 0.1515 s/frame;
+the ratio is not a controlled performance measurement. SSIM main versus
+round 2 was 0.998091 and failed the 0.999 gate.
+
+This revision removes all LUT approximations (palette and both gamma
+passes), fast phase remainder and the geometric outer sample mask.
+Final RGB uses the original exact powf, dither, and rem_euclid.
+Only provably time-invariant source pixels are cached in 8-bit form:
+interior/unresolved and escaped pixels with exactly zero AA band weight,
+finite phase and lighting. Exact-zero AA removes every palette
+contribution and makes the encoded dithered RGB independent of film
+time. Non-dithered shading retains its original computation. The
+prepared per-sample lighting/AA geometry cache remains.
+
+A real-centre regression renders five frames from the PROB-22 centre
+using a CI-sized 80x45 version of the actual 2x keyframe and tent
+path at master-ice settings, and compares RGB byte-for-byte against the
+original per-pixel prepared shading. The regression fails on ANY byte
+drift (rather than an SSIM approximation).
+
+Full 1080p MP4 fidelity and the <=0.08 s/frame performance gate
+remain UNVERIFIED. The rounded 8-bit shader is exact by construction,
+but test/benchmark the real decoded video and raw RGB at frame 600.
+For performance, run main and branch back-to-back on identical shortened
+frame ranges and compare sample_shade_seconds ratios; the previous
+absolute timing is too contaminated by concurrent jobs.

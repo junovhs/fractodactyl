@@ -35,6 +35,8 @@ pub(crate) struct Keyframes<'a> {
     /// Rendered keyframes still needed: (index, width, header, samples).
     cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
     studio: Option<Look>,
+    #[cfg(test)]
+    reference_shading: bool,
     shaded: [Rgb8; 2],
     output: Rgb8,
     lut: [f32; 256],
@@ -74,6 +76,8 @@ impl<'a> Keyframes<'a> {
             zone,
             cache: Vec::new(),
             studio,
+            #[cfg(test)]
+            reference_shading: false,
             shaded: std::array::from_fn(|_| Rgb8 {
                 w: 0,
                 h: 0,
@@ -167,24 +171,32 @@ impl<'a> Keyframes<'a> {
         let (iwidth, iheight) = inner.2.pixels();
         // Shade only the texels the tent filter can read, with extra edge padding.
         // Non-studio and animated-density/lines looks retain the original full-frame path.
-        let ro = if outer.4.is_some() {
+        #[cfg(test)]
+        let reference_shading = self.reference_shading;
+        #[cfg(not(test))]
+        let reference_shading = false;
+        let ro = if outer.4.is_some() && !reference_shading {
             needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo)
         } else {
             (0, 0, owidth, oheight)
         };
-        let ri = if inner.4.is_some() {
+        let ri = if inner.4.is_some() && !reference_shading {
             needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi)
         } else {
             (0, 0, iwidth, iheight)
         };
         let t_shade = std::time::Instant::now();
-        if let Some(prepared) = &outer.4 {
-            prepared.shade_rect_into(ro, &sa, &mut self.shaded[0]);
+        if reference_shading {
+            self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
+        } else if let Some(prepared) = &outer.4 {
+            prepared.shade_rect_film_into(ro, &sa, &mut self.shaded[0]);
         } else {
             self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
         }
-        if let Some(prepared) = &inner.4 {
-            prepared.shade_rect_into(ri, &sa, &mut self.shaded[1]);
+        if reference_shading {
+            self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
+        } else if let Some(prepared) = &inner.4 {
+            prepared.shade_rect_film_into(ri, &sa, &mut self.shaded[1]);
         } else {
             self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
         }
@@ -233,7 +245,8 @@ impl<'a> Keyframes<'a> {
                                 col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
                             }
                             for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
-                                *o = (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+                                let v = v.clamp(0.0, 1.0);
+                                *o = (v.powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
                             }
                         }
                     }
@@ -402,6 +415,51 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn real_target_film_frames_match_exact_source_shading() {
+        let look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let pass = fd_shade::Studio(look.clone());
+        let p = Params {
+            nx: 160,
+            ny: 90,
+            ss: 1,
+            max_iter: 4000,
+            escape_radius: 1e10,
+            columns: crate::render::columns("nu,de,normal").unwrap(),
+            threads: 2,
+            tier: None,
+        };
+        let mk = || {
+            Keyframes::new(
+                "-0.8296874999999996981089858669738646984522311568651036619209",
+                "0.1859374999999989417838556112859064221737945709381783514212",
+                1e-20,
+                (80, 45),
+                2,
+                &p,
+                None,
+                Some(look.clone()),
+            )
+        };
+        let mut cached = mk();
+        let mut reference = mk();
+        reference.reference_shading = true;
+        for (u, frame) in [(0.0, 0), (0.1, 30), (0.26, 120), (0.5, 600), (0.9, 1000)] {
+            let w = 1e-20 * 2f64.powf(-u);
+            let appearance = Appearance {
+                time: frame as f64 / 30.0,
+                flow: look.flow,
+                aa: true,
+                unresolved_interior: true,
+                dither: true,
+                ..Appearance::STILL
+            };
+            let a = cached.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
+            let b = reference.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
+            assert_eq!(a.data, b.data, "real-centre frame {frame}, octave {u}");
         }
     }
 
