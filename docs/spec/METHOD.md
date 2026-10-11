@@ -98,6 +98,34 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-23: whole-film arc planner (2026-10-11)
+
+Directed decades.py scores each fixed-centre minibrot path with a calm/opening,
+rising-action, ~70%-climax and calm-resolution target curve. Tiny fd math
+renders supply per-decade edge, mid-frequency detail, symmetry and dust;
+the hero metric penalises sparse views and fine grey haze. Dynamic programming
+groups consecutive similar decades into 30-60 s sections and rewards real
+signature jumps at boundaries. Plan.json records sections, actual/target arc,
+hero score, exact centre/width, and continuous speed file knots. The --spiral
+contract rejects candidate targets whose fixed camera would shift the spiral
+by more than 0.06 view widths at D2; there is no moving centre (DEC-21).
+
+FILM-12's single speed curve starts at rest with a 15 s analytic ramp,
+lingers on hero features, avoids acceleration near the landing, and integrates
+exactly to --minutes. One fd film --speed FILE --keyframes 2 --gpu on
+produces the MP4; no segment stitching. Plan reuse is allowed only when input
+settings match and speed.txt is present; otherwise replan (DEC-10).
+The diagnostic contact sheet and 1-minute preview are the acceptance gate
+for this heuristic, not a per-pixel rendering shortcut (DEC-17).
+
+Synthetic 60-decade probe (Python/Numpy): 600.000000 s total, ~15 s opening
+ramp, 12 coherent sections of ~43-57 s, one shift at distance 2.9, steady tail.
+ImageMagick 7 generated test arc PNG and labelled contact JPEG. This runtime
+has no fd binary or Rust toolchain: real planning, preview, full 4K film,
+cargo test --workspace and cargo clippy --workspace --all-targets are owner-side.
+See web-mode/PROB-23.done for exact acceptance commands and run order.
+
+
 ### PROB-20: v0 film frames decided before rendering (2026-10-10)
 
 **Measured locally** (Ryzen 9 3900X, 24 threads, 1280x720, 1 run per frame, max_iter 1e5). Command: `THREADS=24 RUNS=1 SIZE=1280x720 MAXIT=100000 bash tools/research/misiurewicz/koenigs_bench/run.sh target/release/fd out/prob20 bench/path-atlas-v0.txt`. Both films are single `fd control` executions over all 750 frames. In the mixed film, `fd control --zone` decides each frame before rendering it.
