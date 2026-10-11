@@ -332,9 +332,231 @@ impl Pass for Studio {
     }
 }
 
+/// Static per-sample studio terms for flowing, non-breathing looks without lines.
+/// Those looks change only the palette phase; geometry and lighting do not.
+pub struct PreparedStudio {
+    w: usize,
+    h: usize,
+    stops: Vec<[f32; 3]>,
+    inside: [f32; 3],
+    mean: [f32; 3],
+    ramp_mean: f32,
+    terrace: f32,
+    aa: bool,
+    unresolved_interior: bool,
+    points: Vec<PreparedPoint>,
+}
+
+struct PreparedPoint {
+    t: f64,
+    light: f32,
+    band: f32,
+    kind: u8,
+}
+
+impl PreparedStudio {
+    /// Decline when time changes anything but phase, or the source is not one sample/pixel.
+    pub fn new(l: &Look, h: &Header, s: &Samples, a: &Appearance) -> Option<Self> {
+        if h.ss != 1 || l.lines != 0.0 || a.breathe != 0.0 {
+            return None;
+        }
+        let nu = s.nu.as_deref()?;
+        let de = s.de.as_deref()?;
+        let nm = s.normal.as_deref()?;
+        let stops: Vec<[f32; 3]> = l.stops.iter().map(|&c| linear(c)).collect();
+        let n = stops.len();
+        let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
+        let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
+        let density = l.density * f64::from(a.density());
+        let (ls, lc) = l.light.to_radians().sin_cos();
+        let (lx, ly) = (lc, -ls);
+        let ss = h.ss as f32;
+        let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
+        let points = s
+            .class
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                if c.kind() != Some(Kind::Escaped) {
+                    return PreparedPoint {
+                        t: 0.0,
+                        light: 0.0,
+                        band: 0.0,
+                        kind: if c.kind() == Some(Kind::Interior) {
+                            1
+                        } else {
+                            2
+                        },
+                    };
+                }
+                let d = de[i].max(0.0);
+                let (ux, uy) = Samples::unit(nm[i]);
+                let facing = -(ux * lx + uy * ly);
+                let cycles = density as f32 * 2.0 / (d.max(1e-30) * std::f32::consts::LN_2);
+                let band = if a.aa {
+                    let s = cycles / ss;
+                    (band_k * s * s).exp()
+                } else {
+                    1.0
+                };
+                let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
+                let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
+                let light = (1.0 + l.slope * facing * steep * fade)
+                    * (1.0 - CREVICE * (-d * ss * 1.5).exp());
+                PreparedPoint {
+                    t: density * nu[i],
+                    light,
+                    band,
+                    kind: 0,
+                }
+            })
+            .collect();
+        let (w, h) = h.pixels();
+        Some(Self {
+            w,
+            h,
+            stops,
+            inside: linear(l.interior),
+            mean,
+            ramp_mean,
+            terrace: l.terrace,
+            aa: a.aa,
+            unresolved_interior: a.unresolved_interior,
+            points,
+        })
+    }
+
+    /// Shade just the requested sample rectangle, retaining global dither coordinates.
+    /// Caller must keep the non-time appearance flags used in new().
+    pub fn shade_rect_into(
+        &self,
+        rect: (usize, usize, usize, usize),
+        a: &Appearance,
+        out: &mut Rgb8,
+    ) {
+        let (x0, y0, w, h) = rect;
+        assert!(x0 + w <= self.w && y0 + h <= self.h);
+        assert_eq!(self.aa, a.aa);
+        assert_eq!(self.unresolved_interior, a.unresolved_interior);
+        out.w = w;
+        out.h = h;
+        out.data.resize(w * h * 3, 0);
+        let phase = f64::from(a.phase());
+        let n = self.stops.len();
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .clamp(1, h);
+        let rows_per = h.div_ceil(threads);
+        std::thread::scope(|sc| {
+            for (c, chunk) in out.data.chunks_mut(rows_per * w * 3).enumerate() {
+                sc.spawn(move || {
+                    for (r, row) in chunk.chunks_mut(w * 3).enumerate() {
+                        let py = y0 + c * rows_per + r;
+                        for (dx, rgb) in row.chunks_mut(3).enumerate() {
+                            let px = x0 + dx;
+                            let p = &self.points[py * self.w + px];
+                            let col = if p.kind == 0 {
+                                let x = ((p.t + phase).rem_euclid(1.0) * n as f64) as f32;
+                                let k = (x as usize).min(n - 1);
+                                let fr = x - k as f32;
+                                let f = 0.5 - 0.5 * (std::f32::consts::PI * fr).cos();
+                                let (c0, c1) = (self.stops[k], self.stops[(k + 1) % n]);
+                                let mut col = [0, 1, 2].map(|j| c0[j] + (c1[j] - c0[j]) * f);
+                                if self.terrace > 0.0 {
+                                    let ramp = 1.0 - self.terrace * (1.0 - fr).powf(1.5);
+                                    col = col.map(|c| c * ramp);
+                                }
+                                if self.aa {
+                                    let m = if self.terrace > 0.0 {
+                                        self.ramp_mean
+                                    } else {
+                                        1.0
+                                    };
+                                    col = [0, 1, 2].map(|j| {
+                                        p.band * col[j] + (1.0 - p.band) * self.mean[j] * m
+                                    });
+                                }
+                                col.map(|c| c * p.light)
+                            } else if p.kind == 1 || self.unresolved_interior {
+                                self.inside
+                            } else {
+                                [0.25, 0.0, 0.25]
+                            };
+                            for (channel, (&v, dst)) in col.iter().zip(rgb.iter_mut()).enumerate() {
+                                let t = if a.dither {
+                                    crate::resolve::DITHER_LEVELS
+                                        * crate::resolve::tpdf(
+                                            (py as u32) << 16 ^ (px as u32) << 2 ^ channel as u32,
+                                        )
+                                } else {
+                                    0.0
+                                };
+                                *dst = (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + t)
+                                    .clamp(0.0, 255.0) as u8;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prepared_rect_matches_full_studio_at_every_pixel() {
+        let (mut h, s) = crate::tests::fixture();
+        h.ss = 1;
+        let mut l = Look::builtin("ice").unwrap();
+        l.lines = 0.0;
+        for aa in [false, true] {
+            let a = Appearance {
+                flow: 0.11,
+                aa,
+                dither: true,
+                unresolved_interior: true,
+                ..Appearance::STILL
+            };
+            let prepared = PreparedStudio::new(&l, &h, &s, &a).unwrap();
+            for time in [0.0, 0.033333, 3.7, 22.0] {
+                let at = Appearance { time, ..a };
+                let full = Studio(l.clone()).shade_with(&h, &s, &at);
+                for rect in [(0, 0, full.w, full.h), (7, 5, 25, 17)] {
+                    let mut got = Rgb8 {
+                        w: 0,
+                        h: 0,
+                        data: Vec::new(),
+                    };
+                    prepared.shade_rect_into(rect, &at, &mut got);
+                    for y in 0..rect.3 {
+                        let a = &got.data[y * rect.2 * 3..(y + 1) * rect.2 * 3];
+                        let i = ((rect.1 + y) * full.w + rect.0) * 3;
+                        assert_eq!(
+                            a,
+                            &full.data[i..i + rect.2 * 3],
+                            "time {time} rect {rect:?} row {y}"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            PreparedStudio::new(&Look::builtin("ice").unwrap(), &h, &s, &Appearance::STILL)
+                .is_none(),
+            "lines need full shader"
+        );
+        let a = Appearance {
+            breathe: 0.1,
+            ..Appearance::STILL
+        };
+        assert!(
+            PreparedStudio::new(&l, &h, &s, &a).is_none(),
+            "breathing needs full shader"
+        );
+    }
 
     #[test]
     fn builtins_parse_and_round_trip_through_text() {
