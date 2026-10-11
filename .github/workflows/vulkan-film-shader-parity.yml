@@ -1,0 +1,27 @@
+name: Vulkan film shader parity
+on:
+  push:
+    branches: [main, gpt/GPU-06]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  film-shader-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Install Mesa Vulkan and validation
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers vulkan-validationlayers
+      - name: Compare Vulkan palette edges against CPU
+        run: |
+          set -euo pipefail
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name '*lvp*' | head -n1)"
+          test -f "$VK_ICD_FILENAMES"
+          export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
+          cargo test -p fd-cli --bin fd gpu_phase_transition_matches_prepared_cpu_tent -- --nocapture \
+            2>&1 | tee /tmp/film-shader-parity.log
+          grep -q 'test result: ok.' /tmp/film-shader-parity.log
+          ! grep -Eq 'GPU phase edge test skipped|Validation Error|VUID-' /tmp/film-shader-parity.log

@@ -1369,3 +1369,297 @@ but test/benchmark the real decoded video and raw RGB at frame 600.
 For performance, run main and branch back-to-back on identical shortened
 frame ranges and compare sample_shade_seconds ratios; the previous
 absolute timing is too contaminated by concurrent jobs.
+
+
+### GPU-06: Vulkan film shading (2026-10-11; RX 5700 XT results)
+
+`fd film --keyframes 2 --gpu on` optionally uses Vulkan 1.2 compute
+(`ash` and `gpu-allocator`) for studio sample shading and tent
+resampling. Camera/deep-centre arithmetic, Mandelbrot keyframe rendering,
+and ffmpeg/x264 output remain on CPU; this is **not** a GPU fractal
+renderer or GPU video encoder. Keyframe sample columns live on the CPU
+and current-pair GPU buffers. Each new keyframe is directly packed into
+mapped staging memory, uploaded and prepared once on GPU; frame-time
+shading reads cached band-AA and relief-light terms. The output tent uses
+the same CPU-generated 256-entry RGB8 gamma-decode LUT, and the shader
+uses the reference position-seeded TPDF integer dither calculation.
+The final GPU RGB8 is read back to the existing ffmpeg/x264 pipe.
+
+**Validity and fallback (DEC-10):** Only supported studio looks with
+zero contour lines and breathing, and 2..32 stops, use this route.
+Vulkan 1.2 compute, buffer-size and device errors use the CPU film
+path with a reason on stderr. `--gpu off` is unchanged. No vendor
+extensions are required.
+
+#### Round 1: RX 5700 XT failure and diagnosis
+
+Owner ran commit `a78be98d656d825f65243992b74a2f46332b9e49`
+on AMD Radeon RX 5700 XT, Mesa RADV, ffmpeg 4.4.2.
+
+- Validation layer loaded, **0** reported Validation Error/VUID lines;
+  no-device fallback produced **identical decoded framemd5** to
+  `--gpu off`.
+- 1080p, 1,200 frames: GPU shade **0.01057171438666667 s/frame**
+  (CPU **0.11573829197250006**), missing the GPU <=0.010 target.
+  Encoded GPU-vs-CPU SSIM All was **0.990589**, below the then
+  required absolute >=0.999.
+- 4K, 120 frames: GPU shade **0.10369363443333342 s/frame**,
+  including CPU keyframe preparation **7.743443789 s** and
+  sample shade **4.698485073 s**, missing the <0.040 target.
+- 1080p GPU-vs-CPU wall time **135.6 vs 227.7 s**; GPU accelerated
+  shading enough that x264 pipe/write wait rose from **4.7 to
+  35.7 s**. Video encoding is therefore more visible as the
+  remaining bottleneck; x264 optimization is out of scope.
+- Original decoded-frame comparison helper used `-fps_mode`,
+  unsupported by ffmpeg 4.4. It now uses `-vsync 0`.
+
+Round 2 removed the redundant CPU `PreparedStudio` work when GPU is
+active, prepared time-invariant AA and relief/light once with a GPU
+compute pass, and packed keyframes directly into mapped staging instead
+of copying a separate approximately 530 MiB 4K host buffer. The
+resampling shader now uses the exact CPU-computed gamma-decode LUT;
+the dither hash uses the same sum-then-divide order as the CPU.
+`fd film --raw-dir DIR` allows inspecting exact RGB24 bytes
+**before x264**. A tiny software-Vulkan LLVMpipe CI smoke test
+compared frames 0, 1, 600 and 601 at 64x36: maximum and mean
+absolute RGB error were zero.
+
+#### Round 3: verified owner results on RADV
+
+At commit `bdb0a6de44683631a2741a59d6c3c7c6ce070bd4`,
+the owner reran `scripts/gpu06_round2.sh` on the RX 5700 XT:
+
+| Check | Owner result | Decision |
+| --- | --- | --- |
+| Raw RGB24 window 1, 320x180 | max channel error **1**, mean **0.000268**, **0/518400** channels above 1 | **PASS** |
+| Raw RGB24 window 2, 320x180 | max channel error **1**, mean **0.000311**, **0/518400** channels above 1 | **PASS** |
+| GPU shade 1080p, 1,200 frames | **0.007779049754166656 s/frame**; limit <=0.010 | **PASS** |
+| GPU shade 4K, 120 frames | **0.03311423516666679 s/frame**; limit <0.040 | **PASS** |
+| Vulkan validation | **0** Validation Error/VUID lines | **PASS** |
+| Encoded MP4 GPU vs CPU, 1,200 frames | SSIM All **0.990576** | Historical diagnostic; **not** a valid encoder-faithfulness gate |
+
+The 4K report broke its keyframe stages down as
+`prepare_seconds=0.00000007`,
+`sample_shade_seconds=3.97245044` and `resample_seconds=0`
+(GPU work is accounted in the sample-shade stage).
+
+**Encoder-gate history:** An absolute encoded MP4 SSIM >=0.999
+proved unsuitable because even CPU source RGB24 versus its own
+x264 encode can score below 0.999. The initial replacement was also
+incorrect: GPU-MP4-versus-CPU-MP4 scores *two* encodes while the
+CPU-raw-versus-CPU-MP4 baseline scores only one. The final
+encoder-faithfulness gate instead compares **both encoded MP4s
+separately against exactly the same CPU raw RGB24 source frames**
+in YUV420p. The latter source is frozen for both sides, with
+both MP4s trimmed to frames 0..2 and 600..602; the GPU's encoded
+SSIM must be at least the CPU's own encoded SSIM minus 0.001.
+The primary DEC-18 fidelity check remains exact pre-encode RGB24
+per-channel parity (maximum absolute difference <=1).
+
+The round-3 full-size parity gate was added after the first owner
+run; round 4 initially exposed a sparse palette-stop sparkle.
+The subsequent rounded-stop correction is described below. The
+full-resolution parity and timing gates have since passed on the
+owner's RX 5700 XT (final cleanup results at the end of this entry).
+
+
+### GPU-06 round 4: full-size sparkle diagnosis and phase correction (2026-10-11)
+
+**Owner hardware at `1aee5ffbc84d55bd640da005a40142beb09d2a81`:**
+RX 5700 XT RADV, 0 Vulkan validation errors, 320x180 raw RGB gate
+PASS. Full 1920x1080 CPU-vs-GPU raw RGB exposed rare but decisive
+**outlier pixels**, so the script correctly stopped before the
+1,200-frame and 4K sections. No fresh timing measurements exist for
+this run; previously measured 1080p **0.00777905 s/frame**, 4K
+**0.03311424 s/frame** remain pre-round-four reference measurements.
+
+- Frame 0: maximum absolute channel error **1**, mean **0.001213**,
+  **0/6,220,800** channels above 1: PASS.
+- Frame 1: maximum **6**, mean **0.001765**,
+  **2/6,220,800** channels above 1: FAIL, only output
+  **(1048,858)** (CPU RGB 15,48,108; GPU 14,45,102).
+- Frame 2: maximum **49**, mean **0.001788**,
+  **9/6,220,800** channels above 1: FAIL, output
+  **(650,268)** (CPU 239,247,254; GPU 218,225,231),
+  **(1659,411)** (CPU 79,86,102; GPU 72,81,97),
+  **(595,1002)** (CPU 186,181,174; GPU 137,133,128).
+- Combined full-0: maximum **49**, mean **0.001589**,
+  **11/18,662,400** channels above 1. The unusually large
+  whole-pixel changes are *not* acceptable one-level gamma noise.
+
+**Tent-coordinate trace.** In these first three frames the outer
+keyframe is a 3840x2160 sample image. Using the same image-centre
+coordinate and tent half-width formula as `keyframe::gather`,
+with `zo = width / outer_key_width` approximately
+0.99884446 at frame 1 and 0.99769025 at frame 2, the **outer**
+source texels gathered are:
+
+| Frame / output (x,y) | Outer source 2x2 texels (x-range, y-range) |
+| --- | --- |
+| 1 / (1048,858) | x **2096..2097**, y **1715..1716** |
+| 2 / (650,268) | x **1301..1302**, y **537..538** |
+| 2 / (1659,411) | x **3315..3316**, y **823..824** |
+| 2 / (595,1002) | x **1192..1193**, y **2002..2003** |
+
+Each is outside the inner keyframe's on-screen coverage, so
+the inner blend weight is zero. Missing inner-keyframe texels,
+central-outer skipped rectangles and blend-boundary transitions
+do not explain these four failures. Actual `nu` values from the
+owner's keyframes were not provided, so an individual offending
+source texel cannot be named or inspected directly.
+
+**Numerically reproduced failure mode:** `PreparedStudio` stores
+`t = density * nu` as **f64** and at film time computes
+`x = ((t + f64::from(a.phase())).rem_euclid(1.0) * n as f64) as f32`,
+*before* selecting stop `k` and terrace fraction `fr`. The original
+GPU reduced `t` to one **f32** modulo cycle during packing,
+then evaluated `fract(f32_t + f32_phase) * n` in f32.
+Near a cycle wrap this can produce **x=0 instead of x=8** for
+an eight-stop palette: the CPU clamps to last stop with `fr=1`
+while GPU selects first stop with `fr=0`. Because master-ice
+uses terrace 0.81, the one-sample light level can jump abruptly,
+causing visible sparkles after tent filtering. The new unit test
+reproduces this precise boundary flip with animated phase at frame 2.
+This identifies a real, sufficient phase-precision defect; it is
+not a claim that the provided four pixels' hidden sample phases
+have been read and individually proven.
+
+**Fix:** Preserve the **exact bit pattern** of `density * nu` f64
+in two u32 words of the existing 16-byte GPU sample record,
+packing the u16 normal and class kind into the remaining 32-bit
+word. The Vulkan prepare pass carries these bits unchanged into
+the existing 16-byte prepared record, storing class sentinels
+in the band component. The shade shader uses Vulkan
+`shaderFloat64` to perform f64 phase addition/modulo and only
+then converts `x` to f32, matching the CPU's operation order.
+This avoids expanding 4K sample buffers or adding per-frame
+CPU shade work. On Vulkan devices without shaderFloat64,
+the optional GPU path declines and falls back to CPU shading
+(DEC-10). The shader's other lighting/AA/dither/resampling work
+remains unchanged.
+
+**Regression:** `palette_phase_wrap_regression` proves the old
+f32 formula crosses to the wrong cycle, while exact packed f64
+round-trips to the reference value. The
+`gpu_phase_transition_matches_prepared_cpu_tent` test shades
+fixed samples straddling whole-cycle and palette-stop boundaries,
+then checks GPU tent output against exact CPU prepared shading
+within one RGB8 channel level. It runs with Vulkan on Mesa LLVMpipe
+in the `Vulkan film shader parity` Actions workflow (including main
+and pull requests) and skips when no shaderFloat64 Vulkan device
+is available in ordinary workspace tests. No new film features are introduced.
+
+**Round-4 status at the time:** The 1920x1080 parity failure
+required further investigation. The rounded-stop correction in
+round 5 resolved it; the owner's final RX 5700 XT parity, timing and
+validation measurements are recorded below.
+
+
+### GPU-06 round 5: rounded palette-stop selection (2026-10-11)
+
+The GPU-06 synthetic Vulkan failure survived the f64 phase-base correction,
+but the shader's measured palette coordinate at escaped source (3,0) was
+bitwise identical to the CPU coordinate: `x=1.0` (`0x3f800000`).
+The GPU-prepared band and relief-light terms agreed with the CPU to
+approximately 1e-7 (band 0.964222670 vs 0.964222550; light 0.205539703
+vs 0.205539763). Before gamma, however, GPU red was 0.001836173
+against CPU 0.001298955. This is the terrace step: the previous
+float-to-int stop selection used stop 0 with `fr=1`, instead of the
+next stop with `fr=0` after the coordinate rounded to the exact
+f32 integer boundary. The difference was amplified by master-ice's
+terrace 0.81; gamma/dither then gave CPU R=13, GPU R=15.
+
+**Correction:** Keep the bit-exact f64 phase base and reduce it in
+Vulkan binary64, but derive the palette integer stop from the
+*rounded f32 coordinate's exponent and mantissa bits*. For the
+supported 2..32 stops, `x` is nonnegative and at most 32, so this
+recovers the same truncated integer as the CPU without allowing
+shader float-to-int conversion to bypass the f64-to-f32 rounding.
+The clamped last-stop and `fr=x-k` logic remains unchanged.
+All temporary shader probes and intermediate readback buffers were
+removed. The permanent GPU regression compares every synthetic
+source RGB8 channel **before** resampling and every tent output
+channel to the prepared CPU reference, with an absolute limit of
+one 8-bit level. A scalar test covers the f32 bit decoder at and
+immediately either side of every integer stop boundary for 2..32
+stops. The CPU path is unchanged.
+
+**Verified in GitHub Actions on `bbf4c70fefa1cf61d585f2d1027ef839aa033587`:**
+`GPU-06 phase-boundary parity` run `38164966574` **PASS** on
+Mesa LLVMpipe software Vulkan with `VK_LAYER_KHRONOS_validation`;
+the synthetic source and tent parity test passed (1 test, 0 failed),
+and the workflow's check for validation errors/VUIDs passed.
+Standard `ci` run `38164966646` `check` job **PASS**:
+`scripts/check.sh` ran rustfmt, `cargo check --workspace --all-targets`,
+`cargo clippy --workspace --all-targets -- -D warnings`, and
+`cargo test --workspace` successfully. The separate broader
+`locations` integration job was not yet complete when this result
+was recorded.
+
+**Owner promotion:** The RX 5700 XT full-size RGB24 parity,
+1080p/4K shading performance and Vulkan validation gates all passed
+at `e3fe650`. The encode-vs-encode SSIM acceptance formula alone
+was wrong; the corrected two-encodes-versus-one-CPU-source gate is
+described in the final cleanup section.
+
+### GPU-06 final owner verification and SSIM gate correction (2026-10-11)
+
+**Owner-run result at `e3fe650`, AMD Radeon RX 5700 XT (Mesa RADV):**
+the rounded f32 stop-index correction removed the sparse terrace
+sparkles. Running `bash scripts/gpu06_round2.sh` produced:
+
+| Gate | Measured result | Verdict |
+| --- | --- | --- |
+| 320x180 RGB24 frames 0..2 | maximum error **1**, mean **0.000262**, **0/518,400** channels above 1 | PASS |
+| 320x180 RGB24 frames 600..602 | maximum **1**, mean **0.000305**, **0/518,400** channels above 1 | PASS |
+| 1920x1080 RGB24 frames 0..2 | maximum **1**, mean **0.001572**, **0/18,662,400** channels above 1 | PASS |
+| 1920x1080 RGB24 frames 600..602 | maximum **1**, mean **0.001890**, **0/18,662,400** channels above 1 | PASS |
+| 1080p GPU shade, 1,200 frames | **0.007364520923333332 s/frame**, limit <=0.010 | PASS |
+| 4K GPU shade, 120 frames (owner ran stage 3 manually) | **0.0255 s/frame**, limit <0.040 | PASS |
+| Vulkan validation on all GPU runs | **0** Validation Error/VUID lines | PASS |
+
+**The remaining failure was a measurement mismatch, not a shader
+fault.** The old acceptance formula compared two separately lossy
+encodes (GPU MP4 versus CPU MP4) against a single-encode baseline
+(CPU raw versus CPU MP4), so it did not isolate GPU shading fidelity.
+The owner independently measured the **same CPU raw source, frames
+0..2, in YUV420p**:
+
+| SSIM All comparison | Result |
+| --- | ---: |
+| CPU MP4 vs CPU raw | **0.992152** |
+| GPU MP4 vs CPU raw | **0.992136** |
+| GPU MP4 vs CPU MP4 | **0.994028** |
+
+Both encodes against the same source differ by just **0.000016**,
+comfortably within the 0.001 budget. The old script's separate,
+non-corresponding encoded comparison across 1,200 frames returned
+**0.990591**; comparing that number to the three-frame CPU
+raw-versus-encode baseline **0.992152** was also a frame-set
+mismatch. It is not evidence of a GPU shading failure.
+
+**Corrected run gate:** `scripts/gpu06_round2.sh` now uses the
+existing full-resolution raw CPU RGB24 frames **0..2 and 600..602**
+as one six-frame reference for *each* encoder, converts them to
+YUV420p, trims each 1,200-frame MP4 to those same windows, resets
+the FFmpeg timebase to 30 fps after concatenation, and checks exactly
+six compared frames per MP4. It requires
+`SSIM(GPU MP4, CPU raw) >= SSIM(CPU MP4, CPU raw) - 0.001`.
+The original strict pre-x264 +/-1 parity, Vulkan validation,
+1080p <=0.010 and 4K <0.040 s/frame gates remain unchanged.
+The CPU/GPU path and shaders were not modified in this cleanup.
+The LLVMpipe GPU/CPU boundary test remains a required workflow
+on `main` and pull requests under the non-issue-specific name
+`Vulkan film shader parity`.
+
+**Run status:** The owner has measured and passed all raw-parity,
+shade-performance and Vulkan-validation gates at `e3fe650`.
+The newly corrected **six-frame encoder-faithfulness gate** has
+been exercised with synthetic FFmpeg 7.1.5 x264 clips (603 frames,
+32x18, 30 fps, `testsrc2`, RGB24 source, CRF 16). Both identical
+encodes produced exactly six SSIM records with All **0.999203**.
+Zeroing source frame 601 *only in the candidate MP4* reduced its
+All score to **0.836774**, still with six records, proving the
+late-window comparison detects real drift. This corrected gate
+has not yet been rerun on the owner machine for frames 600..602. The remaining acceptance
+command from the repository root is `bash scripts/gpu06_round2.sh`.
