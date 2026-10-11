@@ -92,6 +92,48 @@ class DirectedArcTests(unittest.TestCase):
                                 for a, b in zip(rows, rows[1:])))
             self.assertTrue(all(float(x[1]) > 0 for x in rows[1:]))
 
+    def test_numpy_grid_and_seed_scalars_in_harvest_and_search(self):
+        # NumPy 2.x indices/scalars must never enter mpmath unconverted.
+        # This exercises the actual search -> harvest path without calling fd.
+        cols = dict(de=np.ones((90, 160), dtype=np.float32))
+        xy = [(np.int64(81), np.int32(44))]
+        def fake_nucleus(c, width, max_period=6000):
+            self.assertIsInstance(c, type(mp.mpc(0)))
+            self.assertIsInstance(width, type(mp.mpf(0)))
+            return c, np.int64(764), np.float64('1e-49')
+
+        with patch.object(decades, 'render', return_value=(cols, 0.0)), \
+             patch.object(decades, 'candidates', return_value=xy), \
+             patch.object(decades, 'nucleus', side_effect=fake_nucleus):
+            seeds = decades.harvest_nuclei(np.float32('-0.75'), np.float64('0.1'),
+                                           np.float32('0.5'), np.random.default_rng(1), 1)
+            self.assertEqual(len(seeds), 1)
+            self.assertIs(type(seeds[0][1]), int)
+            self.assertIsInstance(seeds[0][2], type(mp.mpf(0)))
+
+            # Inject NumPy-typed roots too (rather than ordinary CLI strings).
+            roots = [('numpy-region', np.float32('-0.75'), np.float64('0.1'),
+                      np.float32('0.5'))]
+            with patch.object(decades, 'starting_regions', return_value=roots):
+                found, band = decades.search_targets('-0.75', '0.1', '0.5',
+                                                     n=1, seed=1, minutes=10,
+                                                     min_decades=20, rounds=0,
+                                                     regions=False)
+            self.assertEqual(len(found), 1)
+            self.assertGreaterEqual(found[0]['depth'], band[0])
+            self.assertEqual(found[0]['period'], 764)
+            self.assertIs(type(found[0]['period']), int)
+            self.assertIsInstance(found[0]['size'], type(mp.mpf(0)))
+            self.assertIsInstance(found[0]['nucleus'], type(mp.mpc(0)))
+
+    def test_numpy_scalar_conversions_keep_grid_precision(self):
+        self.assertEqual(decades.mp_scalar(np.int64(81)), 81)
+        self.assertEqual(decades.mp_scalar(np.int32(44)), 44)
+        self.assertEqual(decades.mp_scalar(np.float32('0.5')), mp.mpf('0.5'))
+        self.assertEqual(decades.mp_complex(np.complex128(1 + 2j)), mp.mpc(1, 2))
+        self.assertEqual(decades.mp_complex(np.int64(3)), mp.mpc(3))
+        self.assertEqual(decades.mp_complex(np.float32('0.5')), mp.mpc('0.5'))
+
     def test_ranked_region_seeds_include_elephant_and_spirals(self):
         roots = decades.starting_regions('-0.75', '0.1', '0.5')
         self.assertGreaterEqual(len(roots), 6)

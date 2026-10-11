@@ -207,9 +207,10 @@ def nucleus(c, w, max_period=4000):
     Newton to its nucleus, and its size (mandelbrot-numerics size estimate). None unless Newton
     really converges (|z_p| tiny): a minibrot found from a window of width w can be ~w^2 small,
     so the precision is sized for that, not for the window."""
+    w = mp_scalar(w)
     digits = int(-mp.log10(w))
     with mp.workdps(max(85, 45 + 2 * max(0, digits))):
-        c = mp.mpc(c)
+        c = mp_complex(c)
         seed = c
         z, best, p = mp.mpc(0), mp.inf, 0
         for n in range(1, max_period + 1):
@@ -437,10 +438,11 @@ def spiral_near(c, w):
     """The Misiurewicz point (spiral centre) whose structure c sits in: (q, p) by the closest return
     of the orbit, Newton, then the multiplier, the width its structure fills and its visible turns
     (PROB-21's measures, without the ray rotation). None if Newton does not settle near c."""
+    w = mp_scalar(w)
     digits = int(-mp.log10(w))
     dps = 40 + 2 * max(0, digits)
     with mp.workdps(dps):
-        c = mp.mpc(c)
+        c = mp_complex(c)
         # The shallowest spiral centre within half a view of c: the first (q, p), q rising, whose
         # Newton step from c (an estimate of the distance to that root) is under w/2. Spiral
         # centres are dense, so the nearest one is always tiny; the shallowest close one is big.
@@ -466,6 +468,7 @@ def spiral_near(c, w):
 
 def visible(c, size):
     """The minibrot really is there: solid (or unresolved) pixels in the last frame, 6x its size."""
+    size, c = mp_scalar(size), mp_complex(c)
     with mp.workdps(int(30 + max(0, -mp.log10(size)))):
         cols, _ = render(mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps), mp.nstr(size * 6, 17), size=(64, 36),
                          it=500000, name='vis')
@@ -640,7 +643,7 @@ def assess(sigs, lengths, minutes):
 
 def coarse_score(item):
     """Twelve probes triage before expensive whole-decade and contact-sheet passes."""
-    w0 = mp.mpf(item['origin'][3])
+    w0 = mp_scalar(item['origin'][3])
     depth = item['depth']
     scores, dust = [], []
     with mp.workdps(max(90, int(55 + depth))):
@@ -663,7 +666,7 @@ def full_path(item, index):
     """A 2x supersampled math frame at every decade; retain its .fds for contact."""
     with mp.workdps(max(90, int(55 + item['depth']))):
         c = item['nucleus']
-        w0 = mp.mpf(item['origin'][3])
+        w0 = mp_scalar(item['origin'][3])
         to = item['size'] * 6
         depth = float(mp.log10(w0 / to))
         full = int(math.floor(depth))
@@ -733,20 +736,42 @@ def starting_regions(re, im, width, all_regions=True):
     return list(dict.fromkeys(roots))
 
 
+def mp_scalar(value):
+    """Accept NumPy scalar inputs without converting deep decimal strings via f64."""
+    if isinstance(value, np.integer):
+        value = int(value)
+    elif isinstance(value, np.floating):
+        value = str(value)
+    return mp.mpf(value)
+
+
+def mp_complex(value):
+    """Convert all NumPy scalar kinds before entering mpmath."""
+    if isinstance(value, np.complexfloating):
+        return mp.mpc(mp_scalar(value.real), mp_scalar(value.imag))
+    if isinstance(value, np.generic):
+        return mp.mpc(mp_scalar(value))
+    return mp.mpc(value)
+
+
 def harvest_nuclei(re, im, width, rng, n):
     """One bounded tiny fd view; boundary seeds are Newton-solved to exact nuclei."""
-    with mp.workdps(max(90, int(55 - mp.log10(mp.mpf(width))))):
-        w = mp.mpf(width)
-        cre, cim = mp.mpf(re), mp.mpf(im)
+    with mp.workdps(max(90, int(55 - mp.log10(mp_scalar(width))))):
+        w = mp_scalar(width)
+        cre, cim = mp_scalar(re), mp_scalar(im)
         cols, _ = render(mp.nstr(cre, mp.mp.dps), mp.nstr(cim, mp.mp.dps),
                          mp.nstr(w, 22), size=(160, 90), it=100000, name='harvest')
         ny, nx = cols['de'].shape
         pixel = w / nx
         found = []
         for x, y in candidates(cols, n, rng):
+            # np.nonzero/argsort yield np.int64; convert at the grid boundary.
+            x, y = int(x), int(y)
             c = mp.mpc(cre + pixel * (mp.mpf(x) + mp.mpf('0.5') - nx / 2),
                        cim - pixel * (mp.mpf(y) + mp.mpf('0.5') - ny / 2))
             result = nucleus(c, w, max_period=6000)
+            if result:
+                result = (mp_complex(result[0]), int(result[1]), mp_scalar(result[2]))
             if result and result[2] < w / 100 and abs(result[0] - mp.mpc(cre, cim)) < w * mp.mpf('0.6'):
                 if not any(abs(result[0] - other[0]) < max(result[2], other[2]) * 3
                            for other in found):
@@ -765,8 +790,9 @@ def search_targets(re, im, width, n, seed, minutes, min_decades, beam=4, rounds=
     frontier = []
     def save(r, origin, generation):
         c, p, sz = r
-        with mp.workdps(max(90, int(55 - mp.log10(sz)))):
-            depth = float(mp.log10(mp.mpf(origin[3]) / (sz * 6)))
+        with mp.workdps(max(90, int(55 - mp.log10(mp_scalar(sz))))):
+            c, p, sz = mp_complex(c), int(p), mp_scalar(sz)
+            depth = float(mp.log10(mp_scalar(origin[3]) / (sz * 6)))
             key = (origin[0], mp.nstr(mp.re(c), mp.mp.dps),
                    mp.nstr(mp.im(c), mp.mp.dps))
         if not (0 < depth < high + 18) or key in seen:
@@ -880,8 +906,8 @@ def plan_directed(re, im, width, out, minutes, spiral=None, n=24, seed=1,
             d1, d2 = spiral
             if not (1 <= d1 < d2 < item['depth'] - 1):
                 continue
-            w2 = mp.mpf(item['origin'][3]) / mp.power(10, d2)
-            centre = spiral_near(item['nucleus'], mp.mpf(item['origin'][3]) / mp.power(10, d1))
+            w2 = mp_scalar(item['origin'][3]) / mp.power(10, d2)
+            centre = spiral_near(item['nucleus'], mp_scalar(item['origin'][3]) / mp.power(10, d1))
             if (centre is None or centre['turns'] < 1.5
                     or abs(item['nucleus'] - centre['c']) > w2 * mp.mpf('0.06')):
                 continue
