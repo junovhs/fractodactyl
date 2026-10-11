@@ -1,0 +1,18 @@
+STATUS: needs-run
+COMMIT: ae692270ae7b02b6ffafb1a76364811c2ece3128
+SUMMARY: Directed planner ranks fixed-centre minibrot targets by a calm/rise/70%-climax/resolution arc, with haze and sparse-frame penalties.
+SUMMARY: Decades have hero and busyness scores; 30-60 second coherent sections with gradual or sudden transitions appear in plan.json.
+SUMMARY: Writes arc.png, labelled contact.jpg and FILM-12 speed.txt with a ~15 s rest ramp, hero lingering and non-accelerating landing.
+SUMMARY: One continuous fd film uses --speed, --keyframes 2, --gpu on, 3840x2160/60fps/master-ice; no ffmpeg segment joins.
+SUMMARY: The full-film command reuses the approved planning-only result when all input settings and speed.txt match; METHOD.md logs the synthetic probe.
+TESTED: Synthetic 60-decade Python/Numpy simulation: total 600.000000 s, 15 s rest ramp, 12 sections ~43-57 s, one actual sudden signature shift (2.9), non-accelerating tail.
+TESTED: Local ImageMagick 7 convert/montage smoke probes generated PNG and labelled JPEG successfully; branch diff verified against latest main (3 intended files, no .ishoo changes).
+TESTED: fd binary, cargo and repository checkout are unavailable here; real planning, 1-minute preview, 10-minute film, Python unittest, cargo test and clippy NOT run. No 4K fps claim.
+RUN:
+python3 tools/research/variety/decades.py --out out/prob23-10m --minutes 10 --size 3840x2160 --fps 60
+python3 tools/research/variety/decades.py --out out/prob23-preview --minutes 1 --size 3840x2160 --fps 60 --film
+python3 tools/research/variety/decades.py --out out/prob23-10m --minutes 10 --size 3840x2160 --fps 60 --film
+python3 -m unittest discover -s tools/research/variety -p 'test_decades_arc.py'
+cargo test --workspace
+cargo clippy --workspace --all-targets
+QUESTIONS: Please inspect out/prob23-10m/contact.jpg and arc.png, watch the 1-minute preview (including section boundaries, start ramp and final landing), and paste results before approving the full render; inspect the film report's actual fps/GPU fallback. If no verified target is found, report planner stdout (do not silently relax the fixed-centre contract).
