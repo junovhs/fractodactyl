@@ -70,7 +70,7 @@ fn pixel_row(h: &Header, py: usize, out: &mut [u8], dither: bool, f: &impl Fn(us
 
 /// Triangular-PDF dither in (-1, 1) levels from a position key: the sum of two
 /// independent uniforms drawn from an integer hash (lowbias32).
-fn tpdf(key: u32) -> f32 {
+pub(crate) fn tpdf(key: u32) -> f32 {
     let mut x = key.wrapping_add(0x9e37_79b9);
     x ^= x >> 16;
     x = x.wrapping_mul(0x7feb_352d);

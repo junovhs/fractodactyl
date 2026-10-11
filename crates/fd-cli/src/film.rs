@@ -240,6 +240,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 m,
                 &p,
                 zone.as_ref(),
+                if look_name == "studio" {
+                    Some(crate::shade::studio_look(&a)?)
+                } else {
+                    None
+                },
             ))
         }
     };
@@ -345,15 +350,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                     ..base
                 },
             )?;
-            let kf: f64 = k.rendered[before..].iter().map(|x| x.1).sum();
-            for &(_, secs, used) in &k.rendered[before..] {
-                r.add(used, secs);
-            }
-            r.shade += t.elapsed().as_secs_f64() - kf;
+            let frame_seconds = t.elapsed().as_secs_f64();
             let t = Instant::now();
             pipe.write_all(&img.data)
                 .map_err(|e| format!("ffmpeg pipe: {e}"))?;
             r.encode_wait += t.elapsed().as_secs_f64();
+            let kf: f64 = k.rendered[before..].iter().map(|x| x.1).sum();
+            for &(_, secs, used) in &k.rendered[before..] {
+                r.add(used, secs);
+            }
+            r.shade += frame_seconds - kf;
             let done = f + 1 - from;
             if done == 1 || done % 60 == 0 || done == to - from {
                 let el = wall.elapsed().as_secs_f64();
@@ -401,6 +407,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 el / done as f64 * (to - from - done) as f64
             );
         }
+    }
+    if let Some(k) = &keys {
+        r.keyframe_prepare = k.prepare_seconds;
+        r.keyframe_sample_shade = k.sample_shade_seconds;
+        r.keyframe_resample = k.resample_seconds;
     }
     drop(pipe);
     let status = enc.wait().map_err(|e| format!("ffmpeg: {e}"))?;
@@ -548,6 +559,9 @@ struct Report {
     frames: [usize; 3],
     seconds: [f64; 3],
     shade: f64,
+    keyframe_prepare: f64,
+    keyframe_sample_shade: f64,
+    keyframe_resample: f64,
     encode_wait: f64,
     /// (zone seconds, per-frame BLA seconds) for the compared frames.
     compared: Vec<(f64, f64)>,
@@ -576,7 +590,7 @@ impl Report {
         format!(
             "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
-             \"shade_seconds\":{},\"encode_wait_seconds\":{},\
+             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
             crate::bench::q(mp4),
             n as f64 / fps,
@@ -587,6 +601,10 @@ impl Report {
             self.frames[2],
             self.seconds[2],
             self.shade,
+            self.shade / n as f64,
+            self.keyframe_prepare,
+            self.keyframe_sample_shade,
+            self.keyframe_resample,
             self.encode_wait,
             self.compared.len()
         )
