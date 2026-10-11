@@ -24,7 +24,7 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
-[--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
+[--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (off)] \
@@ -63,6 +63,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "place",
         "ease-in",
         "spin",
+        "spins",
         "keyframes",
         "ease-out",
         "offset",
@@ -222,17 +223,35 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             }
         }
     };
-    if spin.is_some() && a.str("twist").is_some() {
-        return Err("--spin and --twist are exclusive".into());
+    if [a.str("spin"), a.str("spins"), a.str("twist")]
+        .iter()
+        .filter(|v| v.is_some())
+        .count()
+        > 1
+    {
+        return Err("--spin, --spins and --twist are exclusive".into());
     }
     let twist = a.num("twist", 0.0)?;
-    let views = if let Some(curve) = &speed_curve {
+    let mut views = if let Some(curve) = &speed_curve {
         curve.path(re, im, fps, twist, spin)?
     } else {
         path(
             re, im, w0, w1, seconds, fps, twist, ease, ease_in, spin, ease_out,
         )?
     };
+    // Placed spins are additive turns; each has zero angular speed at both ends.
+    if let Some(file) = a.str("spins") {
+        let text = std::fs::read_to_string(file).map_err(|e| format!("--spins {file:?}: {e}"))?;
+        let spins = parse_spins(&text, seconds)?;
+        let last = (views.len() - 1) as f64;
+        for (i, view) in views.iter_mut().enumerate() {
+            view.rotation =
+                std::f64::consts::TAU * placed_spin_turns(seconds * i as f64 / last, &spins);
+        }
+    }
+    if views.iter().any(|v| !v.rotation.is_finite()) {
+        return Err("film rotation is out of range".into());
+    }
     let (w, h) = size(a.str("size").unwrap_or("1920x1080"))?;
     let ss: u32 = a.num("ss", 2)?;
     let p = Params {
@@ -271,16 +290,37 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         None => None,
         Some(_) => {
             let m: u32 = a.num("keyframes", 2)?;
-            if !(1..=4).contains(&m)
-                || a.str("ss").is_some()
-                || a.str("twist").is_some()
-                || spin.is_some()
-            {
-                return Err("--keyframes M takes M in 1..=4 and no --ss, --twist or --spin".into());
+            if !(1..=4).contains(&m) || a.str("ss").is_some() {
+                return Err("--keyframes M takes M in 1..=4 and no --ss".into());
             }
-            // Keyframe 0 must hold frame 0 including its offset from the target.
-            let base = crate::keyframe::coverage(w0, offset, (w, h));
-            Some(crate::keyframe::Keyframes::new(
+            // Render the diagonal footprint at the original per-pixel sample pitch.
+            let rotating = views.iter().any(|v| v.rotation != 0.0);
+            let footprint = if rotating {
+                let scale = views.iter().enumerate().try_fold(
+                    1.0f64,
+                    |scale, (f, view)| -> Result<f64, String> {
+                        let width: f64 = view
+                            .width
+                            .parse()
+                            .map_err(|_| "bad keyframe width".to_string())?;
+                        let off = veer(offset, f as f64 / (views.len() - 1) as f64, width / w0);
+                        Ok(scale.max(
+                            crate::keyframe::coverage_rotated(width, off, (w, h), view.rotation)
+                                / width,
+                        ))
+                    },
+                )?;
+                // One output pixel of extra clearance for the tent at the corners.
+                scale * (1.0 + 2.0 / w.min(h) as f64)
+            } else {
+                1.0
+            };
+            let base = if rotating {
+                w0
+            } else {
+                crate::keyframe::coverage(w0, offset, (w, h))
+            };
+            let mut keys = crate::keyframe::Keyframes::new(
                 re,
                 im,
                 base,
@@ -293,11 +333,19 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 } else {
                     None
                 },
-            ))
+            );
+            if rotating {
+                keys.cover_rotations(footprint)?;
+            }
+            Some(keys)
         }
     };
     if gpu_on {
-        if let Some(k) = keys.as_mut() {
+        if keys.is_some() && views.iter().any(|v| v.rotation != 0.0) {
+            eprintln!(
+                "fd film: GPU does not support rotated keyframes (GPU-08); using CPU shading"
+            );
+        } else if let Some(k) = keys.as_mut() {
             if look_name == "studio" {
                 let l = crate::shade::studio_look(&a)?;
                 match k.enable_gpu(&l, &Appearance { time: t0, ..base }) {
@@ -411,6 +459,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             let img = k.frame(
                 width,
                 off,
+                view.rotation,
                 look.as_ref(),
                 &Appearance {
                     time: t0 + f as f64 / fps,
@@ -440,7 +489,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             continue;
         }
         let t = Instant::now();
-        let (hd, s, used) = render_frame(view, &p, zone.as_ref())?;
+        let (hd, mut s, used) = render_frame(view, &p, zone.as_ref())?;
+        // Light turns with the fractal, as in keyframe films: express normals in the
+        // unrotated screen axes before shading (owner, FILM-14).
+        if let Some(normal) = s.normal.as_mut().filter(|_| view.rotation != 0.0) {
+            let turn = (view.rotation / std::f64::consts::TAU * 65536.0).round() as i64 as u16;
+            normal.iter_mut().for_each(|a| *a = a.wrapping_sub(turn));
+        }
         let secs = t.elapsed().as_secs_f64();
         r.add(used, secs);
         if used == Used::Zone && compare_every > 0 && (f - from).is_multiple_of(compare_every) {
@@ -747,6 +802,64 @@ pub(crate) fn eased_depth(t: f64, s: f64) -> f64 {
     }
 }
 
+/// Placed spins, each with a start time, duration and total signed turns.
+fn parse_spins(text: &str, seconds: f64) -> Result<Vec<(f64, f64, f64)>, String> {
+    let mut spins = Vec::new();
+    let mut previous_end = 0.0;
+    for (i, line) in text.lines().enumerate() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<_> = line.split_whitespace().collect();
+        let bad = || {
+            format!(
+                "--spins line {}: expected start_seconds duration_seconds turns",
+                i + 1
+            )
+        };
+        if fields.len() != 3 {
+            return Err(bad());
+        }
+        let nums = fields
+            .iter()
+            .map(|v| v.parse::<f64>().map_err(|_| bad()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let (start, duration, turns) = (nums[0], nums[1], nums[2]);
+        let end = start + duration;
+        if !(start.is_finite()
+            && duration.is_finite()
+            && turns.is_finite()
+            && start >= previous_end
+            && duration > 0.0
+            && end.is_finite()
+            && end <= seconds)
+        {
+            return Err(format!(
+                "--spins line {}: spins must be non-overlapping, start >= 0, duration > 0 and end <= film duration ({seconds} s)",
+                i + 1
+            ));
+        }
+        spins.push((start, duration, turns));
+        previous_end = end;
+    }
+    if spins.is_empty() {
+        return Err("--spins: no spins in file".into());
+    }
+    Ok(spins)
+}
+
+/// Integrated sin² angular speed; before and after a spin, the full turns persist.
+fn placed_spin_turns(t: f64, spins: &[(f64, f64, f64)]) -> f64 {
+    spins
+        .iter()
+        .map(|&(start, duration, turns)| {
+            let u = ((t - start) / duration).clamp(0.0, 1.0);
+            turns * (u - (std::f64::consts::TAU * u).sin() / std::f64::consts::TAU)
+        })
+        .sum()
+}
+
 /// Turns rotated by time `t` under `--spin (peak, on, off)`: still for `off / 2`, then
 /// alternately spinning for `on` seconds at speed `peak * sin²(pi * r / on)` (easing in
 /// from and back out to no spin; each spin turns `peak * on / 2`) and still for `off`.
@@ -1002,6 +1115,43 @@ mod tests {
     }
 
     #[test]
+    fn placed_spins_ease_and_reject_invalid_timelines() {
+        let s = parse_spins(
+            "# start duration turns\n1 2 0.5\n4 2 -0.25 # reverse\n",
+            8.0,
+        )
+        .unwrap();
+        let turns = |t| placed_spin_turns(t, &s);
+        for (t, want) in [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (2.0, 0.25),
+            (3.0, 0.5),
+            (4.0, 0.5),
+            (5.0, 0.375),
+            (6.0, 0.25),
+            (8.0, 0.25),
+        ] {
+            assert!((turns(t) - want).abs() < 1e-12, "{t}: {}", turns(t));
+        }
+        let d = |t: f64| (turns(t + 1e-5) - turns(t - 1e-5)) / 2e-5;
+        assert!(d(1.0).abs() < 1e-9 && d(3.0).abs() < 1e-9);
+        assert!((d(2.0) - 0.5).abs() < 1e-9);
+        for invalid in [
+            "",
+            "NaN 2 1",
+            "0 0 1",
+            "0 3 inf",
+            "1 2 1\n2 1 1",
+            "7 2 1",
+            "0 1",
+            "-1 1 1",
+        ] {
+            assert!(parse_spins(invalid, 8.0).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
     fn spins_ease_in_and_out_between_still_stretches() {
         let sp = (0.25, 5.0, 10.0);
         let still = |a: f64, b: f64| (spin_turns(a, sp) - spin_turns(b, sp)).abs() < 1e-12;
@@ -1132,6 +1282,7 @@ mod tests {
                 keys.frame(
                     1.0 / 10f64.powf(d),
                     (0.0, 0.0),
+                    0.0,
                     look.as_ref(),
                     &Appearance::STILL,
                 )
