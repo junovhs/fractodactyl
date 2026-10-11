@@ -989,3 +989,240 @@ the zone needed **3.113 s render**, **21.585 s wall**.
 That is **39.5x render speed-up** and about **6.50x end-to-end
 wall speed-up** for this clip (including shading), not a claim
 about the complete film.
+
+
+### AUTO-02: blind structural-compiler corpus (2026-10-10)
+
+**Frozen operator:** AUTO-01 landed code commit `e42ca0baae4bd2434330f96ca267d2274cd255ef`; AUTO-02 branched at main `da3f9cb95df2c577119b15bbc3c4a763cd37223e`. The discoverer and native executor are unchanged, and the corpus runner checks their Git blob hashes before testing. This is not an `fd --zone` integration. Corpus: `tools/research/misiurewicz/auto_corpus.txt` (18 precommitted off-centre views); 14 from PROB-16 census / FEATURE-MAP, four genuinely held-out new widths/offsets at AUTO-01's Misiurewicz calibration centres. All real/imag/width fields are literal exact decimals, never converted through f64. No view is an exact seed centre. The spread includes near 1e-10 through 1e-360, sampled repelling periods and potential interior/escaped/unresolved mixes; actual cycle and class detections are recorded by the gate, not presumed.
+
+**Protocol:** `.github/workflows/auto-corpus.yml` runs Rust workspace clippy/test, the frozen native tests, then one independent cold 960x540, 20,000-iteration trial per row on the same runner with four threads. Compiler makes its pre-render decision without BLA truth. A jump renders the native candidate and a cold `fd control --bla per-frame` reference and `fd compare`s every pixel in class/nu/de/normal (DEC-17). A decline spends its discovery/build cost and renders the untouched fd baseline; no correctness credit is assigned for an unattempted jump. The runner records discovery/build/native render/cold BLA seconds, jumped-pixel coverage, fallback fraction, baseline E/I/U classes, all comparison failures, and mpmath direct orbit/derivative checks at the worst class/nu/de/normal pixels. Scoring de/normal near tiny distances follows BENC-04 (reference de >= 1e-3 px). The first wrong jump halts the corpus (DEC-14); no retuning on these views is allowed.
+
+**Measured blind result — gate FAIL (no demonstrated speedup).**
+[GitHub Actions cold run 38094065953](https://github.com/junovhs/fractodactyl/actions/runs/38094065953),
+Ubuntu hosted 4-vCPU, Python 3.12, 4 Rust threads, 960x540, max_iter 20,000.
+The frozen AUTO-01 discoverer and native executor passed their Git blob guards,
+workspace and native Rust tests/Clippy passed, and all 18 cold baseline runs completed.
+Each view was a single cold trial, not a median. `fd compare` and the direct
+mpmath spotcheck are **N/A**, not zero-error confirmations: no view jumped.
+
+| View | Width | Source | Decision (reason) | q/p | Discover s | Build s | Render s (fd) | Cold BLA s | Net BLA/total | Jump/fallback | Baseline E/I/U | Correctness |
+|---|---:|---|---|---|---:|---:|---:|---:|---:|---|---|---|
+| v0-near | 1e-10 | PROB-16 | decline (no-cycle) | -/- | 0.078 | 0 | 0.834 | 0.834 | 0.91x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| v0-deep | 1e-85 | PROB-16 | decline (no-recurrence) | -/- | 0.079 | 0 | 3.042 | 3.042 | 0.97x | 0%/100% | 0/0/518400 | abstained; no candidate |
+| eye-ultradeep | 1e-320 | PROB-16 | decline (no-recurrence) | -/- | 0.084 | 0 | 99.323 | 99.323 | 1.00x | 0%/100% | 0/0/518400 | abstained; no candidate |
+| famous-deep | 1e-28 | PROB-16 | decline (no-recurrence) | -/- | 0.078 | 0 | 20.941 | 20.941 | 1.00x | 0%/100% | 0/0/518400 | abstained; no candidate |
+| published-1 | 1e-12 | PROB-16 | decline (no-recurrence) | -/- | 0.083 | 0 | 0.364 | 0.364 | 0.81x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| published-3 | 1e-70 | PROB-16 | decline (no-recurrence) | -/- | 0.080 | 0 | 1.058 | 1.058 | 0.93x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| published-4 | 1e-125 | PROB-16 | decline (no-recurrence) | -/- | 0.081 | 0 | 0.453 | 0.453 | 0.85x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| published-6 | 1e-200 | PROB-16 | decline (no-recurrence) | -/- | 0.083 | 0 | 0.752 | 0.752 | 0.90x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| published-7 | 1e-340 | PROB-16 | decline (no-recurrence) | -/- | 0.088 | 0 | 69.086 | 69.086 | 1.00x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| seahorse-valley | 1e-10 | FEATURE-MAP | decline (no-recurrence) | -/- | 0.009 | 0 | 0.095 | 0.095 | 0.91x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| two-arm-spiral | 1e-14 | FEATURE-MAP | decline (no-recurrence) | -/- | 0.078 | 0 | 1.098 | 1.098 | 0.93x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| elephant-valley | 1e-11 | FEATURE-MAP | decline (no-recurrence) | -/- | 0.078 | 0 | 0.480 | 0.480 | 0.86x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| triple-spiral | 1e-10 | FEATURE-MAP | decline (no-recurrence) | -/- | 0.016 | 0 | 0.124 | 0.124 | 0.89x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| antenna-tip | 1e-315 | FEATURE-MAP | decline (no-cycle) | -/- | 0.087 | 0 | 2.033 | 2.033 | 0.96x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| i-medium | 1e-40 | AUTO-01 new width | decline (savings) | 2/2 | 0.059 | 0 | 0.335 | 0.335 | 0.85x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| i-ultradeep | 1e-360 | AUTO-01 new width | decline (cost-model) | 2/2 | 0.090 | 0.047 | 3.642 | 3.642 | 0.96x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| q32-deep | 1e-75 | AUTO-01 new width | decline (cost-model) | 3/2 | 0.081 | 0.040 | 0.356 | 0.356 | 0.75x | 0%/100% | 518400/0/0 | abstained; no candidate |
+| q32-ultradeep | 1e-310 | AUTO-01 new width | decline (no-recurrence) | -/- | 0.084 | 0 | 1.360 | 1.360 | 0.94x | 0%/100% | 518400/0/0 | abstained; no candidate |
+
+**Decision audit:** 18/18 honest abstentions, no accelerated views, no jumped
+pixels, no per-pixel fallback from a jumped operator, no rejected whole-frame
+`fd compare` results, and no oracle checks (there was nothing to spotcheck).
+`no-recurrence` means no critical-orbit landing at the camera width;
+`no-cycle` means no numerically usable primitive repelling cycle;
+`savings` rejected the optimistic operator step-savings bound;
+`cost-model` rejected pre-render discovery+build+native cost against estimated BLA.
+Two compiler attempts built an operator (i-ultradeep: 0.047 s;
+q32-deep: 0.040 s), then declined. The reported net ratio includes
+abstention overhead; every view is slower than its standalone BLA baseline.
+All 18 baseline frames were homogeneous (escaped or unresolved); none
+contained a verified interior sample. Therefore this first blind corpus
+does **not** satisfy the issue's requested mixed-class coverage or meaningful
+share of net wins. It is **not** evidence to promote AUTO-01 (DEC-17).
+Do not retune AUTO-01 against these observed cameras and call a rerun blind;
+a subsequent test requires a fresh, precommitted unused corpus and/or a new
+compiler revision. The original 18-view corpus and failed verdict are retained.
+
+Machine-readable per-view decisions, class counts, costs and full logs:
+[auto02-blind-results artifact, run 38094065953](https://github.com/junovhs/fractodactyl/actions/runs/38094065953).
+
+Local replay from repo root (fresh `out/auto02-local` directory):
+
+```bash
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo test --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+cargo build --release -p fd-cli
+cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+python3 -m unittest discover -s tools/research/misiurewicz -p test_auto_corpus.py
+python3 tools/research/misiurewicz/auto_corpus.py --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles --size 960x540 --iter 20000 --threads 24 --out out/auto02-local
+```
+
+### AUTO-02 review round 2: rescue and blind admission (2026-10-10)
+
+Run 1 above is preserved, including its original verdict. The 15 all-escaped
+views are legitimate abstentions. The three 100%-Unresolved views are **invalid
+baselines for a speed gate**, not evidence of compiler failure. The earlier
+blanket gate FAIL interpretation was premature. Published-7 is an expensive
+valid escaped-only decline (69.086 s at 960x540 on Actions).
+
+**Iteration rescue rule, frozen before measurements:** for each of the three
+originally blank cameras, rerender one cold fd per-frame BLA at max_iter
+20,000, 40,000, 80,000, 160,000, 320,000, 640,000, 1,000,000 in order.
+Stop at the first limit with strictly fewer than 5,184 unresolved pixels of
+518,400 (<1%), or declare **capped unresolved** after the 1M limit. Record
+every attempted budget and class counts. Use exactly the qualifying budget
+for the subsequent compiler/BLA trial. This rule is identical for all three;
+it does not consult or retune AUTO-01.
+
+**Positive controls, excluded from the blind verdict:**
+auto02_controls.txt contains AUTO-01's c=i, c=i+1e-96 and q=3/p=2
+development views (width 1e-95, 20,000 iterations). Initial 960x540
+[run 38094795618](https://github.com/junovhs/fractodactyl/actions/runs/38094795618)
+proved one real c=i jump: 518,400 jumping pixels, zero every-pixel
+class/nu/DE/normal fd compare errors; three worst pixels passed independent
+mpmath direct iteration (worst candidate nu 7.4e-12 px, DE 1e-15 relative,
+normal 3e-16 rad), and 0.247 s compiler total vs 0.361 s BLA (1.46x).
+The other two controls **declined** at 960x540 on the frozen cost guard.
+A 1920x1080 repeat in auto02-controls.yml checks whether longer frames
+amortize without --force or compiler changes; see its separate run artifact.
+
+**Completed positive-control gate:**
+[run 38094927806](https://github.com/junovhs/fractodactyl/actions/runs/38094927806)
+at 1920x1080, four threads, 20,000 iterations, three independent
+cold control frames. All three pre-render decisions were accelerate,
+and 2,073,600/2,073,600 samples jumped in each frame (0 fallback).
+`fd compare` scored all 6,220,800 pixels: zero class mismatches and
+zero nu/DE/normal tolerance failures. Three worst pixels per frame
+were independently checked with direct high-precision orbit/derivative;
+max candidate nu-equivalent displacement 5.925e-11 px, DE relative
+1.036e-8, normal 2.014e-9 rad; no oracle class error.
+
+| Calibration | Discover s | Build s | Native render s | Total s | Cold BLA s | Net win | Jump coverage |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| c=i | 0.062 | 0.039 | 0.590 | 0.691 | 1.416 | 2.05x | 100% |
+| c=i+1e-96 | 0.083 | 0.040 | 0.580 | 0.702 | 1.421 | 2.02x | 100% |
+| q=3/p=2 | 0.080 | 0.040 | 0.586 | 0.706 | 1.397 | 1.98x | 100% |
+
+Controls demonstrate the harness can reach the jump + whole-frame
+comparator + direct oracle without --force; they do not contribute
+to blind speed-win percentages.
+**New corpus selection is baseline-only.** 24 new off-centre exact-decimal
+views were precommitted in auto02_candidates.txt *before any compiler use*.
+A single cold 960x540, 100,000-iteration fd per-frame BLA run tests
+each. Admission requires escaped >0, interior >0, Unresolved <1%, and
+cold BLA >=5 seconds. Select the first at most 10 in committed input
+order, with at least 6 needed to constitute the requested fresh corpus.
+auto02_precheck.py uses shared parsing helpers but invokes no compiler. The admitted
+subset and the complete rejected precheck evidence must be committed
+**before** running the compiler on these candidates. If too few pass,
+report inadequate selection, not compiler failure; never silently
+relax thresholds or call all-Unresolved frames expensive workloads.
+
+**Baseline-only first screen result:**
+[Actions run 38094793669](https://github.com/junovhs/fractodactyl/actions/runs/38094793669)
+completed the 24 precommitted views in auto02_candidates.txt.
+**0/24 admitted**, without ever calling the compiler: every reference
+had zero Interior pixels (v0 minibrot neighbourhoods had significant
+Unresolved fractions and some entirely Unresolved frames; the famous
+deep views were entirely or almost entirely Escaped). Cold BLA costs
+ranged 1.099..44.170 s. The screen exited 2 because its pre-registered
+minimum of six was not met, not because of an acceleration failure.
+Full class/cost table and JSON in the run's auto02-admission-only
+artifact, retained as baseline-only negative evidence.
+
+**Second preregistered screen, still before any new compiler trial:**
+auto02_candidates_roots.txt adds 24 completely unused off-centre
+attachment-root views at periods 1..8, widths 1e-5..1e-7.
+The exact roots c=lambda/2-lambda^2/4 (lambda=e^(2*pi*i/p)) are from
+the FEATURE-MAP notion of cardioid attachments. Selection is still
+the **unchanged** E>0, I>0, U<1%, and BLA>=5s rule at 100,000
+iterations. auto02-precheck.yml emits a separate complete report and
+proposed admission list for this pool; it cannot run the compiler.
+If six pass, commit the list and its baseline evidence before invoking
+auto02-trial.yml. If fewer pass, preserve another selection failure.
+**Gate after admission:** same committed camera and iteration budget for
+frozen compiler and cold BLA; per-view decision, discover/build/render
+seconds, BLA cold seconds, operator coverage/fallback, class distribution
+and every-pixel fd compare (class, nu, DE, normal), with mpmath orbit
+and derivative checks at worst pixels. Any wrong jumped pixel is a
+DEC-14 stop. Net wins require total discovery+build+render below cold
+BLA. Report wins/valid decisions, including the exact denominator of
+expensive admitted views; exclude calibration controls, exclude capped
+Unresolved frames. No run-2 acceleration verdict is claimed while
+the baseline admission and capped rescue remain outstanding.
+
+Owner Ryzen command for the costly three-view rescue (from repo root):
+
+```bash
+cargo build --release -p fd-cli
+cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+python3 tools/research/misiurewicz/auto02_precheck.py --mode rescue --views tools/research/misiurewicz/auto02_rescue.txt --fd target/release/fd --threads 24 --out out/auto02-rescue-owner
+```
+
+If the rescue writes a nonempty out/auto02-rescue-owner/admitted.txt,
+the exact next scoring command is:
+
+```bash
+python3 tools/research/misiurewicz/auto_corpus.py --subset --corpus out/auto02-rescue-owner/admitted.txt --fd target/release/fd --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles --threads 24 --out out/auto02-rescue-scored
+```
+
+Archive the generated precheck.json, precheck.md, summary.md and report.json
+rather than copying only aggregate counts; operator code is unchanged.
+
+#### AUTO-02 run 2: fresh minibrot pool (local, 2026-10-10, owner took over from web mode)
+
+**Why a new pool.** Both of ChatGPT's fresh pools (`auto02_candidates.txt`, `auto02_candidates_roots.txt`) admitted 0 views. The admission rule required Unresolved < 1%. Deep minibrot interior is exactly what per-frame BLA leaves Unresolved (FIX-04): 2-view probe mb-famous-deep-p998 gave E/I/U 452584/26941/38875 at 26.1 s BLA. So the rule excluded every expensive mixed view by construction. Root-pool BLA-only admission locally: 0/11 finished views admitted (all-interior or mostly Unresolved near-parabolic roots), stopped there.
+
+**Pool rule (fixed before any compiler run):** `tools/research/misiurewicz/auto02_minibrots.py`. For each of the 14 PROB-16/FEATURE-MAP run-1 seeds, take the last three atom-domain partial periods (<= 20000) at the seed centre. Newton-refine the nucleus in mpmath (DEC-21), estimate size = 1/(beta*lambda^2), and frame width = 4*size, offset (+0.2w, -0.15w). Result: 36 views, `auto02_minibrot_pool.txt`. Admission is relaxed to E>0 and I+U>0, with U reported as FIX-04, not as error. Views with width >= 4e-5 (periods 1-3 and 18/26: bulbs and shallow minibrots, BLA well under 5 s) were skipped as unable to be expensive.
+
+**Smallest test.** The compiler decides before rendering (0.1-0.2 s per view). Only an `accelerate` decision needs a full render plus every-pixel `fd compare`. So the decision ran on every deep view first, and BLA renders were kept only where already measured. Frozen AUTO-01 `e42ca0b`, `auto_discover.py` at 960x540, 100000 iterations, Ryzen 9 3900X, 24 threads.
+
+| View | Width | Decision | Reason | BLA E/I/U | BLA s |
+|---|---:|---|---|---|---:|
+| mb-v0-near-p1 | 4 | decline | even optimistic operator savings cannot amortize the jump | 439085/79311/4 | 0.029 |
+| mb-v0-near-p2 | 2 | decline | no numerically usable primitive repelling cycle | 254312/264087/1 | 0.066 |
+| mb-v0-deep-p2 | 2 | decline | no numerically usable primitive repelling cycle | 254312/264087/1 | 0.061 |
+| mb-v0-deep-p741 | 6.96e-49 | decline | no critical-orbit recurrence at camera scale | 429807/0/88593 | 1.609 |
+| mb-v0-deep-p764 | 1.65e-49 | decline | no critical-orbit recurrence at camera scale | 447036/0/71364 | 1.691 |
+| mb-eye-ultradeep-p655 | 2.92e-20 | decline | no critical-orbit recurrence at camera scale | 430054/0/88346 | 20.104 |
+| mb-eye-ultradeep-p2217 | 1.58e-36 | decline | no critical-orbit recurrence at camera scale | 439488/0/78912 | 3.662 |
+| mb-eye-ultradeep-p19205 | 7.75e-163 | decline | no critical-orbit recurrence at camera scale | 0/0/518400 | 0.640 |
+| mb-famous-deep-p78 | 4.38e-06 | decline | weakly repelling multiplier outside validated derivative-jump domain | 363322/153631/1447 | 1.366 |
+| mb-famous-deep-p998 | 2.5e-15 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-famous-deep-p8007 | 3.58e-32 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-1-p1 | 4 | decline | even optimistic operator savings cannot amortize the jump | - | - |
+| mb-published-1-p2 | 2 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-published-1-p3 | 0.0761 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-published-3-p329 | 1.61e-30 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-3-p437 | 6.75e-33 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-3-p1111 | 1.76e-59 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-4-p848 | 6.87e-60 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-4-p1595 | 1.15e-80 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-4-p2443 | 1.32e-93 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-6-p26 | 0.000114 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-published-6-p495 | 6.99e-27 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-6-p2449 | 1.41e-61 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-7-p93 | 3.02e-25 | decline | no numerically usable primitive repelling cycle | - | - |
+| mb-published-7-p594 | 3.39e-77 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-published-7-p3740 | 1.12e-162 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-seahorse-valley-p1 | 4 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-seahorse-valley-p2 | 2 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-two-arm-spiral-p1 | 4 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-two-arm-spiral-p2 | 2 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-two-arm-spiral-p349 | 5.33e-17 | decline | no critical-orbit recurrence at camera scale | - | - |
+| mb-elephant-valley-p18 | 0.00445 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-elephant-valley-p74 | 2.72e-07 | decline | weakly repelling multiplier outside validated derivative-jump domain | - | - |
+| mb-elephant-valley-p112 | 1.95e-09 | CRASH | compiler found a cycle candidate, then crashed in write_native_model: TypeError (mpf phase in phases_hp) | - | - |
+| mb-triple-spiral-p1 | 4 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-triple-spiral-p3 | 0.756 | skipped | shallow (width >= 4e-5) | - | - |
+| mb-antenna-tip-p1 | 4 | skipped | shallow (width >= 4e-5) | - | - |
+
+**Verdict (AUTO-02 gate: FAIL on speed, no wrong pixel).**
+- Run 1: 15 valid views plus 2 rescued (famous-deep at 40k, eye-ultradeep at 80k iterations), all honest declines. v0-deep is invalid: the frame lies inside the period-764 minibrot (1e-85 view, 4e-50 minibrot), so it is all interior that BLA cannot prove.
+- Run 2: 22 deep minibrot views (width < 4e-5). 21 declined: 18 "no critical-orbit recurrence at camera scale", 1 "no usable repelling cycle", 2 "weakly repelling multiplier outside validated domain". 1 crashed (mb-elephant-valley-p112). Of the 15 shallow views, 4 had already been decided before the skip rule was applied (all declines) and 11 were skipped.
+- 0 jumps on 39 valid blind views (38 declines, 1 crash), so 0 net wins and no per-pixel correctness failure to score. The controls (3 AUTO-01 calibration views) still jump at about 2x with every-pixel compare passing, so the harness can produce a jump.
+- The one blind cycle candidate hit a compiler bug, not a cost-model decline. That is a robustness failure on the accept path (FIX-47). It must decline or work, never crash. Do not retune on these views; a fixed compiler needs a fresh pool from the same rule with new seeds.
+- Reading: the frozen compiler's precondition (critical-orbit recurrence at camera scale) holds almost only at the Misiurewicz-type spiral centres it was calibrated on, even next to expensive minibrots. This matches the 2026-10-08 assessment that the dynamics fast path pays off on paths aimed at spiral centres. PROB-12 should build zones for spiral-centre paths explicitly, not rely on AUTO-01 to find structure in arbitrary views.
+

@@ -1,0 +1,37 @@
+name: auto02-precheck
+on:
+  push:
+    branches: [gpt/AUTO-02]
+    paths: [.github/workflows/auto02-precheck.yml]
+
+jobs:
+  baseline-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy mpmath gmpy2
+      - run: cargo build --release -p fd-cli
+      - name: BLA-only admission, no compiler run
+        run: |
+          python tools/research/misiurewicz/auto02_precheck.py \
+            --mode admit --views tools/research/misiurewicz/auto02_candidates_roots.txt \
+            --fd target/release/fd --threads 4 \
+            --out out/auto02-root-precheck
+      - name: Candidate table
+        if: always()
+        run: |
+          if test -f out/auto02-root-precheck/precheck.md; then
+            cat out/auto02-root-precheck/precheck.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto02-root-admission-only
+          path: |
+            out/auto02-root-precheck/precheck.*
+            out/auto02-root-precheck/admitted.txt

@@ -1,0 +1,57 @@
+name: auto-corpus
+on:
+  push:
+    branches: [gpt/AUTO-02]
+    paths: [.github/workflows/auto-corpus.yml]
+  workflow_dispatch:
+
+jobs:
+  blind-frames:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy mpmath gmpy2
+      - name: Workspace and frozen native regressions
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          cargo clippy --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+          python -m unittest discover -s tools/research/misiurewicz -p test_auto_corpus.py
+      - name: Build frozen compiler and cold fd
+        run: |
+          cargo build --release -p fd-cli
+          cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: One blind cold trial per view (stop on first failed jump)
+        run: |
+          set -euo pipefail
+          python tools/research/misiurewicz/auto_corpus.py \
+            --corpus tools/research/misiurewicz/auto_corpus.txt \
+            --fd target/release/fd \
+            --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+            --size 960x540 --iter 20000 --threads 4 \
+            --out out/auto02 | tee out-auto02.log
+      - name: Publish table
+        if: always()
+        run: |
+          if test -f out/auto02/summary.md; then
+            cat out/auto02/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto02-blind-results
+          path: |
+            out-auto02.log
+            out/auto02/summary.md
+            out/auto02/report.json
+            out/auto02/*/report.json
+            out/auto02/*/compiler.log
+            out/auto02/*/baseline.log

@@ -1,0 +1,79 @@
+name: auto02-blind-trial
+on:
+  push:
+    branches: [gpt/AUTO-02]
+    paths: [tools/research/misiurewicz/auto02_admitted.txt]
+
+jobs:
+  frozen-compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install numpy mpmath gmpy2
+      - name: Enforce precommitted baseline-only admission
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, "tools/research/misiurewicz")
+          from auto_corpus import corpus_rows
+          from auto02_precheck import admission
+          candidates = corpus_rows(Path("tools/research/misiurewicz/auto02_candidates_roots.txt"), subset=True)
+          admitted = corpus_rows(Path("tools/research/misiurewicz/auto02_admitted.txt"), subset=True)
+          precheck = json.loads(Path("tools/research/misiurewicz/auto02_admission.json").read_text())
+          assert 6 <= len(admitted) <= 10
+          possible = {r["name"]: r for r in candidates}
+          admitted_names = [r["name"] for r in admitted]
+          assert len(set(admitted_names)) == len(admitted_names)
+          measured = {r["name"]: r for r in precheck["attempts"]}
+          for r in admitted:
+              origin = possible[r["name"]]
+              assert all(r[key] == origin[key] for key in ("re", "im", "width", "origin"))
+              assert r["iterations"] == origin["iterations"] == 100_000
+              assert measured[r["name"]]["admitted"]
+              assert admission(measured[r["name"]]["budgets"][-1])
+          assert admitted_names == [r["name"] for r in precheck["admitted"]]
+          print(f"Committed baseline-only, mixed, expensive admission: {len(admitted)} views")
+          PY
+      - name: Workspace and native regression checks
+        run: |
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          cargo clippy --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+          python -m unittest discover -s tools/research/misiurewicz -p test_auto_corpus.py
+      - name: Build frozen compiler and cold fd
+        run: |
+          cargo build --release -p fd-cli
+          cargo build --release --manifest-path tools/research/misiurewicz/auto_cycle_bench/Cargo.toml
+      - name: Fresh blind cold comparison and DEC-14 fail-fast
+        run: |
+          python tools/research/misiurewicz/auto_corpus.py --subset \
+            --corpus tools/research/misiurewicz/auto02_admitted.txt \
+            --fd target/release/fd \
+            --native tools/research/misiurewicz/auto_cycle_bench/target/release/native-cycles \
+            --size 960x540 --threads 4 --out out/auto02-trial
+      - name: Full table
+        if: always()
+        run: |
+          if test -f out/auto02-trial/summary.md; then
+            cat out/auto02-trial/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auto02-fresh-trial
+          path: |
+            out/auto02-trial/summary.md
+            out/auto02-trial/report.json
+            out/auto02-trial/*/report.json
+            out/auto02-trial/*/compiler.log
+            out/auto02-trial/*/baseline.log
