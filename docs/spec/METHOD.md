@@ -98,6 +98,62 @@ the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
 
+### PROB-23 round 2: deeper, ranked visual arc search (2026-10-11)
+
+**Owner's measured round-1 negative:** planning took 38.0 s (34 nuclei, only 3
+targets scored); best 26.9 decades, 14 sections averaging ~1.9 decades,
+and a 600 s run at 22.3 s/decade. Contact shows mostly fine haze, a weak
+60-80% climax and magenta unresolved regions. Unit tests passed; no film
+was rendered. This disproves the original arc-ranking claim and justifies
+a broad discovery gate before any 4K benchmark.
+
+**Changes:** search six starting regions (requested root, seahorse, seahorse
+spiral, elephant valley, triple spiral, antenna); recursively discover
+decorated child nuclei at 300x/70x parent scale (configurable --beam and
+--rounds). Only candidates with depth around 45-75 decades for a ten-minute
+1.25x/s film are eligible. The repository's VIDE-01 period-764 calibrated
+100-digit nucleus is also re-solved at high precision and supplies a
+49.21-decade known-depth fallback, not a visual-quality guarantee. Every
+point is a Newton-refined mp centre; no deep centre/width passes through
+f64. The nucleus gate checks Newton drift from the seed (previously a
+no-op comparison against itself). Search failures are explicit.
+
+**Visual gate:** fd's mathematical de/nu/class at 112x63 cheaply triages
+candidates, and whole-decade 256x144 with --ss 2 supplies scores AND the
+contact image. A 5x5 low-pass and 8x8 tile occupancy, central structure,
+mid-frequency power and hue-independent silhouette replace the saturated
+DE<1 edge fraction as hero cues. Strong haze/unresolved and corner-only
+structure penalties apply to all decades; the climax region receives
+3.5x fit weight. Every top candidate gets cand-N/plan.json, arc.png,
+contact.jpg and speed.txt; ranking.json records pass/fail heuristic gates.
+Section dynamic programming **requires** 3-6 decades and 30-60 s. This
+is visual selection, not a numeric validity shortcut (DEC-10/17);
+the planner labels candidate gates and the owner must inspect them.
+
+**Film:** --film --pick N reads only a saved matching plan, with
+FILM-12 continuous speed, --keyframes 2, --gpu on. --preview-seconds 60
+uses fd film --frames for a 60 s excerpt of the unchanged 600 s
+speed/path (default fraction 0.65); this tests a real section boundary
+without cramming 55 decades into 60 s. The contact shade explicitly
+uses --unresolved interior like fd film. The built-in master-ice interior
+is #05070d, not magenta: unresolved pixels in the previous contact
+were rendered with the fd shade default --unresolved mark, not the
+film default. The new contact labels unresolved fractions.
+
+**Local tests available here:** synthetic Python/Numpy 44-75-decade
+speed/partition probe, with 225 randomized/fractional cases:
+0 impossible partitions; for 58 decades, exactly 600.000 s, 15.0 s
+rest ramp, 10.22 s/decade mean cruise and 12 sections, each 4-6
+decades / 45-59 s. Known v0 point resolves at p=764,
+size 4.12049120899653482e-50 (137-digit mpmath, 2 Newton
+iterations, ~0.14 s). ImageMagick 7 arc/contact probes produced a
+1100x450 PNG and labelled JPEG. No fd binary or Rust cargo in this
+environment; the actual discovered targets, supersampled contact
+sheets, cargo tests, 1-minute preview, 10-minute film and owner
+aesthetic verdict remain unverified and are exact commands in the
+latest web-mode/PROB-23.done.
+
+
 ### PROB-23: whole-film arc planner (2026-10-11)
 
 Directed decades.py scores each fixed-centre minibrot path with a calm/opening,
