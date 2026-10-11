@@ -1,5 +1,5 @@
 //! `fd film` (FILM-01): one command from a location to an mp4. It generates the camera
-//! path (constant zoom rate, optional ease and twist), renders every frame with the
+//! path (constant or curve-driven zoom speed, optional ease and twist), renders every frame with the
 //! cheapest valid kernel (the zone fast path where `--zone` covers the frame, otherwise
 //! fd's own reference plus a per-frame BLA table, as `fd control --bla per-frame`),
 //! shades it in memory with the chosen look at film time `frame / fps`, and pipes raw
@@ -24,7 +24,7 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
-[--seconds S | --rate DECADES_PER_S (0.15)] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
+[--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] \
@@ -46,6 +46,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "fps",
         "seconds",
         "rate",
+        "speed",
         "twist",
         "ease",
         "size",
@@ -79,13 +80,32 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     };
     let mp4 = a.need("mp4")?;
     let fps: f64 = a.num("fps", 60.0)?;
-    let (w0, mut w1): (f64, f64) = (
-        a.num("from", 4.0)?,
-        to.parse()
-            .ok()
-            .filter(|w: &f64| *w > 0.0)
-            .ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?,
-    );
+    let speed_file = a.str("speed");
+    let from = a.str("from").unwrap_or("4");
+    let width_log = |name: &str, value: &str| -> Result<f64, String> {
+        let d = fd_fixed::Decimal::parse(value)?;
+        let log = d.log2_abs() * std::f64::consts::LOG10_2;
+        if d.neg || !log.is_finite() {
+            return Err(format!(
+                "--{name}: expected a positive width, got {value:?}"
+            ));
+        }
+        Ok(log)
+    };
+    let (l0, l1) = (width_log("from", from)?, width_log("to", to)?);
+    // Existing constant-rate films are f64-limited; curve films can keep deep widths
+    // as decimal strings without ever converting their magnitude to f64 (DEC-21).
+    let (w0, mut w1): (f64, f64) = if speed_file.is_some() {
+        (from.parse().unwrap_or(0.0), to.parse().unwrap_or(0.0))
+    } else {
+        (
+            a.num("from", 4.0)?,
+            to.parse()
+                .ok()
+                .filter(|w: &f64| *w > 0.0)
+                .ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?,
+        )
+    };
     let ease = match a.str("ease").unwrap_or("off") {
         "on" => true,
         "off" => false,
@@ -105,18 +125,36 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             "--ease-out: expected seconds >= 0, and not with --ease on or --ease-in".into(),
         );
     }
+    if speed_file.is_some()
+        && ["seconds", "rate", "ease", "ease-in", "ease-out"]
+            .iter()
+            .any(|flag| a.str(flag).is_some())
+    {
+        return Err("--speed cannot be combined with --seconds, --rate or --ease flags".into());
+    }
+    let speed_curve = speed_file
+        .map(|file| {
+            let text =
+                std::fs::read_to_string(file).map_err(|e| format!("--speed {file:?}: {e}"))?;
+            SpeedCurve::parse(&text, l0, l1)
+        })
+        .transpose()?;
     let rate: f64 = a.num("rate", 0.15)?;
-    let seconds = match a.str("seconds") {
-        Some(_) => a.num("seconds", 0.0)?,
-        None if ease_out > 0.0 => (w0 / w1).log10().abs() / rate + ease_out / 2.0,
-        None if ease_in > 0.0 => {
-            let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
-            if t < ease_in {
-                return Err(format!("--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"));
+    let seconds = if let Some(curve) = &speed_curve {
+        curve.total_seconds
+    } else {
+        match a.str("seconds") {
+            Some(_) => a.num("seconds", 0.0)?,
+            None if ease_out > 0.0 => (w0 / w1).log10().abs() / rate + ease_out / 2.0,
+            None if ease_in > 0.0 => {
+                let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
+                if t < ease_in {
+                    return Err(format!("--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"));
+                }
+                t
             }
-            t
+            None => (w0 / w1).log10().abs() / rate,
         }
-        None => (w0 / w1).log10().abs() / rate,
     };
     if ease_in > 0.0 && a.str("seconds").is_some() {
         let end = w0 / 10f64.powf(rate * eased_depth(seconds, ease_in));
@@ -180,19 +218,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if spin.is_some() && a.str("twist").is_some() {
         return Err("--spin and --twist are exclusive".into());
     }
-    let views = path(
-        re,
-        im,
-        w0,
-        w1,
-        seconds,
-        fps,
-        a.num("twist", 0.0)?,
-        ease,
-        ease_in,
-        spin,
-        ease_out,
-    )?;
+    let twist = a.num("twist", 0.0)?;
+    let views = if let Some(curve) = &speed_curve {
+        curve.path(re, im, fps, twist, spin)?
+    } else {
+        path(
+            re, im, w0, w1, seconds, fps, twist, ease, ease_in, spin, ease_out,
+        )?
+    };
     let (w, h) = size(a.str("size").unwrap_or("1920x1080"))?;
     let ss: u32 = a.num("ss", 2)?;
     let p = Params {
@@ -219,6 +252,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     base.dither = a.str("dither").is_none_or(|v| v == "on");
     let zone = a.str("zone").map(Zone::load).transpose()?;
     // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
+    if speed_curve.is_some()
+        && a.str("keyframes").is_some()
+        && !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0)
+    {
+        return Err(
+            "--keyframes needs positive normal f64 widths; omit it for deeper --speed films".into(),
+        );
+    }
     let mut keys = match a.str("keyframes") {
         None => None,
         Some(_) => {
@@ -423,6 +464,241 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         r.json(mp4, to - from, fps, wall.elapsed().as_secs_f64())
     );
     Ok(())
+}
+
+/// A span whose elapsed time integrates to exactly length * seconds_per_decade.
+/// Consecutive spans share a time/depth derivative, so the zoom has no speed jump.
+struct SpeedSpan {
+    depth: f64,
+    length: f64,
+    elapsed: f64,
+    duration: f64,
+    pace: f64,
+    rest: bool,
+    d0: f64,
+    d1: f64,
+}
+
+impl SpeedSpan {
+    fn time_at(&self, u: f64) -> f64 {
+        let u2 = u * u;
+        let u3 = u2 * u;
+        self.duration * (3.0 * u2 - 2.0 * u3)
+            + self.length * (self.d0 * (u3 - 2.0 * u2 + u) + self.d1 * (u3 - u2))
+    }
+
+    fn depth_at(&self, seconds: f64) -> f64 {
+        let t = seconds.clamp(0.0, self.duration);
+        if self.rest {
+            // v(t) = cruise * smoothstep(t / duration): starts at rest and reaches
+            // cruise with zero acceleration. Its exact integral is used here.
+            let u = t / self.duration;
+            return self.depth + 2.0 * self.length * (u * u * u - u.powi(4) / 2.0);
+        }
+        // The time spline is monotone (harmonic-mean slopes); invert it without
+        // approximating instantaneous speed or accumulating a per-frame step.
+        let (mut lo, mut hi) = (0.0, 1.0);
+        for _ in 0..48 {
+            let u = (lo + hi) / 2.0;
+            if self.time_at(u) < t {
+                lo = u;
+            } else {
+                hi = u;
+            }
+        }
+        self.depth + self.length * (lo + hi) / 2.0
+    }
+}
+
+/// Each row is "log10_width seconds_per_decade", in descending log-width order.
+/// A row sets the exact average pace until the next row (or --to). A first-row
+/// "rest" uses a smoothstep-in-time ramp to the next row's pace; that span
+/// takes twice its width in decades times that pace, and starts at zero speed.
+struct SpeedCurve {
+    log_from: f64,
+    depth: f64,
+    total_seconds: f64,
+    spans: Vec<SpeedSpan>,
+}
+
+impl SpeedCurve {
+    fn parse(text: &str, log_from: f64, log_to: f64) -> Result<Self, String> {
+        if !(log_from.is_finite() && log_to.is_finite() && log_from > log_to) {
+            return Err("--speed needs --from wider than --to".into());
+        }
+        let mut rows: Vec<(f64, Option<f64>)> = Vec::new();
+        for (i, line) in text.lines().enumerate() {
+            let fields: Vec<_> = line
+                .split('#')
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .collect();
+            if fields.is_empty() {
+                continue;
+            }
+            if fields.len() != 2 {
+                return Err(format!(
+                    "--speed line {}: expected log10_width seconds_per_decade",
+                    i + 1
+                ));
+            }
+            let x: f64 = fields[0]
+                .parse()
+                .map_err(|_| format!("--speed line {}: invalid log10_width", i + 1))?;
+            let pace = if fields[1] == "rest" && rows.is_empty() {
+                None
+            } else {
+                let v: f64 = fields[1]
+                    .parse()
+                    .map_err(|_| format!("--speed line {}: invalid seconds_per_decade", i + 1))?;
+                if !v.is_finite() || v <= 0.0 {
+                    return Err(format!(
+                        "--speed line {}: seconds_per_decade must be finite and > 0",
+                        i + 1
+                    ));
+                }
+                Some(v)
+            };
+            if !x.is_finite() || rows.last().is_some_and(|(last, _)| x >= *last) {
+                return Err(format!(
+                    "--speed line {}: log widths must be finite and strictly descending",
+                    i + 1
+                ));
+            }
+            rows.push((x, pace));
+        }
+        if rows.is_empty() || (rows[0].0 - log_from).abs() > 1e-7 {
+            return Err("--speed: first log10_width must equal log10(--from)".into());
+        }
+        let depth = log_from - log_to;
+        let mut spans: Vec<SpeedSpan> = Vec::new();
+        let mut elapsed = 0.0;
+        for (i, &(x, specified)) in rows.iter().enumerate() {
+            let start = if i == 0 { 0.0 } else { log_from - x };
+            if start > depth + 1e-7 {
+                return Err("--speed: a log10_width is beyond --to".into());
+            }
+            if start >= depth - 1e-8 {
+                if i + 1 != rows.len() {
+                    return Err("--speed: no knots allowed after --to".into());
+                }
+                break;
+            }
+            let end = if i + 1 < rows.len() {
+                (log_from - rows[i + 1].0).min(depth)
+            } else {
+                depth
+            };
+            if end <= start {
+                return Err("--speed: curve spans must have positive width".into());
+            }
+            let rest = specified.is_none();
+            let pace = if let Some(v) = specified {
+                v
+            } else {
+                rows.get(i + 1).and_then(|row| row.1).ok_or_else(|| {
+                    "--speed: first-row rest needs a following finite pace".to_string()
+                })?
+            };
+            let length = end - start;
+            let duration = length * pace * if rest { 2.0 } else { 1.0 };
+            if !duration.is_finite() || duration <= 0.0 || !(elapsed + duration).is_finite() {
+                return Err("--speed: duration is out of range".into());
+            }
+            spans.push(SpeedSpan {
+                depth: start,
+                length,
+                elapsed,
+                duration,
+                pace,
+                rest,
+                d0: pace,
+                d1: pace,
+            });
+            elapsed += duration;
+        }
+        if spans.is_empty() {
+            return Err("--speed: curve has no span before --to".into());
+        }
+        // Harmonic means preserve monotone cumulative times and C1 zoom speed.
+        let harmonic = |a: f64, b: f64| 2.0 * a.min(b) / (1.0 + a.min(b) / a.max(b));
+        for i in 0..spans.len() {
+            if spans[i].rest {
+                spans[i].d1 = spans[i].pace;
+            } else {
+                if i > 0 && !spans[i - 1].rest {
+                    spans[i].d0 = harmonic(spans[i - 1].pace, spans[i].pace);
+                }
+                if i + 1 < spans.len() {
+                    spans[i].d1 = harmonic(spans[i].pace, spans[i + 1].pace);
+                }
+            }
+        }
+        Ok(Self {
+            log_from,
+            depth,
+            total_seconds: elapsed,
+            spans,
+        })
+    }
+
+    fn log_at(&self, time: f64) -> f64 {
+        let t = time.clamp(0.0, self.total_seconds);
+        let s = self
+            .spans
+            .iter()
+            .find(|s| t <= s.elapsed + s.duration)
+            .unwrap_or_else(|| self.spans.last().expect("nonempty curve"));
+        self.log_from - s.depth_at(t - s.elapsed)
+    }
+
+    fn path(
+        &self,
+        re: &str,
+        im: &str,
+        fps: f64,
+        twist: f64,
+        spin: Option<(f64, f64, f64)>,
+    ) -> Result<Vec<View>, String> {
+        fd_fixed::Decimal::parse(re)?;
+        fd_fixed::Decimal::parse(im)?;
+        let n = (self.total_seconds * fps).round();
+        if !(2.0..=1e7).contains(&n) || !twist.is_finite() {
+            return Err(format!(
+                "--speed duration x --fps must give 2 to 1e7 frames, got {n}"
+            ));
+        }
+        let n = n as usize;
+        Ok((0..n)
+            .map(|f| {
+                let t = self.total_seconds * f as f64 / (n - 1) as f64;
+                let log = self.log_at(t);
+                let progress = (self.log_from - log) / self.depth;
+                View {
+                    center_re: re.to_string(),
+                    center_im: im.to_string(),
+                    width: sig6_log(log),
+                    rotation: std::f64::consts::TAU
+                        * spin.map_or(twist * progress, |sp| spin_turns(t, sp)),
+                }
+            })
+            .collect())
+    }
+}
+
+/// Six significant digits, retaining a deep width's decimal exponent (DEC-21).
+fn sig6_log(log: f64) -> String {
+    let exponent = log.floor() as i64;
+    let (mantissa, carry) = {
+        let rounded = sig6(10f64.powf(log - exponent as f64));
+        let (m, e) = rounded.split_once('e').expect("scientific notation");
+        (
+            m.to_string(),
+            e.parse::<i64>().expect("scientific exponent"),
+        )
+    };
+    format!("{mantissa}e{}", exponent + carry)
 }
 
 /// Decades zoomed by time `t` at unit full speed when the speed follows smoothstep(t/s)
@@ -715,6 +991,126 @@ mod tests {
         )
         .unwrap();
         assert!((v[1799].rotation - std::f64::consts::TAU * 1.25).abs() < 1e-9);
+    }
+
+    #[test]
+    fn speed_curve_gives_exact_decade_times_and_smooth_boundaries() {
+        // One film, not three separately eased segments: 10, 30, 10 seconds.
+        let c = SpeedCurve::parse("0 10\n-1 30\n-2 10\n", 0.0, -3.0).unwrap();
+        assert!((c.total_seconds - 50.0).abs() < 1e-12);
+        for (t, x) in [(0.0, 0.0), (10.0, -1.0), (40.0, -2.0), (50.0, -3.0)] {
+            assert!((c.log_at(t) - x).abs() < 1e-10, "{t} s at {}", c.log_at(t));
+        }
+        let frames = c.path(RE, IM, 60.0, 0.0, None).unwrap();
+        assert_eq!(frames.len(), 3000);
+        let logs: Vec<f64> = frames
+            .iter()
+            .map(|v| v.width.parse::<f64>().unwrap().log10())
+            .collect();
+        let counts = [
+            logs.iter().filter(|x| **x > -1.0).count(),
+            logs.iter().filter(|x| **x <= -1.0 && **x > -2.0).count(),
+            logs.iter().filter(|x| **x <= -2.0).count(),
+        ];
+        for (actual, expected) in counts.into_iter().zip([600, 1800, 600]) {
+            assert!((actual as i64 - expected).abs() <= 1, "{counts:?}");
+        }
+        let speed = |t: f64| (c.log_at(t - 0.001) - c.log_at(t + 0.001)) / 0.002;
+        for t in [10.0, 40.0] {
+            let before = (c.log_at(t - 0.002) - c.log_at(t - 0.001)) / 0.001;
+            let after = (c.log_at(t + 0.001) - c.log_at(t + 0.002)) / 0.001;
+            assert!(
+                (before - after).abs() < speed(t) * 0.01,
+                "{t}: {before} vs {after}"
+            );
+        }
+        assert!(logs.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[test]
+    fn speed_curve_rest_reaches_cruise_without_a_jump() {
+        let pace = 1.0 / 1.25f64.log10();
+        let ramp_decades = 15.0 / (2.0 * pace);
+        let file = format!("0 rest\n-{ramp_decades:.12} {pace:.12}\n");
+        let c = SpeedCurve::parse(&file, 0.0, -3.0).unwrap();
+        assert!((c.spans[0].duration - 15.0).abs() < 1e-8);
+        assert!((c.log_at(15.0) + ramp_decades).abs() < 1e-9);
+        let rate = |t: f64| (c.log_at(t - 0.001) - c.log_at(t + 0.001)) / 0.002;
+        assert!(rate(0.001) < 1e-7, "starts effectively at rest");
+        assert!((rate(15.0) - 1.0 / pace).abs() < 1e-5);
+        assert!((rate(16.0) - 1.0 / pace).abs() < 1e-6);
+        assert_eq!(sig6_log(-1000.0), "1e-1000");
+        assert_eq!(sig6_log(4f64.log10()), "4e0");
+        let deep = SpeedCurve::parse("0 10\n", 0.0, -1000.0).unwrap();
+        assert_eq!(sig6_log(deep.log_at(deep.total_seconds)), "1e-1000");
+    }
+
+    #[test]
+    fn speed_curve_rejects_uncovered_or_invalid_paces() {
+        for file in [
+            "",
+            "-1 10\n",
+            "0 0\n",
+            "0 -10\n",
+            "0 NaN\n",
+            "0 inf\n",
+            "0 rest\n",
+            "0 rest\n-1 rest\n",
+            "0 10\n0 20\n",
+            "0 10\n1 20\n",
+            "0 10\n-4 20\n",
+        ] {
+            assert!(SpeedCurve::parse(file, 0.0, -3.0).is_err(), "{file:?}");
+        }
+    }
+
+    #[test]
+    fn variable_film_keyframes_are_not_rerendered_at_decades() {
+        use std::collections::HashSet;
+        let curve = SpeedCurve::parse("0 10\n-1 30\n-2 10\n", 0.0, -3.0).unwrap();
+        let p = Params {
+            nx: 8,
+            ny: 8,
+            ss: 1,
+            max_iter: 40,
+            escape_radius: 1e10,
+            columns: columns("nu,de,normal").unwrap(),
+            threads: 1,
+            tier: None,
+        };
+        let look = fd_shade::by_name("studio").unwrap();
+        let render = |begin: f64, end: f64| {
+            let mut keys = crate::keyframe::Keyframes::new(
+                "0",
+                "0",
+                1.0 / 10f64.powf(begin),
+                (4, 4),
+                2,
+                &p,
+                None,
+                None,
+            );
+            for j in 0..=30 {
+                let d = begin + (end - begin) * j as f64 / 30.0;
+                keys.frame(
+                    1.0 / 10f64.powf(d),
+                    (0.0, 0.0),
+                    look.as_ref(),
+                    &Appearance::STILL,
+                )
+                .unwrap();
+            }
+            keys.rendered.iter().map(|x| x.0).collect::<Vec<_>>()
+        };
+        let one = render(0.0, 3.0);
+        assert_eq!(one.len(), one.iter().copied().collect::<HashSet<_>>().len());
+        let segments: usize = (0..3).map(|d| render(d as f64, d as f64 + 1.0).len()).sum();
+        assert!(
+            segments > one.len(),
+            "{segments} segmented vs {} continuous",
+            one.len()
+        );
+        assert!((curve.log_at(10.0) + 1.0).abs() < 1e-10);
     }
 
     #[test]

@@ -1258,3 +1258,33 @@ Baseline supplied in the issue (Ryzen 9 3900X, 24 threads; PROB-22 target, 1920x
 Source inspection: the output tent gather and the studio shade resolver already split independent rows across available cores. The main avoidable work is instead shading **both complete oversized keyframes for every output frame**, even when the output tent only touches a central rectangle. The studio sample shade also recomputes fixed lighting, distance, normal, and AA for every film time. The branch computes those terms once when a keyframe is rendered, shades only the conservative filter footprint at each frame's animated phase, and reuses shaded, output and linearisation buffers. The filter still sees the identical globally positioned source samples and deterministic global dither. No fractal maths or f64 camera coordinates are changed. A static-studio fast path is enabled only with ss=1, lines=0 and breathe=0; other looks, animated density, and terrain lines use the old full shade path (DEC-10). Tests compare prepared/studio RGB on every sample of a synthetic class/nu/de/normal frame at four times and both AA settings; another test checks every output pixel's cropped-vs-full tent result across zooms and offsets (DEC-17).
 
 The fd-film/1 JSON now reports `shade_seconds_per_frame` and `keyframe_stages` (prepare, sample shade and resample seconds) so the owner can isolate remaining cost. **Build checks:** [GitHub Actions run 38114590630](https://github.com/junovhs/fractodactyl/actions/runs/38114590630), check job passed `JOBS=4 bash scripts/check.sh` (rustfmt, cargo check, clippy with warnings denied, and cargo test --workspace). **No new full-resolution benchmark or decoded-frame comparison yet:** this environment has no Rust toolchain, ffmpeg render dataset, or direct local shell access to the connected GitHub tree. Owner needs to run workspace tests/clippy and a short full-resolution film slice first, then the 1,200-frame rate-0.05 target for the <=0.08 s/frame gate. Use the precise PROB-22 target centre (the issue text does not include its RE/IM strings); the binary's relevant flags are `fd film RE IM --from 1e-20 --to 1e-22 --rate 0.05 --fps 30 --size 1920x1080 --keyframes 2 --preset master-ice --mp4 FILE [--frames A..B]`. Compare selected decoded frames against an unchanged main build (pixel or visual difference); the tests address exact samples and filter, not the encoder.
+
+
+### FILM-12: native variable-speed films (2026-10-10; owner-run verification pending)
+
+`fd film --speed FILE` reads descending `log10_width seconds_per_decade` rows. Each finite
+row is the **average seconds per decade until the next row** (or `--to`). The integral
+of the zoom time therefore lands exactly on each specified decade boundary, while a
+monotone cubic Hermite time/depth interpolation with harmonic-mean boundary derivatives
+keeps the instantaneous zoom speed continuous. Blank lines and `#` comments are allowed;
+invalid, uncovered, zero, negative, or non-finite speeds fail before ffmpeg starts.
+`--speed` excludes `--rate`, `--seconds`, and `--ease*`. Twist, keyframes, and a single
+continuous look time remain compatible. For a start from rest, the first row may be
+`log10_width rest`, followed by the cruise pace at the end of the ramp: the first span
+uses a time-domain smoothstep velocity with exact integral, reaching cruise without a
+speed jump after `2 * span_decades * cruise_seconds_per_decade` seconds. For 1.25x per
+second and a 15-second ramp, put the second knot ~0.7268 decades below the first.
+`tools/research/variety/decades.py` writes `speed.txt` with this rest/cruise ramp and
+invokes a **single** fd film command, so segment joins never repeat keyframe caches.
+Curve-based non-keyframe paths generate scientific decimal widths from log exponents,
+not from f64 width magnitudes (DEC-21). The existing keyframe renderer still requires
+positive normal f64 widths; a deeper `--speed --keyframes` request fails closed until
+FILM-09 upgrades that cache.
+
+**Proof target:** Rust tests encode a 0 → -3 log-width path with paces 10, 30, 10,
+assert 600/1800/600 frames at 60 fps (±1), check derivatives at both joins, check
+15-second smooth departure to the 1.25x/s cruise, and compare the one-cache keyframe
+render count against three independent segment caches. This environment has no Cargo
+or ffmpeg and cannot execute those tests or a real film. Run `cargo test --workspace`
+and `cargo clippy --workspace --all-targets` on the owner's machine before landing;
+a visual/MP4 probe is still required to establish the lack of a *visible* join.
