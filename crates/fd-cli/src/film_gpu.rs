@@ -180,6 +180,7 @@ pub(crate) struct FilmGpu {
 impl FilmGpu {
     pub(crate) fn supported(l: &Look, a: &Appearance) -> bool {
         l.lines == 0.0
+            && l.haze.is_none() // CPU fallback: GPU has no dense-frame treatment
             && a.breathe == 0.0
             && (2..=32).contains(&l.stops.len())
             && l.density.is_finite()
@@ -193,7 +194,9 @@ impl FilmGpu {
         multiple: usize,
     ) -> Result<Self, String> {
         if !Self::supported(l, a) {
-            return Err("studio look with lines, breathing or >32 stops is not supported".into());
+            return Err(
+                "studio look with lines, haze, breathing or >32 stops is not supported".into(),
+            );
         }
         if multiple == 0 || out.0 == 0 || out.1 == 0 {
             return Err("invalid keyframe dimensions".into());

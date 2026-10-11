@@ -36,6 +36,18 @@ pub const BAND_SIGMA: f32 = 0.5;
 const LINE_SPACE: f32 = 3.0;
 /// Dark-seam depth next to the set.
 const CREVICE: f32 = 0.6;
+/// Non-periodic DE structure where the nu palette is below Nyquist.
+/// Invalid/zero DE declines to the original band-limited shading.
+fn haze_terms(d: f32, cycles: f32, ss: f32) -> (f32, f32) {
+    if !(d > 0.0 && d.is_finite() && cycles.is_finite()) {
+        return (0.0, 0.0);
+    }
+    // Ease in from one to two cycles per sample, with zero slope at both ends.
+    let t = (cycles / ss - 1.0).clamp(0.0, 1.0);
+    let weight = t * t * (3.0 - 2.0 * t);
+    let x = d * ss;
+    (weight, 0.2 + 2.8 * x / (x + 0.02))
+}
 
 /// Built-in looks, modelled on the owner's reference stills (2026-10-08).
 pub const BUILTIN: [(&str, &str); 5] = [
@@ -125,6 +137,8 @@ pub struct Look {
     pub lines: f32,
     /// Terrain-line width in output pixels.
     pub line_px: f32,
+    /// Optional fine-band colour; None retains the FX-03 look.
+    pub haze: Option<u32>,
     /// Animation defaults (cycles/s, amplitude, Hz, cycles/s); flags override them.
     pub flow: f64,
     pub breathe: f64,
@@ -152,6 +166,7 @@ impl Look {
             light: 135.0,
             lines: 0.0,
             line_px: 2.2,
+            haze: None,
             flow: 0.0,
             breathe: 0.0,
             brate: 0.0,
@@ -196,6 +211,14 @@ impl Look {
                 "light" => l.light = one()? as f32,
                 "lines" => l.lines = one()? as f32,
                 "line_px" => l.line_px = one()? as f32,
+                "haze" => {
+                    l.haze = Some(
+                        vals.first()
+                            .and_then(|v| hex(v))
+                            .filter(|_| vals.len() == 1)
+                            .ok_or_else(|| bad("expected one #rrggbb"))?,
+                    )
+                }
                 "flow" => l.flow = one()?,
                 "breathe" => l.breathe = one()?,
                 "brate" => l.brate = one()?,
@@ -224,7 +247,7 @@ impl Look {
         let c = |x: u32| format!("#{x:06x}");
         let stops: Vec<String> = self.stops.iter().map(|&s| c(s)).collect();
         format!(
-            "# fractodactyl look\nstops {}\ninterior {}\ndensity {}\nterrace {}\nslope {}\nlight {}\nlines {}\nline_px {}\nflow {}\nbreathe {}\nbrate {}\ndrift {}\n",
+            "# fractodactyl look\nstops {}\ninterior {}\ndensity {}\nterrace {}\nslope {}\nlight {}\nlines {}\nline_px {}\n{}flow {}\nbreathe {}\nbrate {}\ndrift {}\n",
             stops.join(" "),
             c(self.interior),
             self.density,
@@ -233,6 +256,7 @@ impl Look {
             self.light,
             self.lines,
             self.line_px,
+            self.haze.map(|h| format!("haze {}\n", c(h))).unwrap_or_default(),
             self.flow,
             self.breathe,
             self.brate,
@@ -288,6 +312,7 @@ impl Pass for Studio {
         let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
         let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
         let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
+        let haze = l.haze.map(linear);
         resolve(h, a.dither, |i| match s.class[i].kind() {
             Some(Kind::Escaped) => {
                 let t = density * nu[i] + phase;
@@ -310,6 +335,12 @@ impl Pass for Studio {
                     let g = (band_k * s * s).exp();
                     let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
                     col = [0, 1, 2].map(|j| g * col[j] + (1.0 - g) * mean[j] * m);
+                }
+                if let Some(tint) = haze {
+                    let (weight, tone) = haze_terms(d, cycles, ss);
+                    if weight > 0.0 {
+                        col = [0, 1, 2].map(|j| (1.0 - weight) * col[j] + weight * tint[j] * tone);
+                    }
                 }
                 let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
                 let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
@@ -340,6 +371,7 @@ pub struct PreparedStudio {
     stops: Vec<[f32; 3]>,
     inside: [f32; 3],
     mean: [f32; 3],
+    haze: Option<[f32; 3]>,
     ramp_mean: f32,
     terrace: f32,
     aa: bool,
@@ -352,6 +384,8 @@ struct PreparedPoint {
     t: f64,
     light: f32,
     band: f32,
+    haze_weight: f32,
+    haze_tone: f32,
     kind: u8,
 }
 
@@ -373,6 +407,7 @@ impl PreparedStudio {
         let (lx, ly) = (lc, -ls);
         let ss = h.ss as f32;
         let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
+        let haze = l.haze.map(linear);
         let points: Vec<PreparedPoint> = s
             .class
             .iter()
@@ -383,6 +418,8 @@ impl PreparedStudio {
                         t: 0.0,
                         light: 0.0,
                         band: 0.0,
+                        haze_weight: 0.0,
+                        haze_tone: 0.0,
                         kind: if c.kind() == Some(Kind::Interior) {
                             1
                         } else {
@@ -404,10 +441,17 @@ impl PreparedStudio {
                 let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
                 let light = (1.0 + l.slope * facing * steep * fade)
                     * (1.0 - CREVICE * (-d * ss * 1.5).exp());
+                let (haze_weight, haze_tone) = if haze.is_some() {
+                    haze_terms(d, cycles, ss)
+                } else {
+                    (0.0, 0.0)
+                };
                 PreparedPoint {
                     t: density * nu[i],
                     light,
                     band,
+                    haze_weight,
+                    haze_tone,
                     kind: 0,
                 }
             })
@@ -423,7 +467,20 @@ impl PreparedStudio {
                 let col = match p.kind {
                     0 if a.aa && p.band == 0.0 && p.t.is_finite() && p.light.is_finite() => {
                         let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
-                        [0, 1, 2].map(|j| mean[j] * m * p.light)
+                        [0, 1, 2].map(|j| {
+                            let base = mean[j] * m;
+                            let v = if p.haze_weight > 0.0 {
+                                if let Some(tint) = haze {
+                                    (1.0 - p.haze_weight) * base
+                                        + p.haze_weight * tint[j] * p.haze_tone
+                                } else {
+                                    base
+                                }
+                            } else {
+                                base
+                            };
+                            v * p.light
+                        })
                     }
                     1 => inside,
                     2 if a.unresolved_interior => inside,
@@ -449,6 +506,7 @@ impl PreparedStudio {
             stops,
             inside,
             mean,
+            haze,
             ramp_mean,
             terrace: l.terrace,
             aa: a.aa,
@@ -526,6 +584,14 @@ impl PreparedStudio {
                                     col = [0, 1, 2].map(|j| {
                                         p.band * col[j] + (1.0 - p.band) * self.mean[j] * m
                                     });
+                                }
+                                if p.haze_weight > 0.0 {
+                                    if let Some(tint) = self.haze {
+                                        col = [0, 1, 2].map(|j| {
+                                            (1.0 - p.haze_weight) * col[j]
+                                                + p.haze_weight * tint[j] * p.haze_tone
+                                        });
+                                    }
                                 }
                                 col.map(|c| c * p.light)
                             } else if p.kind == 1 || self.unresolved_interior {
@@ -633,6 +699,84 @@ mod tests {
             };
             prepared.shade_rect_film_into((0, 0, exact.w, exact.h), &at, &mut fast);
             assert_eq!(fast.data, exact.data, "time {time}: byte drift");
+        }
+    }
+
+    #[test]
+    fn haze_is_per_sample_continuous_and_matches_prepared_film() {
+        use fd_samples::{Class, Evidence};
+        let (mut h, mut s) = crate::tests::fixture();
+        h.ss = 1;
+        let look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let mut old = look.clone();
+        old.haze = None;
+        assert_eq!(haze_terms(0.1, 1.0, 1.0).0, 0.0);
+        assert!(haze_terms(0.1, 1.001, 1.0).0 < 0.00001);
+        assert_eq!(haze_terms(0.1, 2.0, 1.0).0, 1.0);
+        for c in &mut s.class {
+            *c = Class::new(Kind::Escaped, Evidence::Heuristic);
+        }
+        // Just one crowded pixel in an otherwise ordinary frame still gets colour.
+        for d in s.de.as_mut().unwrap() {
+            *d = 2.0;
+        }
+        s.de.as_mut().unwrap()[2] = 1e-5;
+        s.normal.as_mut().unwrap()[2] = Samples::angle(-1.0, -1.0);
+        for aa in [false, true] {
+            let a = Appearance {
+                aa,
+                dither: true,
+                unresolved_interior: true,
+                ..Appearance::STILL
+            };
+            let baseline = Studio(old.clone()).shade_with(&h, &s, &a);
+            let updated = Studio(look.clone()).shade_with(&h, &s, &a);
+            assert_ne!(baseline.data[6..9], updated.data[6..9]);
+            for i in 0..h.count() {
+                if i != 2 {
+                    assert_eq!(
+                        &baseline.data[3 * i..3 * i + 3],
+                        &updated.data[3 * i..3 * i + 3],
+                        "ordinary pixel {i}"
+                    );
+                }
+            }
+        }
+        // A mixed dense frame must change only fine-band samples, never neighbours.
+        for (i, d) in s.de.as_mut().unwrap().iter_mut().enumerate() {
+            *d = 0.0002 + (i % 64) as f32 * 0.005;
+        }
+        for aa in [false, true] {
+            let a = Appearance {
+                aa,
+                dither: true,
+                unresolved_interior: true,
+                ..Appearance::STILL
+            };
+            let updated = Studio(look.clone()).shade_with(&h, &s, &a);
+            let baseline = Studio(old.clone()).shade_with(&h, &s, &a);
+            let mut changed = 0;
+            let mut unchanged = 0;
+            for (i, &d) in s.de.as_ref().unwrap().iter().enumerate() {
+                let cycles = look.density as f32 * 2.0 / (d * std::f32::consts::LN_2);
+                let old_rgb = &baseline.data[3 * i..3 * i + 3];
+                let new_rgb = &updated.data[3 * i..3 * i + 3];
+                if haze_terms(d, cycles, 1.0).0 == 0.0 {
+                    assert_eq!(old_rgb, new_rgb, "outside haze {i}");
+                    unchanged += 1;
+                } else if old_rgb != new_rgb {
+                    changed += 1;
+                }
+            }
+            assert!(changed > 0 && unchanged > 0);
+            let prepared = PreparedStudio::new(&look, &h, &s, &a).unwrap();
+            let mut fast = Rgb8 {
+                w: 0,
+                h: 0,
+                data: Vec::new(),
+            };
+            prepared.shade_rect_film_into((0, 0, updated.w, updated.h), &a, &mut fast);
+            assert_eq!(fast.data, updated.data, "film parity aa {aa}");
         }
     }
 

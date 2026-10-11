@@ -7,6 +7,7 @@ slope 1.37
 light 318
 lines 0
 line_px 0.5
+haze #1e7fe0
 flow 0.11
 breathe 0
 brate 0
