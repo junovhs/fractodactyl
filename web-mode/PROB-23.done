@@ -1,14 +1,13 @@
 STATUS: needs-run
-COMMIT: ad8897e2a323451b08c61f08c43ce164360adbdb
-SUMMARY: Round 2: six starting regions, recursive decorated-nucleus beam search, high-precision Newton checks, depth band ~45-75 for 10 minutes; the known period-764 deep nucleus is included as a verified-depth fallback.
-SUMMARY: Triage candidates with sparse fd probes, rank whole-decade supersampled math scores by sustained arc fit, centre structure and strong haze/filler penalties; do not stretch 27 decades across 600 seconds.
-SUMMARY: DIR/ranking.json ranks picks; each DIR/cand-N/ contains plan.json, arc.png, labelled 2x-SS contact.jpg, speed.txt and 3-6-decade / 30-60-second sections. Scores have explicit heuristic pass/fail flags; owner visual review is required.
-SUMMARY: --film --pick N reads ONLY the saved matching 10-minute plan, one continuous fd film --speed FILE --keyframes 2 --gpu on, master-ice at 4K60. --preview-seconds 60 uses fd --frames to render a one-minute excerpt of the same 600-second speed/path (65%-75% by default), preserving intended cruise pace.
-SUMMARY: fd shade contact uses --unresolved interior, matching film; master-ice interior is dark (#05070d), not magenta. Previous magenta was fd shade's unresolved mark; unresolved percentages are labelled.
-TESTED: Owner's round-1 negative: 38.0 s planning, 26.9 decades, 14 sections, too much dust and weak climax. Logged as a rejected result in docs/spec/METHOD.md; owner's previous Python tests passed.
-TESTED: Local synthetic Python/Numpy speed and section probe: 58 decades/600.000 seconds, 15.0-second analytic rest ramp, ~10.22 seconds/decade, 12 sections of 4-6 decades / 45-59 seconds, no tail acceleration. 225 randomized/fractional 44-75-decade synthetic paths: 0 impossible partitions.
-TESTED: Actual 137-digit mpmath nucleus computation (no fd): period 764, size 4.12049120899653482e-50, root width 4 gives depth 49.20896. ImageMagick 7 convert and montage smoke probes wrote arc PNG and labelled JPEG.
-TESTED: GitHub branch pushed; diff against main verified limited to decades.py, test_decades_arc.py, METHOD.md and done marker; .ishoo untouched. fd is not installed locally, cargo is unavailable: new Python unittest as imported from repo, actual discovery and contacts, 1-minute 4K preview, full film, cargo test and clippy NOT run. Render time/fps and aesthetic quality NOT verified.
+COMMIT: 191f046c4d8c73a9c33535e1f50040ea9e5f0c4f
+SUMMARY: Round 3 fixes the 0.28-second planning crash: np.int64/np.int32 grid coordinates are converted to Python int before mp.mpf/mp.mpc.
+SUMMARY: Search and harvest normalize NumPy floating/complex scalars to decimal strings/native integers at the mpmath boundary, including roots, nucleus sizes, spiral inputs and visibility.
+SUMMARY: Adds mocked-fd tests that exercise real harvest_nuclei and search_targets using NumPy-typed roots, grid coordinates and return values.
+SUMMARY: Keeps round-2 six-region, 45-75-decade ranked planning, cand-N diagnostics and the 4K60 continuous-speed GPU --pick film path unchanged.
+TESTED: Owner round-2: unit tests OK, real planning crashed after 0.28s before any candidates were made (mpmath 1.3.0 rejects np.int64); not a visual/render acceptance.
+TESTED: Local focused NumPy 2.3.5/mpmath 1.3.0 boundary probe passed for int32/int64, float32/float64, complex128 and a 47.92-decade mocked harvest/search seed.
+TESTED: GitHub diff verified ahead of main; only decades.py, test_decades_arc.py, METHOD.md, done marker changed; no .ishoo/ modifications.
+TESTED: Actual repo Python unittest, fd planning, 4K preview/film, cargo test and clippy NOT run here (fd/Rust checkout unavailable); owner must rerun. Newly added regression is not claimed to have passed on desktop.
 RUN:
 python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --size 3840x2160 --fps 60 --candidates 6
 python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --size 3840x2160 --fps 60 --film --pick 1 --preview-seconds 60
@@ -16,4 +15,4 @@ python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --siz
 python3 -m unittest discover -s tools/research/variety -p 'test_decades_arc.py'
 cargo test --workspace
 cargo clippy --workspace --all-targets
-QUESTIONS: Read out/prob23-r2/ranking.json and inspect every candidate's contact.jpg and arc.png. Replace --pick 1 with the number you choose (1-6, or fewer if discovery found fewer) in BOTH render lines. The preview uses the actual 10-minute curve's 65%-75% excerpt; review it for section hitches/haze. If there are no acceptable heuristic-gate candidates, do NOT launch the full film: paste the planning output and ranking; widen search with --beam 6 --rounds 4 --cands 36 only if the initial search lacks variety. Please report actual planning wall time, preview GPU mode/render fps, and watch verdict. Do not treat synthetic tests as visual acceptance.
+QUESTIONS: Please rerun the first planning command immediately and paste stdout/traceback if it fails. Inspect ranking.json and cand-N/contact.jpg plus arc.png, then replace --pick 1 with your chosen N in both render commands. Proceed to full film only after the visual and one-minute preview checks pass.
