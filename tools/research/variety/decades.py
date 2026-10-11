@@ -79,8 +79,12 @@ def signature(cols):
     hist = np.bincount(np.minimum((ang / np.pi * 12).astype(int), 11), weights=p, minlength=12) / tot
     aniso = float(1 - (-(hist * np.log(hist + 1e-12)).sum()) / math.log(12))  # 0 even .. 1 one direction
     dust = float(P[(k > 0.6) & (k <= 1)].sum() / tot)  # power at the finest scales: grain, specks
+    mid = float(P[(k > 0.06) & (k <= 0.32)].sum() / tot)
     edge = float((esc & (cols['de'] < 1)).mean())  # boundary coverage; ~0 = flat empty colour
-    return dict(fine=fine, rough=rough, aniso=aniso, interior=interior, dust=dust, edge=edge)
+    reflected = np.fliplr(field)
+    symmetry = float(np.clip(1 - np.mean((field - reflected) ** 2) / (2 * np.var(field) + 1e-8), 0, 1))
+    return dict(fine=fine, rough=rough, aniso=aniso, interior=interior,
+                dust=dust, edge=edge, mid=mid, symmetry=symmetry)
 
 
 SCALE = dict(fine=0.15, rough=1.0, aniso=0.15, interior=0.3)  # rough typical spreads, to normalise
@@ -334,22 +338,28 @@ def main():
     ap.add_argument('--film', action='store_true', help='render the winner with fd film --keyframes 2')
     ap.add_argument('--spiral', help='D1-D2: spiral directive for a hero section')
     ap.add_argument('--minutes', type=float, default=10, help='film minutes')
+    ap.add_argument('--fps', type=int, default=60, help='film frames per second')
     ap.add_argument('--rate', type=float, default=math.log10(1.25),
                     help='film cruise rate in decades/s (default: 1.25x zoom per second)')
-    ap.add_argument('--size', default='1280x720')
+    ap.add_argument('--size', default='3840x2160')
     ap.add_argument('--preset', default='master-ice')
     a = ap.parse_args()
     t = time.time()
     if MODE == 'directed':
-        spiral = tuple(int(x) for x in a.spiral.split('-')) if a.spiral else None
-        final = directed(a.re, a.im, a.width, a.out, spiral, a.cands, a.seed, a.min_decades)
-        secs = speeds(final, a.minutes, spiral)
-        (Path(a.out) / 'speeds.json').write_text(json.dumps([round(float(x), 2) for x in secs]))
-        print('seconds per decade:', ' '.join('%.0f' % x for x in secs))
+        if not (math.isfinite(a.minutes) and a.minutes > 0 and a.fps > 0):
+            ap.error('--minutes and --fps must be positive and finite')
+        spiral = None
+        if a.spiral:
+            try:
+                spiral = tuple(int(x) for x in a.spiral.split('-'))
+                if len(spiral) != 2 or spiral[0] < 1 or spiral[1] <= spiral[0]:
+                    raise ValueError()
+            except ValueError:
+                ap.error('--spiral must be D1-D2 with 1 <= D1 < D2')
+        final = plan_directed(a.re, a.im, a.width, a.out, a.minutes, spiral,
+                              a.cands, a.seed, a.min_decades)
         if a.film:
-            wall = film_segments(final, a.width, a.out, secs, a.size, a.preset)
-            frames = int(round(sum(secs) * 30))
-            print('film: %d frames in %.0fs (%.2f fps) -> %s' % (frames, wall, frames / wall, Path(a.out) / 'film.mp4'))
+            run_film(final, a.width, a.out, a.fps, a.size, a.preset)
         return
     if MODE == 'target':
         final = plan2(a.re, a.im, a.width, a.out, a.cands, a.seed, a.min_decades)
@@ -430,118 +440,311 @@ def path_sigs(c, w0, decades):
     return sigs
 
 
-def sweep_score(sigs):
-    """ABCDEDCB: neighbouring decades alike, the film as a whole travels far. 1-D track = the
-    signature's main direction of change along this path; reward its range, penalise jerkiness."""
-    X = np.array([[s[k] / SCALE[k] for k in SCALE] for s in sigs])
-    X = X - X.mean(0)
-    u = np.linalg.svd(X, full_matrices=False)[2][0]
-    x = X @ u
-    steps = np.abs(np.diff(x))
-    jerk = np.abs(np.diff(x, 2)).mean() if len(x) > 2 else 0
-    bad = sum(3 * max(0, s['interior'] - 0.35) + 8 * max(0, s['dust'] - 0.25) + 20 * max(0, 0.03 - s['edge'])
-              for s in sigs) / len(sigs)
-    return float(np.ptp(x) / (1 + 2 * jerk + 2 * steps.max() / (np.ptp(x) + 1e-9)) - bad), x.tolist()
+def hero_score(s):
+    """Cheap mathematical shape score, not a colour/palette judgement (0..1)."""
+    coverage = min(1.0, s['edge'] / 0.18)
+    silhouette = min(1.0, s['interior'] / 0.12, (0.62 - s['interior']) / 0.30)
+    symmetry = max(0.0, s['symmetry'])
+    mid = min(1.0, s['mid'] / 0.55)
+    haze = max(0.0, (s['dust'] - 0.14) / 0.20) + max(0.0, (s['fine'] - 0.32) / 0.20)
+    sparse = max(0.0, (0.045 - s['edge']) / 0.045)
+    return float(np.clip(0.43 * coverage + 0.17 * mid + 0.16 * silhouette
+                         + 0.14 * symmetry + 0.10 * min(1.0, s['aniso'] / 0.14)
+                         - 0.42 * haze - 0.32 * sparse, 0, 1))
 
 
-def directed(re, im, width, out, spiral=None, n=24, seed=1, min_decades=20):
-    """Plan a film: a spiral directive (decades d1-d2 centred on one spiral) if given, else the best
-    sweep-shaped minibrot path. Returns the final target and per-decade signatures."""
+def busy_score(s):
+    """Coverage with mid-scale variation, discounting empty views and noisy haze."""
+    return float(np.clip(0.72 * min(1.0, s['edge'] / 0.18)
+                         + 0.28 * min(1.0, s['mid'] / 0.55)
+                         - 0.35 * max(0.0, (s['dust'] - 0.15) / 0.2), 0, 1))
+
+
+def arc_target(t):
+    """Calm -> build -> climax at 70% -> quieter minibrot landing."""
+    rise = 0.20 + 0.35 * t
+    climax = 0.55 * math.exp(-0.5 * ((t - 0.70) / 0.105) ** 2)
+    landing = 0.55 * max(0.0, (t - 0.79) / 0.21) ** 1.5
+    return float(np.clip(rise + climax - landing, 0.12, 1))
+
+
+def design_speeds(sigs, lengths, minutes):
+    """Smooth seconds/decade; integral, including analytic rest ramp, is exact."""
+    if not (math.isfinite(minutes) and minutes > 0):
+        raise ValueError('--minutes must be positive and finite')
+    hero = np.array([hero_score(s) for s in sigs])
+    base = 1 / math.log10(1.25)
+    raw = base * (0.82 + 0.58 * hero)
+    for _ in range(2):
+        raw = np.convolve(np.pad(raw, 1, mode='edge'), [0.2, 0.6, 0.2], 'valid')
+    # Avoid a last-minute speed-up: seconds/decade may only rise near the landing.
+    for i in range(max(1, len(raw) - 4), len(raw)):
+        raw[i] = max(raw[i], raw[i - 1])
+    depth = sum(lengths)
+    ramp = min(0.96, depth / 4, 15 / (2 * raw[0]))
+    for _ in range(8):
+        scale = minutes * 60 / (float(np.dot(raw, lengths)) + ramp * raw[0])
+        new_ramp = min(0.96, depth / 4, 15 / (2 * raw[0] * scale))
+        if abs(new_ramp - ramp) < 1e-10:
+            break
+        ramp = new_ramp
+    scale = minutes * 60 / (float(np.dot(raw, lengths)) + ramp * raw[0])
+    pace = raw * scale
+    elapsed = pace * lengths
+    elapsed[0] += ramp * pace[0]
+    return pace.tolist(), elapsed.tolist(), ramp
+
+
+def arc_samples(sigs, elapsed):
+    times = np.cumsum([0.0] + elapsed)
+    mid = [(times[i] + times[i + 1]) / (2 * times[-1]) for i in range(len(sigs))]
+    target = [arc_target(t) for t in mid]
+    achieved = [0.55 * hero_score(s) + 0.45 * busy_score(s) for s in sigs]
+    return target, achieved, times.tolist()
+
+
+def section_vibe(sigs):
+    s = {k: float(np.mean([v[k] for v in sigs])) for k in sigs[0]}
+    if s['interior'] > 0.32:
+        return 'bold bulb silhouettes'
+    if s['aniso'] > 0.16:
+        return 'radial spokes and spirals'
+    if s['edge'] > 0.15:
+        return 'ornate filament lace'
+    if s['mid'] > 0.45:
+        return 'folded mid-scale textures'
+    if s['dust'] > 0.22:
+        return 'fine haze (low priority)'
+    return 'open filaments and negative space'
+
+
+def design_sections(sigs, elapsed):
+    """Partition consecutive decades into 30-60 s coherent runs, with shifts at boundaries."""
+    n = len(sigs)
+    scaled = np.array([[s[k] / SCALE[k] for k in SCALE] for s in sigs])
+    times = np.cumsum([0.0] + elapsed)
+    best = [float('inf')] * (n + 1)
+    prev = [-1] * (n + 1)
+    best[0] = 0.0
+    for j in range(1, n + 1):
+        for i in range(j):
+            duration = times[j] - times[i]
+            if n > 1 and (duration < 29.5 or duration > 60.5):
+                continue
+            v = scaled[i:j]
+            coherence = float(np.mean(np.sum((v - v.mean(axis=0)) ** 2, axis=1)))
+            jump = float(np.linalg.norm(scaled[i] - scaled[i - 1])) if i else 0
+            # Prefer boundaries at actual discontinuities rather than constant flip-flopping.
+            cost = (0.40 * coherence + 0.18 * ((duration - 45) / 15) ** 2
+                    + 0.48 - 0.23 * min(3.0, jump))
+            if best[i] + cost < best[j]:
+                best[j], prev[j] = best[i] + cost, i
+    if prev[-1] < 0:
+        # Very short/long single-decade plans cannot honor 30-60 s; report the exception.
+        chunks, start = [], 0
+        for j in range(1, n + 1):
+            if times[j] - times[start] >= 43 or j == n:
+                chunks.append((start, j))
+                start = j
+    else:
+        chunks, j = [], n
+        while j:
+            i = prev[j]
+            chunks.append((i, j))
+            j = i
+        chunks.reverse()
+    sections = []
+    for index, (i, j) in enumerate(chunks, 1):
+        jump = float(np.linalg.norm(scaled[i] - scaled[i - 1])) if i else 0.0
+        sections.append(dict(id=index, first_decade=i + 1, last_decade=j,
+                             start_seconds=round(float(times[i]), 3),
+                             end_seconds=round(float(times[j]), 3),
+                             duration_seconds=round(float(times[j] - times[i]), 3),
+                             vibe=section_vibe(sigs[i:j]),
+                             transition='opening' if not i else
+                             'sudden shift' if jump >= 1.5 else 'gradual drift',
+                             shift_distance=round(jump, 3),
+                             hero_peak=round(max(hero_score(s) for s in sigs[i:j]), 3)))
+    return sections
+
+
+def assess(sigs, lengths, minutes):
+    pace, elapsed, ramp = design_speeds(sigs, lengths, minutes)
+    target, achieved, times = arc_samples(sigs, elapsed)
+    sections = design_sections(sigs, elapsed)
+    climax_values = [achieved[i] for i in range(len(sigs))
+                     if 0.58 <= (times[i] + times[i + 1]) / (2 * times[-1]) <= 0.83]
+    peak = max(climax_values or achieved)
+    fit = float(np.mean((np.array(target) - np.array(achieved)) ** 2))
+    ending = float(np.mean([max(0.0, (s['dust'] - 0.15) / 0.20) for s in sigs[-3:]]))
+    shifts = sum(s['transition'] == 'sudden shift' for s in sections)
+    return dict(score=2.2 * peak - 7.0 * fit - 1.5 * ending + min(shifts, 2) * 0.75,
+                pace=pace, elapsed=elapsed, ramp=ramp, target=target, achieved=achieved,
+                times=times, sections=sections)
+
+
+def plan_directed(re, im, width, out, minutes, spiral=None, n=24, seed=1, min_decades=20):
+    """Rank verified minibrot paths by whole-film arc, not maximum neighbour-to-neighbour change."""
     t = time.time()
     w0 = mp.mpf(width)
-    cands = []
-    if spiral:
-        d1, d2 = spiral
-        # Reach decade d1 by greedy variety steps, then look for spiral centres sized for it.
-        steps = plan(re, im, width, max(0, d1 - 1), n, seed)
-        v = steps[-1]
-        wv = mp.mpf(v['width'])
-        with mp.workdps(int(30 + max(0, -mp.log10(wv)))):
-            cv, cim = mp.mpf(v['re']), mp.mpf(v['im'])
-            cols, _ = render(mp.nstr(cv, mp.mp.dps), mp.nstr(cim, mp.mp.dps), mp.nstr(wv, 17), size=(160, 90), name='sv')
-            ny, nx = cols['de'].shape
-            h = wv / nx
-            rng = np.random.default_rng(seed)
-            spirals = []
-            for x, y in candidates(cols, 150, rng):
-                s = spiral_near(mp.mpc(cv + h * (x + 0.5 - nx / 2), cim - h * (y + 0.5 - ny / 2)), wv)
-                if s and s['turns'] >= 1.5 and wv / 10 / 3 <= s['width'] <= wv * 3:
-                    spirals.append(s)
-        print('%d spiral centres sized for decade %d' % (len(spirals), d1), flush=True)
-        wd2 = w0 / mp.mpf(10) ** (d2 + 1)
-        for s in sorted(spirals, key=lambda s: -s['turns'])[:4]:
-            for k in range(6):  # minibrots just off the spiral centre: the camera leaves it after d2
-                c = s['c'] + wd2 * mp.mpf('0.3') * mp.expjpi(mp.mpf(k) / 3)
-                r = nucleus(c, wd2)
-                if r and abs(r[0] - s['c']) < wd2 and mp.log10(w0 / (r[2] * 6)) >= max(min_decades, d2 + 3):
-                    cands.append((r, s))
-    else:
-        cands = [(r, None) for r in targets(re, im, width, n=n, seed=seed) if mp.log10(w0 / (r[2] * 6)) >= min_decades]
-    print('%d candidate targets (%.0fs)' % (len(cands), time.time() - t), flush=True)
-    best = None
-    for (c, p, size), s in cands:
-        decades = int(mp.floor(mp.log10(w0 / (size * 6))))
+    ideal_depth = minutes * 60 * math.log10(1.25)
+    floor = min(min_decades, max(3, int(ideal_depth * 0.70)))
+    found = targets(re, im, width, n=n, seed=seed)
+    print('%d nucleus candidates in %.1fs' % (len(found), time.time() - t), flush=True)
+    best, ranked = None, []
+    for c, period, size in found:
+        depth = float(mp.log10(w0 / (size * 6)))
+        if depth < floor or depth < 3:
+            continue
+        decades = int(math.floor(depth))
+        # A fixed camera can only hold a spiral in the centre if the chosen final
+        # minibrot is nearly coincident with its Misiurewicz centre at D2.
+        spiral_data = None
+        if spiral:
+            d1, d2 = spiral
+            if not (1 <= d1 < d2 < depth - 1):
+                continue
+            w2 = w0 / mp.power(10, d2)
+            s = spiral_near(c, w0 / mp.power(10, d1))
+            if s is None or s['turns'] < 1.5 or abs(c - s['c']) > w2 * mp.mpf('0.06'):
+                continue
+            spiral_data = dict(re=mp.nstr(mp.re(s['c']), 80),
+                               im=mp.nstr(mp.im(s['c']), 80),
+                               turns=s['turns'], decades=[d1, d2],
+                               max_offset_fraction=float(abs(c - s['c']) / w2))
         if not visible(c, size):
-            print('  p=%d size=%.1e: minibrot not visible where the film ends, skipped' % (p, size))
             continue
         sigs = path_sigs(c, w0, decades)
-        score, track = sweep_score(sigs)
-        print('  p=%-5d size=%.1e decades=%d sweep=%.2f%s' % (p, size, decades, score,
-              '' if s is None else ' spiral q=%d r=%d turns=%.1f' % (s['q'], s['r'], s['turns'])), flush=True)
-        if best is None or score > best[0]:
-            best = (score, c, p, size, sigs, track, s)
+        fractional = depth - decades
+        lengths = [1.0] * decades
+        if fractional > 1e-4:
+            with mp.workdps(int(30 + max(0, -mp.log10(size)))):
+                cols, _ = render(mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps),
+                                 mp.nstr(size * 6, 17), size=(64, 36), name='end')
+            sigs.append(signature(cols))
+            lengths.append(fractional)
+        result = assess(sigs, lengths, minutes)
+        # Aim near the requested 1.25x/s cruise; no fake speed-up to fill short films.
+        result['score'] -= 0.8 * abs(math.log(max(depth, 1) / max(ideal_depth, 1)))
+        ranked.append(dict(period=period, depth=round(depth, 2), score=round(result['score'], 4)))
+        print('  p=%-5d depth=%.1f arc=%.2f peak=%.2f sections=%d' %
+              (period, depth, result['score'], max(result['achieved']), len(result['sections'])), flush=True)
+        if best is None or result['score'] > best[0]:
+            best = (result['score'], c, period, size, sigs, lengths, spiral_data, result)
     if best is None:
-        raise SystemExit('no verified target')
-    score, c, p, size, sigs, track, s = best
-    with mp.workdps(int(30 + max(0, -mp.log10(size)))):
-        final = dict(re=mp.nstr(mp.re(c), mp.mp.dps), im=mp.nstr(mp.im(c), mp.mp.dps), period=p, size=float(size),
-                     to=float(size * 6), decades=len(sigs), sweep=score, track=track, sigs=sigs,
-                     spiral=None if s is None else dict(re=mp.nstr(mp.re(s['c']), mp.mp.dps), im=mp.nstr(mp.im(s['c']), mp.mp.dps),
-                                                       q=s['q'], r=s['r'], turns=s['turns'], decades=list(spiral)))
-    Path(out).mkdir(parents=True, exist_ok=True)
-    (Path(out) / 'plan.json').write_text(json.dumps(final, indent=1, default=float))
-    strip([dict(decade=d, re=final['re'], im=final['im'], width=mp.nstr(w0 / mp.mpf(10) ** d, 6))
-           for d in range(0, final['decades'] + 1)], out)
-    print('planned in %.0fs: p=%d size=%.1e, %d decades, sweep %.2f' % (time.time() - t, p, size, final['decades'], score))
+        raise SystemExit('no visible minibrot target meeting depth/spiral constraints; try --min-decades 6, --cands 48 or omit --spiral')
+    _, c, period, size, sigs, lengths, spiral_data, result = best
+    with mp.workdps(int(40 + max(0, -mp.log10(size)))):
+        cre, cim, end = (mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps),
+                          mp.nstr(size * 6, mp.mp.dps))
+    path = Path(out)
+    path.mkdir(parents=True, exist_ok=True)
+    speed_file = write_directed_speed(width, end, result['pace'], result['ramp'], path)
+    rows = []
+    for i, (s, length) in enumerate(zip(sigs, lengths)):
+        sec = next(x['id'] for x in result['sections'] if x['first_decade'] <= i + 1 <= x['last_decade'])
+        rows.append(dict(decade=i + 1, depth_start=i, depth_end=round(i + length, 5),
+                         width=end if i == len(sigs) - 1 else mp.nstr(w0 / mp.power(10, i + 1), 17),
+                         signature=s, hero=round(hero_score(s), 4), busyness=round(busy_score(s), 4),
+                         target=round(result['target'][i], 4),
+                         achieved=round(result['achieved'][i], 4),
+                         section=sec, seconds=round(result['elapsed'][i], 3),
+                         start_seconds=round(result['times'][i], 3),
+                         end_seconds=round(result['times'][i + 1], 3)))
+    final = dict(re=cre, im=cim, to=end, period=period, size=mp.nstr(size, 17),
+                 depth=sum(lengths), minutes=minutes, fps=60, dimensions='3840x2160',
+                 score=result['score'], ideal_depth=ideal_depth, spiral=spiral_data,
+                 sections=result['sections'], decades=rows,
+                 arc=dict(target=result['target'], achieved=result['achieved']),
+                 speed_file=str(speed_file), candidates=ranked,
+                 caveat='Fixed-centre straight zoom; sections are detected, not guaranteed. Inspect contact sheet.')
+    (path / 'plan.json').write_text(json.dumps(final, indent=2))
+    draw_arc(result['target'], result['achieved'], path)
+    make_contact(rows, cre, cim, path)
+    print('planned in %.1fs: p=%d, %.1f decades, %d sections, %d sudden shifts, average %.2f s/decade' %
+          (time.time() - t, period, sum(lengths), len(result['sections']),
+           sum(s['transition'] == 'sudden shift' for s in result['sections']),
+           minutes * 60 / sum(lengths)), flush=True)
     return final
 
 
-def speeds(final, minutes, spiral=None):
-    """Seconds per decade: slower where neighbouring decades change more (time to take it in) and
-    on a spiral directive, faster in samey stretches; smoothed; scaled to the film length."""
-    sigs = final['sigs']
-    ch = np.array([distance(a, b) for a, b in zip(sigs, sigs[1:])] + [0.0])
-    ch = np.concatenate(([ch[0]], ch[:-1]))  # decade d's change = into decade d
-    secs = np.clip((ch + 0.3) / (np.median(ch) + 0.3), 0.5, 2.0)
-    if spiral:
-        secs[spiral[0] - 1:spiral[1]] *= 1.6
-    secs = np.convolve(np.pad(secs, 1, mode='edge'), [0.25, 0.5, 0.25], 'valid')
-    return secs * (minutes * 60 / secs.sum())
+def write_directed_speed(width, end, pace, ramp, out):
+    """FILM-12's continuous speed knots; never round deep widths through f64."""
+    log_start = mp.log10(mp.mpf(width))
+    log_end = mp.log10(mp.mpf(end))
+    if log_start <= log_end:
+        raise ValueError('target is not narrower than start')
+    depth = float(log_start - log_end)
+    if not (0 < ramp < min(1, depth)):
+        raise ValueError('invalid speed ramp')
+    lines = ['# log10_width seconds_per_decade; FILM-12 analytic rest ramp',
+             '%.13f rest' % float(log_start),
+             '%.13f %.12f' % (float(log_start - mp.mpf(str(ramp))), pace[0])]
+    for d in range(1, len(pace)):
+        if d >= depth - 1e-8:
+            break
+        lines.append('%.13f %.12f' % (float(log_start - d), pace[d]))
+    f = out / 'speed.txt'
+    f.write_text('\n'.join(lines) + '\n')
+    return f
 
 
-def film_segments(final, width, out, secs, size, preset):
-    """One fd film per decade at its own rate (shading time carried on with --t0), joined by ffmpeg."""
-    seg_dir = Path(out) / 'segments'
-    seg_dir.mkdir(parents=True, exist_ok=True)
-    w0 = mp.mpf(width)
-    t0, files, t = 0.0, [], time.time()
-    for d, s in enumerate(secs):
-        a, b = w0 / mp.mpf(10) ** d, w0 / mp.mpf(10) ** (d + 1)
-        if d == len(secs) - 1:
-            b = mp.mpf(final['to'])
-        f = seg_dir / ('%03d.mp4' % d)
-        rate = float(mp.log10(a / b)) / s
-        subprocess.run([FD, 'film', final['re'], final['im'], '--from', mp.nstr(a, 8), '--to', mp.nstr(b, 8),
-                        '--rate', '%.6f' % rate, '--fps', '30', '--size', size, '--keyframes', '2', '--preset', preset,
-                        '--t0', '%.4f' % t0, '--mp4', str(f)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        files.append(f)
-        t0 += s
-        print('  decade %d: %.1fs of film, done %.0fs' % (d, s, time.time() - t), flush=True)
-    lst = seg_dir / 'list.txt'
-    lst.write_text(''.join("file '%s'\n" % f.name for f in files))
-    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(lst), '-c', 'copy',
-                    str(Path(out) / 'film.mp4')], check=True)
-    return time.time() - t
+def draw_arc(target, achieved, out):
+    """Plot via ImageMagick (already required for the contact sheet)."""
+    w, h = 1100, 450
+    def poly(vals):
+        return ' '.join('%.1f,%.1f' % (65 + (w - 95) * i / max(1, len(vals) - 1),
+                                      370 - 310 * v) for i, v in enumerate(vals))
+    cmd = ['convert', '-size', '%dx%d' % (w, h), 'xc:white',
+           '-stroke', '#ddd', '-strokewidth', '1', '-draw', 'line 65,60 65,370 line 65,370 1070,370',
+           '-stroke', '#b5b5b5', '-draw', 'line 65,215 1070,215',
+           '-stroke', '#2c62b0', '-strokewidth', '3', '-fill', 'none',
+           '-draw', 'polyline ' + poly(target),
+           '-stroke', '#c65b27', '-draw', 'polyline ' + poly(achieved),
+           '-fill', '#333', '-stroke', 'none', '-pointsize', '19',
+           '-annotate', '+65+33', 'PROB-23: target (blue) / achieved (orange)',
+           '-pointsize', '14', '-annotate', '+65+411', 'Decades / film time (calm opening -> 70% climax -> quiet landing)',
+           str(out / 'arc.png')]
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL)
+
+
+def make_contact(rows, re, im, out):
+    """One fixed-centre, labelled 160x90 thumbnail for every decade."""
+    imgs = []
+    for row in rows:
+        d = row['decade']
+        f = TMP / ('arc-%03d.fds' % d)
+        subprocess.run([FD, 'render', '--re', re, '--im', im, '--width', row['width'],
+                        '--size', '160x90', '--iter', '100000', '--columns', 'nu,de,normal',
+                        '-o', str(f)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run([FD, 'shade', str(f), '--preset', 'master-ice', '-o', str(TMP)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        imgs.append((TMP / ('arc-%03d.studio.png' % d), row))
+    cmd = ['montage', '-font', 'DejaVu-Sans', '-pointsize', '13', '-background', '#171b24',
+           '-fill', 'white', '-tile', '5x', '-geometry', '160x90+5+5']
+    for img, row in imgs:
+        cmd += ['-label', 'D%02d  hero %.2f  S%d' %
+                (row['decade'], row['hero'], row['section']), str(img)]
+    subprocess.run(cmd + [str(out / 'contact.jpg')], check=True, stdout=subprocess.DEVNULL)
+
+
+def run_film(final, width, out, fps, size, preset):
+    cmd = [FD, 'film', final['re'], final['im'], '--from', width, '--to', final['to'],
+           '--speed', str(Path(out) / 'speed.txt'), '--fps', str(fps), '--size', size,
+           '--keyframes', '2', '--gpu', 'on', '--preset', preset,
+           '--mp4', str(Path(out) / 'film.mp4')]
+    print('film command:', ' '.join(cmd), flush=True)
+    start = time.time()
+    r = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, text=True)
+    elapsed = time.time() - start
+    try:
+        report = json.loads(r.stdout)
+        frames = report.get('frames', round(final['minutes'] * 60 * fps))
+        wall = report.get('wall_seconds', elapsed)
+    except (ValueError, TypeError):
+        frames, wall = round(final['minutes'] * 60 * fps), elapsed
+    print('film: %s, %d frames, %.1fs wall, %.3f fps' %
+          (Path(out) / 'film.mp4', frames, wall, frames / wall), flush=True)
 
 
 if __name__ == '__main__':
