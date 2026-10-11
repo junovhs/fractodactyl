@@ -25,7 +25,7 @@ import numpy as np
 
 FD = os.environ.get('FD', '/home/juno/fractodactyl/target/ishoo-worktrees/shared/release/fd')
 TMP = Path(tempfile.mkdtemp(prefix='decades-'))
-MODE = os.environ.get('MODE', 'target')  # target: whole-path minibrot planner; vary/follow: older greedy modes
+MODE = os.environ.get('MODE', 'directed')  # directed: sweep + speeds + spiral directives; target: PROB-22; vary/follow: greedy
 
 
 def read_fds(path):
@@ -83,6 +83,7 @@ def signature(cols):
     return dict(fine=fine, rough=rough, aniso=aniso, interior=interior, dust=dust, edge=edge)
 
 
+SPREAD = 40  # candidate spacing: frame width / SPREAD
 SCALE = dict(fine=0.15, rough=1.0, aniso=0.15, interior=0.3)  # rough typical spreads, to normalise
 
 
@@ -123,7 +124,7 @@ def candidates(cols, n, rng):
         for i in rng.permutation(len(xs)):
             if len(out) >= quota:
                 break
-            if all((xs[i] - x) ** 2 + (ys[i] - y) ** 2 > (nx / 12) ** 2 for x, y in out):
+            if all((xs[i] - x) ** 2 + (ys[i] - y) ** 2 > (nx / SPREAD) ** 2 for x, y in out):
                 out.append((xs[i], ys[i]))
     return out
 
@@ -317,9 +318,22 @@ def main():
     ap.add_argument('--film', action='store_true', help='render the winner with fd film --keyframes 2')
     ap.add_argument('--rate', default='0.5', help='film zoom rate, decades per second')
     ap.add_argument('--size', default='1280x720')
-    ap.add_argument('--preset', default='master-ice')
+    ap.add_argument('--preset', default=str(Path(__file__).resolve().parents[3] / 'looks' / 'master-ice.look'))
+    ap.add_argument('--spiral', help='D1-D2: stay centred on one spiral for these decades (MODE=directed)')
+    ap.add_argument('--minutes', type=float, default=10, help='film length (MODE=directed)')
     a = ap.parse_args()
     t = time.time()
+    if MODE == 'directed':
+        spiral = tuple(int(x) for x in a.spiral.split('-')) if a.spiral else None
+        final = directed(a.re, a.im, a.width, a.out, spiral, a.cands, a.seed, a.min_decades)
+        secs = speeds(final, a.minutes, spiral)
+        (Path(a.out) / 'speeds.json').write_text(json.dumps([round(float(x), 2) for x in secs]))
+        print('seconds per decade:', ' '.join('%.0f' % x for x in secs))
+        if a.film:
+            wall = film_segments(final, a.width, a.out, secs, a.size, a.preset)
+            frames = int(round(sum(secs) * 30))
+            print('film: %d frames in %.0fs (%.2f fps) -> %s' % (frames, wall, frames / wall, Path(a.out) / 'film.mp4'))
+        return
     if MODE == 'target':
         final = plan2(a.re, a.im, a.width, a.out, a.cands, a.seed, a.min_decades)
         print('final', final['re'], final['im'], 'to', final['to'])
@@ -336,6 +350,179 @@ def main():
     strip(steps, a.out)
     last = steps[-1]
     print('final', last['re'], last['im'], last['width'])
+
+
+
+# ---------------------------------------------------------------- v3 (PROB-23): directed films
+
+sys_path = str(Path(__file__).resolve().parents[1] / 'shapes')
+import sys  # noqa: E402
+if sys_path not in sys.path:
+    sys.path.insert(0, sys_path)
+import geom  # noqa: E402  (PROB-21: Misiurewicz Newton, multiplier, Tan Lei scale)
+
+
+def spiral_near(c, w):
+    """The Misiurewicz point (spiral centre) whose structure c sits in: (q, p) by the closest return
+    of the orbit, Newton, then the multiplier, the width its structure fills and its visible turns
+    (PROB-21's measures, without the ray rotation). None if Newton does not settle near c."""
+    digits = int(-mp.log10(w))
+    dps = 40 + 2 * max(0, digits)
+    with mp.workdps(dps):
+        c = mp.mpc(c)
+        # The shallowest spiral centre within half a view of c: the first (q, p), q rising, whose
+        # Newton step from c (an estimate of the distance to that root) is under w/2. Spiral
+        # centres are dense, so the nearest one is always tiny; the shallowest close one is big.
+        # Low-period cycles (1-4) are the strongly twisting ones near bulb edges (v0's family).
+        z, d = geom.orbit(c, 304)
+        found = next(((q, p) for q in range(2, 300) for p in range(1, 5)
+                      if d[q + p] != d[q] and abs(z[q]) < 2 and abs((z[q + p] - z[q]) / (d[q + p] - d[q])) < w), None)
+        if found is None:
+            return None
+        q, p = found
+        try:
+            m, q, r = geom.misiurewicz(c, q, p, dps, 3 * mp.mpf(w))
+            zz, lam, S = geom.local_data(m, q, r, dps)
+        except (ValueError, ZeroDivisionError, StopIteration):
+            return None
+        rq = min(abs(zz[j] - zz[q]) for j in range(1, len(zz)) if j != q and abs(zz[j] - zz[q]) > 0)
+        back = mp.fprod(abs(2 * zz[j]) for j in range(1, q))
+        width = abs(S) * rq * min(mp.mpf('0.3'), abs(lam) - 1) / back
+        levels = math.log(80) / math.log(float(abs(lam)))
+        turns = levels * abs(float(mp.arg(lam))) / (2 * math.pi)
+        return dict(c=m, q=q, r=r, lam=complex(lam), width=width, turns=turns)
+
+
+def visible(c, size):
+    """The minibrot really is there: solid (or unresolved) pixels in the last frame, 6x its size."""
+    with mp.workdps(int(30 + max(0, -mp.log10(size)))):
+        cols, _ = render(mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps), mp.nstr(size * 6, 17), size=(64, 36),
+                         it=500000, name='vis')
+    return float(((cols['class'] & 3) != 0).mean()) >= 0.03
+
+
+def path_sigs(c, w0, decades):
+    sigs = []
+    for d in range(1, decades + 1):
+        w = w0 / mp.mpf(10) ** d
+        with mp.workdps(int(30 + max(0, -mp.log10(w)))):
+            cols, _ = render(mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps), mp.nstr(w, 17), size=(64, 36), name='p')
+        sigs.append(signature(cols))
+    return sigs
+
+
+def sweep_score(sigs):
+    """ABCDEDCB: neighbouring decades alike, the film as a whole travels far. 1-D track = the
+    signature's main direction of change along this path; reward its range, penalise jerkiness."""
+    X = np.array([[s[k] / SCALE[k] for k in SCALE] for s in sigs])
+    X = X - X.mean(0)
+    u = np.linalg.svd(X, full_matrices=False)[2][0]
+    x = X @ u
+    steps = np.abs(np.diff(x))
+    jerk = np.abs(np.diff(x, 2)).mean() if len(x) > 2 else 0
+    bad = sum(3 * max(0, s['interior'] - 0.35) + 8 * max(0, s['dust'] - 0.25) + 20 * max(0, 0.03 - s['edge'])
+              for s in sigs) / len(sigs)
+    return float(np.ptp(x) / (1 + 2 * jerk + 2 * steps.max() / (np.ptp(x) + 1e-9)) - bad), x.tolist()
+
+
+def directed(re, im, width, out, spiral=None, n=24, seed=1, min_decades=20):
+    """Plan a film: a spiral directive (decades d1-d2 centred on one spiral) if given, else the best
+    sweep-shaped minibrot path. Returns the final target and per-decade signatures."""
+    t = time.time()
+    w0 = mp.mpf(width)
+    cands = []
+    if spiral:
+        d1, d2 = spiral
+        # Reach decade d1 by greedy variety steps, then look for spiral centres sized for it.
+        steps = plan(re, im, width, max(0, d1 - 1), n, seed)
+        v = steps[-1]
+        wv = mp.mpf(v['width'])
+        with mp.workdps(int(30 + max(0, -mp.log10(wv)))):
+            cv, cim = mp.mpf(v['re']), mp.mpf(v['im'])
+            cols, _ = render(mp.nstr(cv, mp.mp.dps), mp.nstr(cim, mp.mp.dps), mp.nstr(wv, 17), size=(160, 90), name='sv')
+            ny, nx = cols['de'].shape
+            h = wv / nx
+            rng = np.random.default_rng(seed)
+            spirals = []
+            for x, y in candidates(cols, 150, rng):
+                s = spiral_near(mp.mpc(cv + h * (x + 0.5 - nx / 2), cim - h * (y + 0.5 - ny / 2)), wv)
+                if s and s['turns'] >= 1.5 and wv / 10 / 3 <= s['width'] <= wv * 3:
+                    spirals.append(s)
+        print('%d spiral centres sized for decade %d' % (len(spirals), d1), flush=True)
+        wd2 = w0 / mp.mpf(10) ** (d2 + 1)
+        for s in sorted(spirals, key=lambda s: -s['turns'])[:4]:
+            for k in range(6):  # minibrots just off the spiral centre: the camera leaves it after d2
+                c = s['c'] + wd2 * mp.mpf('0.3') * mp.expjpi(mp.mpf(k) / 3)
+                r = nucleus(c, wd2)
+                if r and abs(r[0] - s['c']) < wd2 and mp.log10(w0 / (r[2] * 6)) >= max(min_decades, d2 + 3):
+                    cands.append((r, s))
+    else:
+        cands = [(r, None) for r in targets(re, im, width, n=n, seed=seed) if mp.log10(w0 / (r[2] * 6)) >= min_decades]
+    print('%d candidate targets (%.0fs)' % (len(cands), time.time() - t), flush=True)
+    best = None
+    for (c, p, size), s in cands:
+        decades = int(mp.floor(mp.log10(w0 / (size * 6))))
+        if not visible(c, size):
+            print('  p=%d size=%.1e: minibrot not visible where the film ends, skipped' % (p, size))
+            continue
+        sigs = path_sigs(c, w0, decades)
+        score, track = sweep_score(sigs)
+        print('  p=%-5d size=%.1e decades=%d sweep=%.2f%s' % (p, size, decades, score,
+              '' if s is None else ' spiral q=%d r=%d turns=%.1f' % (s['q'], s['r'], s['turns'])), flush=True)
+        if best is None or score > best[0]:
+            best = (score, c, p, size, sigs, track, s)
+    if best is None:
+        raise SystemExit('no verified target')
+    score, c, p, size, sigs, track, s = best
+    with mp.workdps(int(30 + max(0, -mp.log10(size)))):
+        final = dict(re=mp.nstr(mp.re(c), mp.mp.dps), im=mp.nstr(mp.im(c), mp.mp.dps), period=p, size=float(size),
+                     to=float(size * 6), decades=len(sigs), sweep=score, track=track, sigs=sigs,
+                     spiral=None if s is None else dict(re=mp.nstr(mp.re(s['c']), mp.mp.dps), im=mp.nstr(mp.im(s['c']), mp.mp.dps),
+                                                       q=s['q'], r=s['r'], turns=s['turns'], decades=list(spiral)))
+    Path(out).mkdir(parents=True, exist_ok=True)
+    (Path(out) / 'plan.json').write_text(json.dumps(final, indent=1, default=float))
+    strip([dict(decade=d, re=final['re'], im=final['im'], width=mp.nstr(w0 / mp.mpf(10) ** d, 6))
+           for d in range(0, final['decades'] + 1)], out)
+    print('planned in %.0fs: p=%d size=%.1e, %d decades, sweep %.2f' % (time.time() - t, p, size, final['decades'], score))
+    return final
+
+
+def speeds(final, minutes, spiral=None):
+    """Seconds per decade: slower where neighbouring decades change more (time to take it in) and
+    on a spiral directive, faster in samey stretches; smoothed; scaled to the film length."""
+    sigs = final['sigs']
+    ch = np.array([distance(a, b) for a, b in zip(sigs, sigs[1:])] + [0.0])
+    ch = np.concatenate(([ch[0]], ch[:-1]))  # decade d's change = into decade d
+    secs = np.clip((ch + 0.3) / (np.median(ch) + 0.3), 0.5, 2.0)
+    if spiral:
+        secs[spiral[0] - 1:spiral[1]] *= 1.6
+    secs = np.convolve(np.pad(secs, 1, mode='edge'), [0.25, 0.5, 0.25], 'valid')
+    return secs * (minutes * 60 / secs.sum())
+
+
+def film_segments(final, width, out, secs, size, preset):
+    """One fd film per decade at its own rate (shading time carried on with --t0), joined by ffmpeg."""
+    seg_dir = Path(out) / 'segments'
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    w0 = mp.mpf(width)
+    t0, files, t = 0.0, [], time.time()
+    for d, s in enumerate(secs):
+        a, b = w0 / mp.mpf(10) ** d, w0 / mp.mpf(10) ** (d + 1)
+        if d == len(secs) - 1:
+            b = mp.mpf(final['to'])
+        f = seg_dir / ('%03d.mp4' % d)
+        rate = float(mp.log10(a / b)) / s
+        subprocess.run([FD, 'film', final['re'], final['im'], '--from', mp.nstr(a, 8), '--to', mp.nstr(b, 8),
+                        '--rate', '%.6f' % rate, '--fps', '30', '--size', size, '--keyframes', '2', '--preset', preset,
+                        '--t0', '%.4f' % t0, '--mp4', str(f)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        files.append(f)
+        t0 += s
+        print('  decade %d: %.1fs of film, done %.0fs' % (d, s, time.time() - t), flush=True)
+    lst = seg_dir / 'list.txt'
+    lst.write_text(''.join("file '%s'\n" % f.name for f in files))
+    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(lst), '-c', 'copy',
+                    str(Path(out) / 'film.mp4')], check=True)
+    return time.time() - t
 
 
 if __name__ == '__main__':
