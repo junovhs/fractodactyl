@@ -1,0 +1,74 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer Prepared { uvec4 sample_data[]; };
+layout(set = 0, binding = 1, std430) writeonly buffer Shaded { uint pixels[]; };
+layout(set = 0, binding = 2, std430) readonly buffer Palette { vec4 stops[]; };
+
+layout(push_constant) uniform Parameters {
+    uvec4 dims;   // full width, full height, rectangle x, rectangle y
+    uvec4 rect;   // rectangle width, rectangle height
+    vec4 tone;    // phase, density, terrace, slope
+    vec4 light;   // light x, light y, inside r, inside g
+    vec4 color;   // inside b, mean r, mean g, mean b
+    vec4 extra;   // ramp mean, stop count, aa, unresolved-as-interior
+} p;
+
+float tpdf(uint key) {
+    uint x = key + 0x9e3779b9u;
+    x ^= x >> 16;
+    x *= 0x7feb352du;
+    x ^= x >> 15;
+    x *= 0x846ca68bu;
+    x ^= x >> 16;
+    // Match CPU: sum the 16-bit halves exactly, then divide once.
+    return float((x & 65535u) + (x >> 16)) / 65535.0 - 1.0;
+}
+
+uint encode(vec3 linear_rgb, uint x, uint y) {
+    uvec3 rgb;
+    for (uint j = 0; j < 3; ++j) {
+        uint seed = (y << 16) ^ (x << 2) ^ j;
+        float dither = 2.0 * tpdf(seed);
+        float level = clamp(pow(clamp(linear_rgb[j], 0.0, 1.0), 1.0 / 2.2)
+                            * 255.0 + 0.5 + dither, 0.0, 255.0);
+        rgb[j] = uint(level);
+    }
+    return rgb.r | (rgb.g << 8) | (rgb.b << 16);
+}
+
+void main() {
+    uvec2 xy = gl_GlobalInvocationID.xy;
+    if (xy.x >= p.rect.x || xy.y >= p.rect.y) return;
+    xy += p.dims.zw;
+    uint i = xy.y * p.dims.x + xy.x;
+    uvec4 s = sample_data[i];
+    float band = uintBitsToFloat(s.z);
+    vec3 col = vec3(p.light.z, p.light.w, p.color.x);
+    if (band >= 0.0) {
+        int n = int(p.extra.y);
+        // Same order and precision as PreparedStudio::shade_rect:
+        // ((density * nu + f64::from(a.phase())).rem_euclid(1.0) * n) as f32.
+        // Never wrap/round in f32 before selecting the palette band.
+        double t = packDouble2x32(s.xy);
+        float x = float(mod(t + double(p.tone.x), 1.0) * double(n));
+        // Decode the integer part from the rounded f32 bits. A direct
+        // float-to-int cast can fold through f64->f32 at stop boundaries.
+        uint bits = floatBitsToUint(x);
+        uint shift = min(31u, 150u - ((bits >> 23) & 255u));
+        int k = min(int(((bits & 0x7fffffu) | 0x800000u) >> shift), n - 1);
+        float fr = x - float(k);
+        float f = 0.5 - 0.5 * cos(3.14159265358979323846 * fr);
+        col = mix(stops[k].rgb, stops[(k + 1) % n].rgb, f);
+        if (p.tone.z > 0.0)
+            col *= 1.0 - p.tone.z * pow(1.0 - fr, 1.5);
+        if (p.extra.z > 0.5) {
+            col = mix(vec3(p.color.y, p.color.z, p.color.w) * p.extra.x, col, band);
+        }
+        col *= uintBitsToFloat(s.w);
+    } else if (band <= -2.0 && p.extra.w < 0.5) {
+        col = vec3(0.25, 0.0, 0.25);
+    }
+    pixels[i] = encode(col, xy.x, xy.y);
+}

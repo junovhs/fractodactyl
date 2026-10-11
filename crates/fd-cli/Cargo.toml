@@ -16,3 +16,9 @@ fd-fixed = { path = "../fd-fixed" }
 fd-samples = { path = "../fd-samples" }
 fd-kernel = { path = "../fd-kernel" }
 fd-shade = { path = "../fd-shade" }
+
+ash = "0.38"
+gpu-allocator = { version = "0.28", default-features = false, features = ["std", "vulkan"] }
+
+[build-dependencies]
+shaderc = "0.10"

@@ -11,7 +11,7 @@ mod umber;
 
 pub use png::encode as png;
 pub use resolve::Rgb8;
-pub use studio::{Look, Studio, BUILTIN};
+pub use studio::{Look, PreparedStudio, Studio, BUILTIN};
 
 use fd_samples::{ColumnSet, Header, Samples};
 
