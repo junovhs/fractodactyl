@@ -35,6 +35,7 @@ pub(crate) struct Keyframes<'a> {
     /// Rendered keyframes still needed: (index, width, header, samples).
     cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
     studio: Option<Look>,
+    gpu: Option<crate::film_gpu::FilmGpu>,
     #[cfg(test)]
     reference_shading: bool,
     shaded: [Rgb8; 2],
@@ -76,6 +77,7 @@ impl<'a> Keyframes<'a> {
             zone,
             cache: Vec::new(),
             studio,
+            gpu: None,
             #[cfg(test)]
             reference_shading: false,
             shaded: std::array::from_fn(|_| Rgb8 {
@@ -94,6 +96,19 @@ impl<'a> Keyframes<'a> {
             sample_shade_seconds: 0.0,
             resample_seconds: 0.0,
         }
+    }
+
+    /// Try GPU shading; unsupported devices and looks retain the CPU film path.
+    pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
+        let multiple = self.p.nx as usize / self.out.0;
+        let gpu = crate::film_gpu::FilmGpu::new(look, a, self.out, multiple)?;
+        let name = gpu.name.clone();
+        self.gpu = Some(gpu);
+        Ok(name)
+    }
+
+    pub(crate) fn gpu_device(&self) -> Option<&str> {
+        self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
     fn width_str(&self, j: usize) -> String {
@@ -120,10 +135,15 @@ impl<'a> Keyframes<'a> {
         let (h, s, used) = render_frame(&view, &self.p, self.zone)?;
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         let t_prepare = std::time::Instant::now();
-        let prepared = self
-            .studio
-            .as_ref()
-            .and_then(|l| PreparedStudio::new(l, &h, &s, a));
+        let prepared = if self.gpu.is_some() {
+            // Vulkan prepares time-invariant geometry on the device at first upload.
+            // Preparing it again on the CPU costs seconds at 4K.
+            None
+        } else {
+            self.studio
+                .as_ref()
+                .and_then(|l| PreparedStudio::new(l, &h, &s, a))
+        };
         self.prepare_seconds += t_prepare.elapsed().as_secs_f64();
         self.cache.push((j, self.width(j), h, s, prepared));
         Ok(())
@@ -175,15 +195,58 @@ impl<'a> Keyframes<'a> {
         let reference_shading = self.reference_shading;
         #[cfg(not(test))]
         let reference_shading = false;
-        let ro = if outer.4.is_some() && !reference_shading {
+        let ro = if (outer.4.is_some() || self.gpu.is_some()) && !reference_shading {
             needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo)
         } else {
             (0, 0, owidth, oheight)
         };
-        let ri = if inner.4.is_some() && !reference_shading {
+        let ri = if (inner.4.is_some() || self.gpu.is_some()) && !reference_shading {
             needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi)
         } else {
             (0, 0, iwidth, iheight)
+        };
+        if let Some(gpu) = &mut self.gpu {
+            let resample = crate::film_gpu::ResamplePush::new(
+                self.out,
+                (owidth, oheight),
+                (iwidth, iheight),
+                (zo, zi),
+                (oxo, oyo),
+                (oxi, oyi),
+                ramp,
+                margin,
+            );
+            let t = std::time::Instant::now();
+            match gpu.frame(
+                k,
+                (&outer.3, (owidth, oheight), ro),
+                k + 1,
+                (&inner.3, (iwidth, iheight), ri),
+                &sa,
+                resample,
+            ) {
+                Ok(rgb) => {
+                    self.output.data.copy_from_slice(rgb);
+                    self.sample_shade_seconds += t.elapsed().as_secs_f64();
+                    return Ok(&self.output);
+                }
+                Err(e) => {
+                    eprintln!("fd film: GPU shading failed ({e}); falling back to CPU");
+                    self.gpu = None;
+                }
+            }
+        }
+        // If Vulkan failed after disabling CPU preparation, use the original
+        // uncropped CPU shade; gather coordinates must match that full image.
+        let ro = if outer.4.is_none() {
+            (0, 0, owidth, oheight)
+        } else {
+            ro
+        };
+        let ri = if inner.4.is_none() {
+            (0, 0, iwidth, iheight)
+        } else {
+            ri
         };
         let t_shade = std::time::Instant::now();
         if reference_shading {

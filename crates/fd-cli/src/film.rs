@@ -27,7 +27,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] \
+[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (off)] \
 [--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
@@ -67,10 +67,17 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "ease-out",
         "offset",
         "t0",
+        "gpu",
+        "raw-dir",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
+    let gpu_on = match a.str("gpu").unwrap_or("off") {
+        "off" => false,
+        "on" => true,
+        v => return Err(format!("--gpu: expected on or off, got {v:?}")),
+    };
     // `--place NAME` (EXPL-08): a place saved by fd explore gives RE IM and the default --to.
     let place = a.str("place").map(crate::place::load).transpose()?;
     let (re, im, to) = match (&place, a.positional.as_slice()) {
@@ -289,6 +296,21 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             ))
         }
     };
+    if gpu_on {
+        if let Some(k) = keys.as_mut() {
+            if look_name == "studio" {
+                let l = crate::shade::studio_look(&a)?;
+                match k.enable_gpu(&l, &Appearance { time: t0, ..base }) {
+                    Ok(device) => eprintln!("fd film: Vulkan GPU shading on {device}"),
+                    Err(e) => eprintln!("fd film: GPU unavailable ({e}); using CPU shading"),
+                }
+            } else {
+                eprintln!("fd film: GPU does not support look {look_name}; using CPU shading");
+            }
+        } else {
+            eprintln!("fd film: GPU shading requires --keyframes; using CPU shading");
+        }
+    }
     if keys.is_none() && offset != (0.0, 0.0) {
         return Err("--offset needs --keyframes".into());
     }
@@ -311,6 +333,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             (x, y)
         }
     };
+    let raw_dir = a.str("raw-dir");
+    if let Some(dir) = raw_dir {
+        std::fs::create_dir_all(dir).map_err(|e| format!("--raw-dir {dir}: {e}"))?;
+    }
     let crf: u32 = a.num("crf", 16)?;
     let preset = a.str("x264").unwrap_or("slow");
     // 4:2:0 halves colour resolution, which softens thin coloured lines (terrain lines
@@ -393,6 +419,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             )?;
             let frame_seconds = t.elapsed().as_secs_f64();
             let t = Instant::now();
+            if let Some(dir) = raw_dir {
+                std::fs::write(format!("{dir}/frame-{f:06}.rgb"), &img.data)
+                    .map_err(|e| format!("--raw-dir frame {f}: {e}"))?;
+            }
             pipe.write_all(&img.data)
                 .map_err(|e| format!("ffmpeg pipe: {e}"))?;
             r.encode_wait += t.elapsed().as_secs_f64();
@@ -429,6 +459,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         );
         r.shade += t.elapsed().as_secs_f64();
         let t = Instant::now();
+        if let Some(dir) = raw_dir {
+            std::fs::write(format!("{dir}/frame-{f:06}.rgb"), &img.data)
+                .map_err(|e| format!("--raw-dir frame {f}: {e}"))?;
+        }
         pipe.write_all(&img.data)
             .map_err(|e| format!("ffmpeg pipe: {e}"))?;
         r.encode_wait += t.elapsed().as_secs_f64();
@@ -453,6 +487,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         r.keyframe_prepare = k.prepare_seconds;
         r.keyframe_sample_shade = k.sample_shade_seconds;
         r.keyframe_resample = k.resample_seconds;
+        r.gpu_device = k.gpu_device().map(str::to_owned);
     }
     drop(pipe);
     let status = enc.wait().map_err(|e| format!("ffmpeg: {e}"))?;
@@ -835,6 +870,7 @@ struct Report {
     frames: [usize; 3],
     seconds: [f64; 3],
     shade: f64,
+    gpu_device: Option<String>,
     keyframe_prepare: f64,
     keyframe_sample_shade: f64,
     keyframe_resample: f64,
@@ -866,7 +902,7 @@ impl Report {
         format!(
             "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
-             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\
+             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
             crate::bench::q(mp4),
             n as f64 / fps,
@@ -878,6 +914,7 @@ impl Report {
             self.seconds[2],
             self.shade,
             self.shade / n as f64,
+            self.gpu_device.as_deref().map(crate::bench::q).unwrap_or_else(|| "null".into()),
             self.keyframe_prepare,
             self.keyframe_sample_shade,
             self.keyframe_resample,
