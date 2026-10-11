@@ -356,8 +356,25 @@ def main():
                     raise ValueError()
             except ValueError:
                 ap.error('--spiral must be D1-D2 with 1 <= D1 < D2')
-        final = plan_directed(a.re, a.im, a.width, a.out, a.minutes, spiral,
-                              a.cands, a.seed, a.min_decades)
+        inputs = dict(re=a.re, im=a.im, width=a.width, minutes=a.minutes,
+                      spiral=list(spiral) if spiral else None, cands=a.cands,
+                      seed=a.seed, min_decades=a.min_decades,
+                      size=a.size, fps=a.fps, preset=a.preset)
+        saved = Path(a.out) / 'plan.json'
+        final = None
+        if a.film and saved.is_file() and (Path(a.out) / 'speed.txt').is_file():
+            try:
+                prior = json.loads(saved.read_text())
+                if prior.get('inputs') == inputs:
+                    final = prior
+                    print('reusing approved plan:', saved, flush=True)
+            except (ValueError, OSError):
+                pass
+        if final is None:
+            final = plan_directed(a.re, a.im, a.width, a.out, a.minutes, spiral,
+                                  a.cands, a.seed, a.min_decades)
+            final['inputs'] = inputs
+            saved.write_text(json.dumps(final, indent=2))
         if a.film:
             run_film(final, a.width, a.out, a.fps, a.size, a.preset)
         return
