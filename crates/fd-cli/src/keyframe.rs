@@ -16,7 +16,7 @@ use crate::film::{render_frame, Used};
 use crate::path::sig6;
 use fd_kernel::{Params, Zone};
 use fd_samples::{Header, Samples, View};
-use fd_shade::{Appearance, Pass, Rgb8};
+use fd_shade::{Appearance, Look, Pass, PreparedStudio, Rgb8};
 
 /// Tent half-width in output pixels. Probe (FILM-04, 2 s spiral-on-spiral clip vs direct
 /// ss 3): 1.0 px is visibly soft (Laplacian 7.0 vs 11.2); 0.5 px matches ss 3 (11.2) and
@@ -33,12 +33,24 @@ pub(crate) struct Keyframes<'a> {
     p: Params,
     zone: Option<&'a Zone>,
     /// Rendered keyframes still needed: (index, width, header, samples).
-    cache: Vec<(usize, f64, Header, Samples)>,
+    cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
+    studio: Option<Look>,
+    gpu: Option<crate::film_gpu::FilmGpu>,
+    #[cfg(test)]
+    reference_shading: bool,
+    shaded: [Rgb8; 2],
+    output: Rgb8,
+    lut: [f32; 256],
+    /// Stage timings for the film JSON report.
+    pub prepare_seconds: f64,
+    pub sample_shade_seconds: f64,
+    pub resample_seconds: f64,
     /// Keyframes rendered so far and their seconds.
     pub rendered: Vec<(usize, f64, Used)>,
 }
 
 impl<'a> Keyframes<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         re: &str,
         im: &str,
@@ -47,6 +59,7 @@ impl<'a> Keyframes<'a> {
         m: u32,
         p: &Params,
         zone: Option<&'a Zone>,
+        studio: Option<Look>,
     ) -> Self {
         let p = Params {
             nx: out.0 * m,
@@ -63,8 +76,39 @@ impl<'a> Keyframes<'a> {
             p,
             zone,
             cache: Vec::new(),
+            studio,
+            gpu: None,
+            #[cfg(test)]
+            reference_shading: false,
+            shaded: std::array::from_fn(|_| Rgb8 {
+                w: 0,
+                h: 0,
+                data: Vec::new(),
+            }),
+            output: Rgb8 {
+                w: out.0 as usize,
+                h: out.1 as usize,
+                data: vec![0; out.0 as usize * out.1 as usize * 3],
+            },
+            lut: std::array::from_fn(|v| (v as f32 / 255.0).powf(2.2)),
             rendered: Vec::new(),
+            prepare_seconds: 0.0,
+            sample_shade_seconds: 0.0,
+            resample_seconds: 0.0,
         }
+    }
+
+    /// Try GPU shading; unsupported devices and looks retain the CPU film path.
+    pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
+        let multiple = self.p.nx as usize / self.out.0;
+        let gpu = crate::film_gpu::FilmGpu::new(look, a, self.out, multiple)?;
+        let name = gpu.name.clone();
+        self.gpu = Some(gpu);
+        Ok(name)
+    }
+
+    pub(crate) fn gpu_device(&self) -> Option<&str> {
+        self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
     fn width_str(&self, j: usize) -> String {
@@ -76,7 +120,7 @@ impl<'a> Keyframes<'a> {
     }
 
     /// Render keyframe `j` unless cached; drop keyframes shallower than `keep`.
-    fn ensure(&mut self, j: usize, keep: usize) -> Result<(), String> {
+    fn ensure(&mut self, j: usize, keep: usize, a: &Appearance) -> Result<(), String> {
         self.cache.retain(|c| c.0 >= keep);
         if self.cache.iter().any(|c| c.0 == j) {
             return Ok(());
@@ -90,7 +134,18 @@ impl<'a> Keyframes<'a> {
         let t = std::time::Instant::now();
         let (h, s, used) = render_frame(&view, &self.p, self.zone)?;
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
-        self.cache.push((j, self.width(j), h, s));
+        let t_prepare = std::time::Instant::now();
+        let prepared = if self.gpu.is_some() {
+            // Vulkan prepares time-invariant geometry on the device at first upload.
+            // Preparing it again on the CPU costs seconds at 4K.
+            None
+        } else {
+            self.studio
+                .as_ref()
+                .and_then(|l| PreparedStudio::new(l, &h, &s, a))
+        };
+        self.prepare_seconds += t_prepare.elapsed().as_secs_f64();
+        self.cache.push((j, self.width(j), h, s, prepared));
         Ok(())
     }
 
@@ -114,19 +169,15 @@ impl<'a> Keyframes<'a> {
         off: (f64, f64),
         look: &dyn Pass,
         a: &Appearance,
-    ) -> Result<Rgb8, String> {
+    ) -> Result<&Rgb8, String> {
         let req = coverage(w, off, (self.out.0 as u32, self.out.1 as u32));
         let k = self.octave(req);
-        self.ensure(k, k)?;
-        self.ensure(k + 1, k)?;
-        let get = |j: usize| self.cache.iter().find(|c| c.0 == j).expect("ensured");
+        self.ensure(k, k, a)?;
+        self.ensure(k + 1, k, a)?;
+        let cache = &self.cache;
+        let get = |j: usize| cache.iter().find(|c| c.0 == j).expect("ensured");
         let (outer, inner) = (get(k), get(k + 1));
         let sa = Appearance { dither: true, ..*a };
-        let (so, si) = (
-            look.shade_with(&outer.2, &outer.3, &sa),
-            look.shade_with(&inner.2, &inner.3, &sa),
-        );
-        let lut: Vec<f32> = (0..256).map(|v| (v as f32 / 255.0).powf(2.2)).collect();
         let (ow, oh) = self.out;
         let u = (outer.1 / req).log2().clamp(0.0, 1.0) as f32;
         let ramp = (u / 0.25).min(1.0);
@@ -136,14 +187,92 @@ impl<'a> Keyframes<'a> {
         let aspect = ow as f64 / oh as f64;
         let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect) as f32);
         let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
-        let mut data = vec![0u8; ow * oh * 3];
+        let (owidth, oheight) = outer.2.pixels();
+        let (iwidth, iheight) = inner.2.pixels();
+        // Shade only the texels the tent filter can read, with extra edge padding.
+        // Non-studio and animated-density/lines looks retain the original full-frame path.
+        #[cfg(test)]
+        let reference_shading = self.reference_shading;
+        #[cfg(not(test))]
+        let reference_shading = false;
+        let ro = if (outer.4.is_some() || self.gpu.is_some()) && !reference_shading {
+            needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo)
+        } else {
+            (0, 0, owidth, oheight)
+        };
+        let ri = if (inner.4.is_some() || self.gpu.is_some()) && !reference_shading {
+            needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi)
+        } else {
+            (0, 0, iwidth, iheight)
+        };
+        if let Some(gpu) = &mut self.gpu {
+            let resample = crate::film_gpu::ResamplePush::new(
+                self.out,
+                (owidth, oheight),
+                (iwidth, iheight),
+                (zo, zi),
+                (oxo, oyo),
+                (oxi, oyi),
+                ramp,
+                margin,
+            );
+            let t = std::time::Instant::now();
+            match gpu.frame(
+                k,
+                (&outer.3, (owidth, oheight), ro),
+                k + 1,
+                (&inner.3, (iwidth, iheight), ri),
+                &sa,
+                resample,
+            ) {
+                Ok(rgb) => {
+                    self.output.data.copy_from_slice(rgb);
+                    self.sample_shade_seconds += t.elapsed().as_secs_f64();
+                    return Ok(&self.output);
+                }
+                Err(e) => {
+                    eprintln!("fd film: GPU shading failed ({e}); falling back to CPU");
+                    self.gpu = None;
+                }
+            }
+        }
+        // If Vulkan failed after disabling CPU preparation, use the original
+        // uncropped CPU shade; gather coordinates must match that full image.
+        let ro = if outer.4.is_none() {
+            (0, 0, owidth, oheight)
+        } else {
+            ro
+        };
+        let ri = if inner.4.is_none() {
+            (0, 0, iwidth, iheight)
+        } else {
+            ri
+        };
+        let t_shade = std::time::Instant::now();
+        if reference_shading {
+            self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
+        } else if let Some(prepared) = &outer.4 {
+            prepared.shade_rect_film_into(ro, &sa, &mut self.shaded[0]);
+        } else {
+            self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
+        }
+        if reference_shading {
+            self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
+        } else if let Some(prepared) = &inner.4 {
+            prepared.shade_rect_film_into(ri, &sa, &mut self.shaded[1]);
+        } else {
+            self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
+        }
+        self.sample_shade_seconds += t_shade.elapsed().as_secs_f64();
+        let t_resample = std::time::Instant::now();
+        let (so, si) = (&self.shaded[0], &self.shaded[1]);
+        let lut = &self.lut;
         let threads = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .clamp(1, oh);
         let rows_per = oh.div_ceil(threads);
         std::thread::scope(|sc| {
-            for (c, chunk) in data.chunks_mut(rows_per * ow * 3).enumerate() {
-                let (so, si, lut) = (&so, &si, &lut);
+            for (c, chunk) in self.output.data.chunks_mut(rows_per * ow * 3).enumerate() {
                 sc.spawn(move || {
                     for (r, row) in chunk.chunks_mut(ow * 3).enumerate() {
                         let py = c * rows_per + r;
@@ -160,24 +289,35 @@ impl<'a> Keyframes<'a> {
                                     lut,
                                     xn * zo + oxo,
                                     yn * zo + oyo,
-                                    TENT * zo * so.w as f32 / ow as f32,
+                                    TENT * zo * owidth as f32 / ow as f32,
+                                    ro,
+                                    (owidth, oheight),
                                 );
                                 col = o.map(|v| v * (1.0 - wi));
                             }
                             if wi > 0.0 {
-                                let i =
-                                    gather(si, lut, xi, yi, TENT * zi * si.w as f32 / ow as f32);
+                                let i = gather(
+                                    si,
+                                    lut,
+                                    xi,
+                                    yi,
+                                    TENT * zi * iwidth as f32 / ow as f32,
+                                    ri,
+                                    (iwidth, iheight),
+                                );
                                 col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
                             }
                             for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
-                                *o = (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+                                let v = v.clamp(0.0, 1.0);
+                                *o = (v.powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
                             }
                         }
                     }
                 });
             }
         });
-        Ok(Rgb8 { w: ow, h: oh, data })
+        self.resample_seconds += t_resample.elapsed().as_secs_f64();
+        Ok(&self.output)
     }
 }
 
@@ -190,11 +330,48 @@ pub(crate) fn coverage(w: f64, off: (f64, f64), out: (u32, u32)) -> f64 {
 /// Tent-filtered linear colour of image `img` around the point `x` image widths and `y`
 /// image heights from its centre, over a footprint of half-width `f` image pixels (at
 /// least one, so the filter never degenerates to point sampling).
-fn gather(img: &Rgb8, lut: &[f32], x: f32, y: f32, f: f32) -> [f32; 3] {
+/// Conservative global rectangle of samples touched by any output tent.
+fn needed_rect(
+    out: (usize, usize),
+    image: (usize, usize),
+    z: f32,
+    ox: f32,
+    oy: f32,
+) -> (usize, usize, usize, usize) {
+    let bounds = |out_n: usize, in_n: usize, offset: f32| {
+        let extent = 0.5 - 0.5 / out_n as f32;
+        let c0 = (-extent * z + offset) * in_n as f32 + in_n as f32 / 2.0;
+        let c1 = (extent * z + offset) * in_n as f32 + in_n as f32 / 2.0;
+        let f = (TENT * z * in_n as f32 / out.0 as f32).max(1.0);
+        let lo = ((c0.min(c1) - f).floor() as i64 - 3).clamp(0, in_n as i64 - 1) as usize;
+        let hi = ((c0.max(c1) + f).ceil() as i64 + 4).clamp(lo as i64 + 1, in_n as i64) as usize;
+        (lo, hi - lo)
+    };
+    let (x, w) = bounds(out.0, image.0, ox);
+    // The footprint is specified in horizontal output pixels in gather().
+    let extent = 0.5 - 0.5 / out.1 as f32;
+    let c0 = (-extent * z + oy) * image.1 as f32 + image.1 as f32 / 2.0;
+    let c1 = (extent * z + oy) * image.1 as f32 + image.1 as f32 / 2.0;
+    let f = (TENT * z * image.0 as f32 / out.0 as f32).max(1.0);
+    let y = ((c0.min(c1) - f).floor() as i64 - 3).clamp(0, image.1 as i64 - 1) as usize;
+    let end = ((c0.max(c1) + f).ceil() as i64 + 4).clamp(y as i64 + 1, image.1 as i64) as usize;
+    (x, y, w, end - y)
+}
+
+/// Tent-filtered linear colour; the stored image may be a cropped source rectangle.
+fn gather(
+    img: &Rgb8,
+    lut: &[f32],
+    x: f32,
+    y: f32,
+    f: f32,
+    rect: (usize, usize, usize, usize),
+    full: (usize, usize),
+) -> [f32; 3] {
     let f = f.max(1.0);
     let (iw, ih) = (img.w as i64, img.h as i64);
-    let cx = x * img.w as f32 + img.w as f32 / 2.0;
-    let cy = y * img.h as f32 + img.h as f32 / 2.0;
+    let cx = x * full.0 as f32 + full.0 as f32 / 2.0;
+    let cy = y * full.1 as f32 + full.1 as f32 / 2.0;
     let (x0, x1) = ((cx - f).floor() as i64, (cx + f).ceil() as i64);
     let (y0, y1) = ((cy - f).floor() as i64, (cy + f).ceil() as i64);
     let (mut acc, mut wsum) = ([0f32; 3], 0f32);
@@ -203,13 +380,13 @@ fn gather(img: &Rgb8, lut: &[f32], x: f32, y: f32, f: f32) -> [f32; 3] {
         if wy <= 0.0 {
             continue;
         }
-        let row = sy.clamp(0, ih - 1) as usize * img.w;
+        let row = (sy - rect.1 as i64).clamp(0, ih - 1) as usize * img.w;
         for sx in x0..=x1 {
             let wx = 1.0 - ((sx as f32 + 0.5 - cx).abs() / f);
             if wx <= 0.0 {
                 continue;
             }
-            let k = (row + sx.clamp(0, iw - 1) as usize) * 3;
+            let k = (row + (sx - rect.0 as i64).clamp(0, iw - 1) as usize) * 3;
             let wgt = wx * wy;
             for (a, &v) in acc.iter_mut().zip(&img.data[k..k + 3]) {
                 *a += lut[v as usize] * wgt;
@@ -233,7 +410,7 @@ mod tests {
         };
         let lut: Vec<f32> = (0..256).map(|v| v as f32).collect();
         for (x, y, f) in [(0.0, 0.0, 1.0), (0.49, -0.49, 3.0), (-0.3, 0.2, 0.2)] {
-            let g = gather(&flat, &lut, x, y, f);
+            let g = gather(&flat, &lut, x, y, f, (0, 0, 8, 4), (8, 4));
             assert!(
                 g.iter()
                     .zip([10.0, 128.0, 250.0])
@@ -253,8 +430,100 @@ mod tests {
                 img.data[(r * 8 + c) * 3..(r * 8 + c) * 3 + 3].copy_from_slice(&[200; 3]);
             }
         }
-        let v = gather(&img, &lut, 0.25 / 8.0, 0.0, 1.0)[0];
+        let v = gather(&img, &lut, 0.25 / 8.0, 0.0, 1.0, (0, 0, 8, 4), (8, 4))[0];
         assert!(v > 100.0 && v < 200.0, "{v}");
+    }
+
+    #[test]
+    fn cropped_tent_matches_full_source_on_whole_output() {
+        let full = Rgb8 {
+            w: 128,
+            h: 72,
+            data: (0..128 * 72 * 3).map(|i| (i * 37 % 256) as u8).collect(),
+        };
+        let lut: [f32; 256] = std::array::from_fn(|i| (i as f32 / 255.0).powf(2.2));
+        let out = (64, 36);
+        for (z, ox, oy) in [(0.55, 0.0, 0.0), (0.81, 0.2, -0.13), (1.7, -0.28, 0.23)] {
+            let rect = needed_rect(out, (full.w, full.h), z, ox, oy);
+            let mut data = Vec::new();
+            for y in rect.1..rect.1 + rect.3 {
+                let i = (y * full.w + rect.0) * 3;
+                data.extend_from_slice(&full.data[i..i + rect.2 * 3]);
+            }
+            let cropped = Rgb8 {
+                w: rect.2,
+                h: rect.3,
+                data,
+            };
+            for py in 0..out.1 {
+                let yn = (py as f32 + 0.5) / out.1 as f32 - 0.5;
+                for px in 0..out.0 {
+                    let xn = (px as f32 + 0.5) / out.0 as f32 - 0.5;
+                    let x = xn * z + ox;
+                    let y = yn * z + oy;
+                    let f = TENT * z * full.w as f32 / out.0 as f32;
+                    let a = gather(
+                        &full,
+                        &lut,
+                        x,
+                        y,
+                        f,
+                        (0, 0, full.w, full.h),
+                        (full.w, full.h),
+                    );
+                    let b = gather(&cropped, &lut, x, y, f, rect, (full.w, full.h));
+                    assert!(
+                        a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5),
+                        "z {z} at {px},{py}: {a:?} vs {b:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn real_target_film_frames_match_exact_source_shading() {
+        let look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let pass = fd_shade::Studio(look.clone());
+        let p = Params {
+            nx: 160,
+            ny: 90,
+            ss: 1,
+            max_iter: 4000,
+            escape_radius: 1e10,
+            columns: crate::render::columns("nu,de,normal").unwrap(),
+            threads: 2,
+            tier: None,
+        };
+        let mk = || {
+            Keyframes::new(
+                "-0.8296874999999996981089858669738646984522311568651036619209",
+                "0.1859374999999989417838556112859064221737945709381783514212",
+                1e-20,
+                (80, 45),
+                2,
+                &p,
+                None,
+                Some(look.clone()),
+            )
+        };
+        let mut cached = mk();
+        let mut reference = mk();
+        reference.reference_shading = true;
+        for (u, frame) in [(0.0, 0), (0.1, 30), (0.26, 120), (0.5, 600), (0.9, 1000)] {
+            let w = 1e-20 * 2f64.powf(-u);
+            let appearance = Appearance {
+                time: frame as f64 / 30.0,
+                flow: look.flow,
+                aa: true,
+                unresolved_interior: true,
+                dither: true,
+                ..Appearance::STILL
+            };
+            let a = cached.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
+            let b = reference.frame(w, (0.0, 0.0), &pass, &appearance).unwrap();
+            assert_eq!(a.data, b.data, "real-centre frame {frame}, octave {u}");
+        }
     }
 
     #[test]
@@ -269,7 +538,7 @@ mod tests {
             threads: 1,
             tier: None,
         };
-        let k = Keyframes::new("0", "0", 4.0, (2, 2), 2, &p, None);
+        let k = Keyframes::new("0", "0", 4.0, (2, 2), 2, &p, None, None);
         assert_eq!(k.octave(4.0), 0);
         assert_eq!(k.octave(2.0001), 0);
         assert_eq!(k.octave(2.0), 1);

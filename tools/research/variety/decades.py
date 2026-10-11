@@ -2,7 +2,7 @@
 """Variety planner prototype: zoom one decade (10x) at a time, each decade as different as
 possible from the last, judged by a 4-number spectral signature of a tiny fd render.
 
-  decades.py --out DIR [--re RE --im IM --width W] [--min-decades 20] [--film] [--rate 0.5] [--size WxH] [--preset master-ice]
+  decades.py --out DIR [--re RE --im IM --width W] [--min-decades 20] [--film] [--rate 0.09691] [--size WxH] [--preset master-ice]
 
 Signature of a view (from fd's math columns, never colours):
   fine      where the detail sits: spectral centroid of the distance-estimate field (0 coarse .. 1 fine)
@@ -25,7 +25,7 @@ import numpy as np
 
 FD = os.environ.get('FD', '/home/juno/fractodactyl/target/ishoo-worktrees/shared/release/fd')
 TMP = Path(tempfile.mkdtemp(prefix='decades-'))
-MODE = os.environ.get('MODE', 'directed')  # directed: sweep + speeds + spiral directives; target: PROB-22; vary/follow: greedy
+MODE = os.environ.get('MODE', 'directed')  # target: whole-path minibrot planner; vary/follow: older greedy modes
 
 
 def read_fds(path):
@@ -83,7 +83,6 @@ def signature(cols):
     return dict(fine=fine, rough=rough, aniso=aniso, interior=interior, dust=dust, edge=edge)
 
 
-SPREAD = 40  # candidate spacing: frame width / SPREAD
 SCALE = dict(fine=0.15, rough=1.0, aniso=0.15, interior=0.3)  # rough typical spreads, to normalise
 
 
@@ -124,7 +123,7 @@ def candidates(cols, n, rng):
         for i in rng.permutation(len(xs)):
             if len(out) >= quota:
                 break
-            if all((xs[i] - x) ** 2 + (ys[i] - y) ** 2 > (nx / SPREAD) ** 2 for x, y in out):
+            if all((xs[i] - x) ** 2 + (ys[i] - y) ** 2 > (nx / 12) ** 2 for x, y in out):
                 out.append((xs[i], ys[i]))
     return out
 
@@ -305,6 +304,23 @@ def plan2(re, im, width, out, n=24, seed=1, min_decades=20):
     return final
 
 
+def write_speed(width, target, out, rate):
+    """One continuous curve for fd film, with a 15 s smooth departure from rest."""
+    if not math.isfinite(rate) or rate <= 0:
+        raise ValueError('--rate must be positive and finite')
+    start, end = mp.log10(mp.mpf(width)), mp.log10(mp.mpf(target))
+    if start <= end:
+        raise ValueError('target must be narrower than the starting width')
+    # The rest span integrates to 2 * depth * seconds_per_decade.
+    # Short paths get a proportionally shorter ramp.
+    ramp_depth = min(mp.mpf('15') * mp.mpf(str(rate)) / 2, (start - end) / 2)
+    file = Path(out) / 'speed.txt'
+    file.write_text('# log10_width seconds_per_decade; rest ramps from zero zoom speed\n'
+                    + mp.nstr(start, 20) + ' rest\n'
+                    + mp.nstr(start - ramp_depth, 20) + ' %.12g\n' % (1 / rate))
+    return file
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--re', default='-0.75')
@@ -316,11 +332,12 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--min-decades', type=int, default=20)
     ap.add_argument('--film', action='store_true', help='render the winner with fd film --keyframes 2')
-    ap.add_argument('--rate', default='0.5', help='film zoom rate, decades per second')
+    ap.add_argument('--spiral', help='D1-D2: spiral directive for a hero section')
+    ap.add_argument('--minutes', type=float, default=10, help='film minutes')
+    ap.add_argument('--rate', type=float, default=math.log10(1.25),
+                    help='film cruise rate in decades/s (default: 1.25x zoom per second)')
     ap.add_argument('--size', default='1280x720')
-    ap.add_argument('--preset', default=str(Path(__file__).resolve().parents[3] / 'looks' / 'master-ice.look'))
-    ap.add_argument('--spiral', help='D1-D2: stay centred on one spiral for these decades (MODE=directed)')
-    ap.add_argument('--minutes', type=float, default=10, help='film length (MODE=directed)')
+    ap.add_argument('--preset', default='master-ice')
     a = ap.parse_args()
     t = time.time()
     if MODE == 'directed':
@@ -337,7 +354,9 @@ def main():
     if MODE == 'target':
         final = plan2(a.re, a.im, a.width, a.out, a.cands, a.seed, a.min_decades)
         print('final', final['re'], final['im'], 'to', final['to'])
-        cmd = [FD, 'film', final['re'], final['im'], '--from', a.width, '--to', '%.3e' % final['to'], '--rate', a.rate,
+        curve = write_speed(a.width, final['to'], a.out, a.rate)
+        print('speed curve:', curve)
+        cmd = [FD, 'film', final['re'], final['im'], '--from', a.width, '--to', '%.3e' % final['to'], '--speed', str(curve),
                '--fps', '30', '--size', a.size, '--keyframes', '2', '--preset', a.preset, '--mp4', str(Path(a.out) / 'film.mp4')]
         print('film:', ' '.join(cmd))
         if a.film:
