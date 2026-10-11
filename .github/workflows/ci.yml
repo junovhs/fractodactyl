@@ -37,6 +37,8 @@ jobs:
           python-version: "3.12"
       - run: pip install mpmath gmpy2
       - run: cargo build --release -j 4
+      - name: FX-07 studio haze proof
+        run: python3 tools/research/looks/haze_check.py
       - name: render known locations, compare runs, check oracle
         run: THREADS=4 bash scripts/locations.sh target/release/fd out/locations
       - name: benchmark report (shallow f64 + deep scaled), every metric populated
