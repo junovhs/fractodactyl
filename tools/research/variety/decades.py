@@ -468,8 +468,9 @@ def spiral_near(c, w):
 
 def visible(c, size):
     """The minibrot really is there: solid (or unresolved) pixels in the last frame, 6x its size."""
-    size, c = mp_scalar(size), mp_complex(c)
+    size = mp_scalar(size)
     with mp.workdps(int(30 + max(0, -mp.log10(size)))):
+        c = mp_complex(c)  # convert at the target's precision, never at the global 30 digits (DEC-21)
         cols, _ = render(mp.nstr(mp.re(c), mp.mp.dps), mp.nstr(mp.im(c), mp.mp.dps), mp.nstr(size * 6, 17), size=(64, 36),
                          it=500000, name='vis')
     return float(((cols['class'] & 3) != 0).mean()) >= 0.03
