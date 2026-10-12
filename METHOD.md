@@ -1,5 +1,11 @@
 # Research method
 
+## Scope of agent autonomy
+
+The durable mission is in [GOAL.md](GOAL.md); the provisional highest-information leads are in [FRONTIER.md](FRONTIER.md). There is no permanently prescribed problem: agents select among current or new cheap experiments based on actual evidence and anticipated impact, documenting decisions. Findings, including failed and overturned results, are the product.
+
+**Every new R-card must finish with the nine-step [binary proof of done](PROOF_OF_DONE.md).** A failed hypothesis may be `POD: YES`; a favorable but poorly evidenced result is `POD: NO`. The gate and evidence classifications are separate. [Lean formalization](LEAN.md) is optional and selective, never a default 30-second probe requirement.
+
 ## Experiment contract
 
 1. **Name the problem.** Measurable payoff, realistic task distribution, and transferable dynamical mechanism.
@@ -15,7 +21,7 @@
 
 - Error: max absolute state error ≤ 1e-7 on the stated holdout; **zero wrong switching branches or event itineraries**.
 - Speed: at least 3× **cold** time reduction against the **fastest accurate same-math rival** at the specified workload.
-- Error certification: mark only VERIFIED-EMPIRICAL until a validated numerical enclosure proves a result. No pixel displacement claims from state error alone.
+- Error certification: empirical agreement alone is not a certificate; report `PROOF: NONE` until an auditable enclosure or a formal checked theorem proves the relevant claim. No pixel displacement claims from state error alone.
 - Automatic operator admission: may decline. Domain selection cost and failures count in cold time.
 
 ## Provenance tags

@@ -2,6 +2,12 @@
 
 Applies to **the current working tree of branch `research/dynamics-transfer-lab` only** in `junovhs/fractodactyl`. **`AGENTS.md` and `CLAUDE.md` must remain byte-for-byte identical.** They have equal authority. When modifying either, change both in the same commit and verify exact equality. No special model-specific behavior.
 
+## Autonomous research objective
+
+**Permanent mission:** [GOAL.md](GOAL.md). **Current evidence-based frontier:** [FRONTIER.md](FRONTIER.md). Agents should autonomously search for useful, generalizable reductions in computation, guided by *evidence, impact and cheap falsification*, rather than obediently running a fixed research roadmap. P-030 is a **candidate**, not a mandatory next task. Change priorities when a better test appears; explain and log the selection in FRONTIER. Human intervention is not needed to invent hypotheses or run ordinary available Python probes.
+
+**Binary experiment completion:** [PROOF_OF_DONE.md](PROOF_OF_DONE.md). Every new result carries 9 checkboxes plus `POD: YES/NO`, `GATE: PASS/FAIL/NOT TESTED` and `PROOF: NONE/INTERVAL/LEAN/OTHER`. The checklist must pass before declaring an experiment *completed*, even when it disproves a hypothesis. Formal mathematics is optional and selectively escalated under [LEAN.md](LEAN.md)—never claim a Lean proof without actually checking it.
+
 ## Mission, boundaries, and orientation
 
 Find **transferable, useful reductions in the cost of nonlinear computation**, not merely attractive fractal renders. Prefer cheap, falsifiable mathematical hypotheses suggested by Fractodactyl's return operators, Koenigs jumps, precision engineering, and certificates; consider adjacent engineering and scientific domains. Scientific results matter more than promotion of any particular technique. The human supplies research direction, not local terminal execution.
@@ -17,6 +23,10 @@ Find **transferable, useful reductions in the cost of nonlinear computation**, n
 | File | Purpose | Update when |
 |---|---|---|
 | `AGENTS.md` **and** `CLAUDE.md` | Identical operational rules | The actual workflow changes; always together |
+| `GOAL.md` | Durable discovery mission (not a selected technique/domain) | Only if project mission changes |
+| `FRONTIER.md` | Agent-selected current objective, portfolio and next cheap tests | Evidence or opportunity-cost priorities change, at substantial session handoff |
+| `PROOF_OF_DONE.md` | Binary completion checklist and claim taxonomy | Scientific completion standards change |
+| `LEAN.md` | Optional proof escalation and its limitations | Formal verification policy changes |
 | `README.md` | Stable mission, orientation, high-level current frontier | Scope, focus, or the principal lead changes |
 | `METHOD.md` | Detailed accuracy and benchmark policy | Research standards change; never silently weaken gates |
 | `PROMPTS/P-NNN.md` | **One concise research question**, hypothesis, opponent, tiny test, kill criteria and lineage | Question is registered; later append links/status without rewriting the prior claim |
@@ -30,9 +40,9 @@ No parallel hidden spreadsheets, separate undocumented ledgers, or duplicate can
 
 ## The loop — follow in this exact order
 
-**0. Rehydrate context.** Read the navigation files; inspect status and lineage; check for open questions and the strongest negative results. Don't repeat a killed experiment without a **specific changed assumption**. Identify the cheapest unknown whose answer would change our next action.
+**0. Rehydrate context.** Read `GOAL.md`, `FRONTIER.md` and `PROOF_OF_DONE.md` as well as the navigation files; inspect status and lineage; check for open questions and the strongest negative results. Don't repeat a killed experiment without a **specific changed assumption**. Identify the cheapest unknown whose answer would change our next action.
 
-**1. Pre-screen ideas.** Quickly identify the domain payoff, connection to a working mathematical mechanism, existing prior art and strongest specialized rival. Produce 2–3 candidates when worthwhile; choose the cheapest decisive probe. Label theoretical extrapolation `SPECULATION`. Do not report an established method as novel.
+**1. Pre-screen ideas.** Independently challenge the current frontier, looking for unexpectedly transferable scientific or industrial computation shortcuts. Rank by information gained per minute and possible downstream leverage, not fidelity to the existing queue. Quickly identify the domain payoff, connection to a working mathematical mechanism, existing prior art and strongest specialized rival. Produce 2–3 candidates when worthwhile; choose the cheapest decisive probe. Label theoretical extrapolation `SPECULATION`. Do not report an established method as novel.
 
 **2. Register before testing.** Select the next unused `P-NNN` ID from `INDEX.md`. Copy `TEMPLATES/QUESTION.md` to `PROMPTS/P-NNN.md`. **Keep the entire P-card at or below 150 words, including headings/metadata**. State parent P or R, hypothesis, the **strongest fair competitor**, test inputs, metric and **numerical kill threshold**. Commit this registration before any substantial test when Git writes are available. Update `INDEX.md` and `MAP.md` at registration. If a prompt already exists, reuse it; avoid duplicate IDs and speculative branches that have no clear next cheap experiment.
 
@@ -46,17 +56,18 @@ No parallel hidden spreadsheets, separate undocumented ledgers, or duplicate can
 
 **7. Decide against the best opponent.** Default promote threshold is **≥3× cold end-to-end** against the fastest accurate **same-math** competitor on a relevant workload. Include setup, chart building, fitting, fallbacks, precision and operator-selection overhead. Warm-only win does not pass. Report baseline scope and exact speed ratio direction. If a newly found competitor reverses a previous win, preserve the old record and mark it **SUPERSEDED** with a linked R-card.
 
-**8. File the result every time.** Select the next unused `R-NNN`; use `TEMPLATES/RESULT.md`. Record *whether the preregistration happened before execution*, mathematical model, hardware/tool versions, command or exact reconstruction steps if available, input sizes/seeds, raw measured values with units, baseline, errors, confidence/uncertainty, limitations, and decision. **File even after an immediate failed gate**, interrupted run, or null result. Link R back to P and P forward to R. If raw logs/executable are unavailable, mark `REPORTED` and identify each missing artifact. Never invent timings or claim `REPRODUCED` without archived sufficient evidence.
+**8. File the result every time.** Copy the nine binary checks from `PROOF_OF_DONE.md` and use `POD: NO` until filing and read-back meet all checks. An accuracy-killed result can be DONE without performance timings, if those measurements are correctly marked NOT RUN. Do not make Lean mandatory for cheap negative probes.  Select the next unused `R-NNN`; use `TEMPLATES/RESULT.md`. Record *whether the preregistration happened before execution*, mathematical model, hardware/tool versions, command or exact reconstruction steps if available, input sizes/seeds, raw measured values with units, baseline, errors, confidence/uncertainty, limitations, and decision. **File even after an immediate failed gate**, interrupted run, or null result. Link R back to P and P forward to R. If raw logs/executable are unavailable, mark `REPORTED` and identify each missing artifact. Never invent timings or claim `REPRODUCED` without archived sufficient evidence.
 
 **9. Update the graph atomically with the decision.** Update (a) `PROMPTS/P-NNN.md` status and result links, (b) new `RESULTS/R-NNN.md`, (c) `INDEX.md` row/status and one clear next action, (d) `MAP.md` directed P→R and R→new-P edges, and (e) `README.md` only when the frontiers materially change. Create a **new child P-card** only when the result motivates a discriminating follow-up; use cross-links when several parents converge. Preserve old results—do not rewrite history to hide failures.
 
-**10. Verify and hand off.** Read back committed files; check that every referenced path/ID exists, prompt word limits, consistent statuses, graph edges, no missing R for a performed experiment, and **no non-research files in the branch**. Verify `AGENTS.md` and `CLAUDE.md` are exactly identical. Report commit SHA/branch, the tested hypothesis, measured numbers, **KEEP/KILL/CONDITIONAL/SUPERSEDED**, and the cheapest next experiment. If not committed, say so explicitly.
+**10. Verify and hand off.** Verify `POD` truthfully, select and justify the strongest new frontier by updating `FRONTIER.md`, and distinguish research-session completion from any experimentally established improvement.  Read back committed files; check that every referenced path/ID exists, prompt word limits, consistent statuses, graph edges, no missing R for a performed experiment, and **no non-research files in the branch**. Verify `AGENTS.md` and `CLAUDE.md` are exactly identical. Report commit SHA/branch, the tested hypothesis, measured numbers, **KEEP/KILL/CONDITIONAL/SUPERSEDED**, and the cheapest next experiment. If not committed, say so explicitly.
 
 ## Priority and evidence hygiene
 
 - Rank by **(expected industrial/scientific leverage × plausible transfer × discriminatory information from the probe) / experiment cost**, not by which hypothesis sounds exciting. Prefer an informative failure over an expensive vague success.
 - A toy oscillator tests a mechanism, not an industrial claim. For industry, eventually test realistic workloads and a specialist solver (e.g., established periodic-operating-point tools).
 - **Statuses:** `UNTESTED`, `IN PROGRESS`, `KEEP`, `KILL`, `CONDITIONAL`, `SUPERSEDED`, `BLOCKED`. A result's historical decision remains visible even if superseded.
+- **Lean/formal status:** see `LEAN.md`. Ask what is proved: exact symbolic identity, domain validity, numerical error, or full implementation. Lean does not establish a timing claim.
 - **Evidence labels:** `SPECULATION` (no run), `REPORTED` (prior transcript or incomplete evidence), `REPRODUCED` (sufficient archived code/data/setup and rerun), `CERTIFIED` (proved bounds attached). Empirical error checks alone never become `CERTIFIED`.
 - **Failure labels:** `MATHEMATICS` (method structurally fails), `ACCURACY`, `PERFORMANCE`, `BASELINE`, `COVERAGE`, `RESOURCE`, `INCONCLUSIVE`; explain rather than just label.
 - If a benchmark is too slow for the budget, **reduce the probe**, do not label unrun configurations as measured. Lane projections, scaling estimates, and speculations get separate columns.

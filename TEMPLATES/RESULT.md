@@ -27,6 +27,24 @@ Mathematical equations, test domain, initial states/parameters, seeds, hardware,
 
 Include raw observed numbers and explicit measurement uncertainty. If unrun, write **NOT MEASURED** (never guess).
 
+## Binary proof of done
+
+**POD: NO** (change to YES only after every box is checked, including committed read-back)
+**GATE:** PASS / FAIL / NOT TESTED
+**PROOF:** NONE / INTERVAL / LEAN / OTHER
+
+- [ ] P-ID, threshold, and honest preregistration status recorded
+- [ ] Exact equations, tested parameters, inputs, count and seed recorded
+- [ ] Strongest fair opponent recorded, or first-gate skip justified
+- [ ] Actually executed observation linked/archived (no invented data)
+- [ ] Independent accuracy results/classes or transparent failure documented
+- [ ] Cold and warm costs/repetitions, or `NOT RUN — accuracy failed`
+- [ ] Binary gate outcome and honest decision with measured units
+- [ ] Limits, environment, evidence level and next cheapest step recorded
+- [ ] Parent/INDEX/MAP/frontier consistency + branch commit/read-back verified
+
+**Only 9/9 = POD: YES.** See [proof policy](../PROOF_OF_DONE.md). POD is process completion, **not** a correctness theorem.
+
 ## Interpretation and next edge
 
 State gate pass/fail, what it **does not prove**, limitations, uncertainties, accuracy certification status, the cheapest decisive next probe, and links to child P-cards or superseding results. A failed experiment remains filed forever.

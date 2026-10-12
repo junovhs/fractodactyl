@@ -1,5 +1,7 @@
 # Indexed research graph
 
+**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).
+
 P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. The text under **Status** is the **latest decision**, not necessarily the original hypothesis verdict.
 
 | ID | Status | Question | Result / immediate dependency |
