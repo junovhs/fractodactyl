@@ -12,7 +12,7 @@
 
 **Probe:** Inputs, sample size, precision, hardware and ≤30-second test.
 
-**Gate:** Accuracy first (numeric maximum and discrete classes); then ≥3× cold end-to-end speed, unless justified otherwise. Explicitly state what kills this idea.
+**Gate:** Accuracy first (numeric maximum and discrete classes); then a preregistered worthwhile **end-to-end** gain (e.g. >=1.10x for incremental engineering; >=3x for major discovery), with setup and relevant reuse charged. Explicitly state what kills this idea.
 
 **Next if pass/fail:** What single test or branch follows? No vague “investigate further.”
 

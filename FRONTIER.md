@@ -12,9 +12,10 @@ This is an *evidence goal*, not a commitment to circuits, Koenigs, or a particul
 
 | Rank | Candidate | Why it is live | Cheapest decisive next test | What changes the rank |
 |---:|---|---|---|---|
-| 1 | [P-030](PROMPTS/P-030.md): automatically guarded state/parameter switching maps | Relevant to converter/control parameter sweeps; tests automatic validity rather than an already-known map fit | Tiny two-state event-aware model; compare cached/compiled/event-aware direct rivals; accuracy gate first | Drop if event partition is costly or fails, or specialist rival wins |
-| 2 | [P-060](PROMPTS/P-060.md): polynomial composition at repelling Mandelbrot cycles | Directly tests whether the 5.27× contracting-toy result transfers back to the repelling regime | One already-known cycle, small orbit sample; strong same-math Koenigs rival | Advance only if valid domains and cold economics survive |
-| 3 | [P-040](PROMPTS/P-040.md): cost/certificate-driven operator choice | Could automate deciding which local solver wins | Sweep chart radius/horizon on toy with cached competitors | Kill if selector cost removes gains |
+| 1 | [P-082](PROMPTS/P-082.md): amortized q=5 PWM kick | Cheap test of R-007's retained ~2.03x warm signal at a meaningful repeat count | 2,048 batches, cold JIT/chart charged, 16 datasets, matched exact opponent | Retain if >=1.10x full lifecycle and accuracy pass |
+| 2 | [P-030](PROMPTS/P-030.md): automatically guarded state/parameter switching maps | Relevant to converter/control parameter sweeps; tests automatic validity rather than an already-known map fit | Tiny two-state event-aware model; compare cached/compiled/event-aware direct rivals; accuracy gate first | Drop if event partition is costly or fails, or specialist rival wins |
+| 3 | [P-060](PROMPTS/P-060.md): polynomial composition at repelling Mandelbrot cycles | Directly tests whether the 5.27× contracting-toy result transfers back to the repelling regime | One already-known cycle, small orbit sample; strong same-math Koenigs rival | Advance only if valid domains and cold economics survive |
+| 4 | [P-040](PROMPTS/P-040.md): cost/certificate-driven operator choice | Could automate deciding which local solver wins | Sweep chart radius/horizon on toy with cached competitors | Kill if selector cost removes gains |
 
 **These are candidates, not obligations.** An agent may introduce and prioritize a better cross-domain hypothesis whenever it documents *why the new cheap experiment has higher expected information value*. Keep a small active portfolio (typically 1–3 leads), not a sprawling backlog of untested speculative prompts.
 
@@ -35,5 +36,7 @@ This is an *evidence goal*, not a commitment to circuits, Koenigs, or a particul
 5. Re-rank this file **only if evidence or clear opportunity-cost reasoning changes the frontier**; always leave one specific next cheap test.
 
 **Do not repeatedly rerun a killed idea** unless a new premise has changed. This page describes what is *currently attractive*, not which industry agents must work on.
+
+**Active preregistration:** [P-082](PROMPTS/P-082.md) freezes a 2,048-batch amortization workload and >=1.10x cold end-to-end target before timing. R-007's original >=3x failure is retained.
 
 **Incremental-gain assessment (owner direction, 2026-10-12):** Record and consider repeatable 1.10x gains, or smaller gains with large absolute savings; do not apply a blanket 3x veto. A useful, cheap follow-up on R-007 is 2,048 repeated 128x32 batches with amortized JIT/chart build against compiled exact propagation. This is a changed workload premise, not a post-hoc rewrite of R-007. Stronger scientific candidates remain continuous state-triggered event-time maps and P-060. Prefer the largest expected cumulative end-to-end time saved *per research hour*, and do not multiply separate speedups without a combined measurement.
