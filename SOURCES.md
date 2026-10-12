@@ -45,3 +45,11 @@ Scope caution: consulted publisher abstracts, an open full-text article and an a
 ## 2026-10-12 interpretation correction
 
 The search-only decisions documented earlier on this date reflected a now-superseded *policy* that treated prior-art overlaps as vetoes. The citations and reported overlaps remain informative; they do not establish that untested mathematical extensions of P-040, P-051 or P-060 cannot yield new capabilities. Agents should use the cited methods as ingredients, derive concrete new consequences, and run exploratory falsification before deciding whether a formal study is justified. This correction makes no novelty or numerical performance claim.
+
+## 2026-10-12 focused R-010 exploratory source check
+
+Actual external web queries run before archiving R-010 (not confirmatory preregistration):
+- `Poincare function repelling fixed point polynomial quadratic functional equation entire linearization iteration coefficients`
+- `validated Koenigs Poincare function power series truncation error bounds functional equation numerical dynamics`
+
+Identifiable results: Eremenko and Sodin, *Iterations of Rational Functions and the Distribution of the Values of the Poincare Functions*, https://www.math.purdue.edu/~eremenko/Springer/poincare.pdf (accessible introduction excerpt: exact functional equation at repelling fixed points); Mihaljevic-Brandt and Peter, *Poincare Functions with Spiders' Webs*, https://arxiv.org/abs/1010.0299 (abstract: entire polynomial linearizers); *Fourier Series in Solutions of Poincare and Schroder Equations* (2008), https://doi.org/10.1016/j.chaos.2006.07.011 (publisher abstract discusses quadratic family and c=-2 elementary solution). This does **not** determine originality of residual-admitted chart handoff. Novelty UNVERIFIED; no exhaustive full-text review or formal P/PA.

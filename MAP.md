@@ -18,6 +18,7 @@ flowchart TD
   P000 --> P050["P-050 · Whole-orbit Newton scan"]
   P050 --> R005["R-005 · Global scan FAILED"]
   R005 --> P051["P-051 · Certified segmented solve"]
+  P051 --> R010["R-010 · Exploratory chart seed and handoff"]
   P030 --> P080["P-080 · q4 guarded PWM"]
   P080 --> R006["R-006 · 2/128 failed gate"]
   R006 --> P081["P-081 · q5 same model"]
@@ -31,7 +32,7 @@ flowchart TD
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
   class R002,R004,R005,R006 fail
-  class R001,R003,R007,R008,R009,P083 maybe
+  class R001,R003,R007,R008,R009,R010,P083 maybe
   class P030,P040,P051,P060,P070 untested
 ```
 
@@ -46,3 +47,5 @@ Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-0
 New pretest branch: [P-030](PROMPTS/P-030.md) → [P-083](PROMPTS/P-083.md) ([PA-P-083](PRIOR_ART/PA-P-083.md)) → [R-009](RESULTS/R-009.md) (historical warm-only gain; **known-method research CLOSED/PIVOT**, no default tuning child). Search-only future prior-art matches go straight to a documented [frontier](FRONTIER.md) pivot, without a forced P/R edge.
 
 [All statuses and one-line decisions](INDEX.md).
+
+Executed exploratory child: [P-051](PROMPTS/P-051.md) → [R-010](RESULTS/R-010.md), conditional exact-initial-condition chart seeding, nonsequential defect budget, and failed out-of-range chart evaluation. Not a certified time-parallel solver or speedup.
