@@ -1,9 +1,10 @@
 # Active research frontier
 
-**State as of 2026-10-12, after R-009.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
+**State as of 2026-10-12, after R-009 and owner-directed prior-art triage correction.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
 
 ## Research policy and decision distinction
 
+**New discovery priority: FIND PRIOR ART -> CITE -> PIVOT.** A known published mechanism in a substantially similar application is a successful early elimination, **not permission to test if we can beat it**. Record the actual citation and overlapping claim, then independently search another idea. Only a meaningful unsolved mathematical/new-application delta (or explicitly owner-requested non-novel engineering task) proceeds to experiment. Search-only eliminations require neither P-card nor R-card. [PRIOR_ART.md](PRIOR_ART.md) is the binding gate.
 **Preserve correct improvements of any magnitude.** Even a repeatable 1% gain can be useful at high call counts. Accuracy and fair comparison determine whether it is credible; estimated **absolute saved compute across actual deployments**, confidence, transfer and research/integration cost determine whether to invest more. **Neither ≥3× nor ≥1.10× is a universal promotion floor.** The original result's frozen gate and the current portfolio opportunity are separate decisions.
 
 **BEFORE ANY NEW TEST:** [PRIOR_ART.md](PRIOR_ART.md) requires an actually executed external literature search and **pretest committed query/results dossier** with a new linked P-card, nearest prior mechanism/specialist rival and a claim class. No search, no experiment. The retrospective PWM audit identified a directly overlapping 1990 polynomial buck-converter simulator: [PA-PWM-RETRO](PRIOR_ART/PA-PWM-RETRO.md). Its exact executed queries and actual results are archived **after** the measurements; they do not count as pretest diligence. Thus the 1.209× synthetic gain is **engineering evidence for a known mathematical family**, not algorithmic originality. Every listed untested lead requires new pretest search evidence before numerical execution.
@@ -18,20 +19,22 @@ Older [P-030](PROMPTS/P-030.md), [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-06
 
 All these measurements are **REPORTED**, not independently REPRODUCED or CERTIFIED: the executable/raw packs are not archived in this documentation-only branch. No industrial converter acceleration, general simulator breakthrough or Fractodactyl renderer improvement has been demonstrated.
 
-- [R-009](RESULTS/R-009.md): P-083 pretest-search-vetted known-method benchmark on a continuously state-triggered two-state hybrid. Quadratic event-time warm start gives **1.277× warm** over compiled midpoint safeguarded Newton at 262,144 repeated updates, **but cold is slower** (1,164.116 vs 1,122.827 ms medians). Empirical accuracy gate passed (max 9.619e-14 final-state, 0 wrong event classes), yet **all 2,048 events required fallback beyond two Newton steps**. **CONDITIONAL**, not a deployable win. The strongest next question is whether better event admission/prediction saves root work against equally tuned rival on nontrivial/no-event/grazing cases. Prior-art dossier [PA-P-083](PRIOR_ART/PA-P-083.md) was committed before execution; no novelty claim.
+- [R-009](RESULTS/R-009.md): P-083 pretest-search-vetted known-method benchmark on a continuously state-triggered two-state hybrid. Quadratic event-time warm start gives **1.277× warm** over compiled midpoint safeguarded Newton at 262,144 repeated updates, **but cold is slower** (1,164.116 vs 1,122.827 ms medians). Empirical accuracy gate passed (max 9.619e-14 final-state, 0 wrong event classes), yet **all 2,048 events required fallback beyond two Newton steps**. **CONDITIONAL** historical warm result, but **STOP routine known-method follow-up** as a discovery direction: event localization is established and no substantive uncovered mechanism has been identified. Prior-art dossier [PA-P-083](PRIOR_ART/PA-P-083.md) was committed before execution; no novelty claim.
 
-## Candidate leads and next discriminating tests
+## Discovery-first literature leads — NOT approved experiments
 
-| Rank | Candidate | Why it matters | Smallest useful next check |
+These are **search targets**, not evidence of novel mathematics, approved P-cards, or a requirement to run tests. Search for the closest primary method *before coding*. If it already addresses the same substantive claim, cite it and choose a different mechanism. A new outside-domain candidate may outrank any row.
+
+| Search priority | Different mechanism worth examining | What could eliminate it | First action |
 |---:|---|---|---|
-| 1 | Guard/event-time shortcut follow-up after [R-009](RESULTS/R-009.md) | State-triggered accuracy is demonstrated on an easy monotone toy but cold savings are unproven; every event needed fallback | A new P-card + pretest literature dossier for better event certificates, adversarial near-grazing/no-crossing data and tuned same-method rival |
-| 2 | Representative workload for [R-008](RESULTS/R-008.md) | Test whether a measured incremental toy gain survives real input distributions, domain coverage and full lifecycle | One relevant converter workload; match exact specialist baseline, count setup, report saved seconds and fallbacks |
-| 3 | Repelling-cycle direct composition, child of [P-060](PROMPTS/P-060.md) | Compare operator construction with the existing guarded Koenigs accelerator | One known repelling chart, fair composition/Koenigs competitor, independent MPFR holdout and realistic build/reuse lifecycle |
+| 1 | Certificate- and cost-aware operator admission ([P-040](PROMPTS/P-040.md)) | Published certified adaptive solver/selector already realizes the proposed mechanism | Literature check; find an actual unanswered admission principle or PIVOT |
+| 2 | Precision-aware segmentation of long-horizon computation ([P-051](PROMPTS/P-051.md)) | Existing multiple-shooting, time-parallel or validated integration settles the claimed shortcut | Literature check; isolate a genuinely different mathematical decomposition or PIVOT |
+| 3 | Repelling-cycle structure ([P-060](PROMPTS/P-060.md)) or a new cross-domain mechanism | Classical polynomial composition/linearization already answers the specific question | Read the closest mathematics; if established, move on instead of racing the old approach |
 
-[P-040](PROMPTS/P-040.md) remains a lower-priority operator-choice candidate. Choose a different lead when a cheaper, more consequential experiment appears; don't confuse a large ratio on an irrelevant workload with valuable science.
+The scoped measured gains in [R-008](RESULTS/R-008.md) and [R-009](RESULTS/R-009.md) are retained evidence. **Neither PWM polynomial approximation nor standard event-root warm starts is an automatic next research project.** A good session may finish with multiple literature eliminations and a fresher mathematical question, without any numerical run.
 
 ## Handoff discipline
 
-Every session should (1) state the uncertainty and its expected information **and real compute savings**; (2) pre-register a P-card with fair opponent and accuracy gate (and a workload-specific cost threshold if appropriate); (3) run a small decisive test; (4) file an R-card even after a negative gate; (5) report **original GATE**, **measured effect**, **current opportunity decision**, provenance and next test separately. Stop wasting effort on trivial or noisy follow-ups, **not** on a correct gain merely because it is smaller than a preferred headline number.
+At each session: propose multiple distinct hypotheses; **search first**; if the literature already contains one, cite the exact overlap and **PIVOT to another**. Only a substantive surviving open gap may be preregistered with a P/PA pair and tested. If an experiment is justified and actually run, preserve original accuracy/cost gates, all measured effects including genuine incremental benefits, proof status and uncertainty. Do not create an R-card just to prove that work happened, and do not treat beating known prior art as the lab's standing mission.
 
 [Research index](INDEX.md) · [Lineage map](MAP.md) · [Proof of done](PROOF_OF_DONE.md).

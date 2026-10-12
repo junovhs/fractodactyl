@@ -1,6 +1,6 @@
 # Indexed research graph
 
-**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).**Mandatory novelty audit for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
+**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).**Prior-art STOP/PIVOT gate for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
 
 P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. **A prompt's original numeric GATE is distinct from the ongoing research opportunity.** `KILL` of one frozen ≥3× test does **not** erase a smaller credible observed gain; see [GOAL](GOAL.md) and [R-007 → R-008](RESULTS/R-008.md). There is no default minimum speedup for new work.
 
@@ -20,8 +20,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
 | [P-060](PROMPTS/P-060.md) | UNTESTED · legacy ≥3× gate | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
 | [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
-
-| [P-083](PROMPTS/P-083.md) | CONDITIONAL · **known-method benchmark** | Quadratic event-time predictor vs compiled exact-flow roots | [R-009](RESULTS/R-009.md): accuracy passes; 1.277× warm, cold loses |
+| [P-083](PROMPTS/P-083.md) | **CLOSED/PIVOT** · known-method discovery | Quadratic event-time predictor vs compiled exact-flow roots | [R-009](RESULTS/R-009.md): 1.277× warm historically, cold loses; no routine follow-up |
 
 ## Experiment results
 
@@ -35,6 +34,8 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-006](RESULTS/R-006.md) | REPORTED · new run | **1.056531374e-7 > 1e-7** | NOT RUN — accuracy failed | **KILL q=4** |
 | [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL original >=3x gate; [R-008](RESULTS/R-008.md) confirms amortized follow-up** |
 | [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
-| [R-009](RESULTS/R-009.md) | REPORTED · new run · pretest prior art | **9.619e-14 state, 0 wrong event classes** | **1.277× warm; 0.965× cold** vs compiled midpoint Newton | **CONDITIONAL** · improve baseline/domain before transfer |
+| [R-009](RESULTS/R-009.md) | REPORTED · new run · pretest prior art | **9.619e-14 state, 0 wrong event classes** | **1.277× warm; 0.965× cold** vs compiled midpoint Newton | **CONDITIONAL measurement; STOP known-method research** |
+
+**New selection rule:** when prior art already contains the method and similar application, cite-and-**PIVOT** instead of registering a numerical speed race. Search-only eliminations need no P/R cards. Previously measured R-008/R-009 effects remain intact, but continuing a known-method benchmark requires explicit owner direction.
 
 Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain, certified speedup or algorithmic novelty. The [PWM prior-art audit](PRIOR_ART/PA-PWM-RETRO.md) was **retrospective**, not the mandatory pretest search; executables remain outside this documentation-only branch.

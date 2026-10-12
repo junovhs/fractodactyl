@@ -26,7 +26,7 @@ flowchart TD
   P082 --> R008["R-008 · 1.209x cold; toy pass"]
   P030 --> P070["P-070 · Multistate event-domain generalization"]
   P030 --> P083["P-083 · Event-time quadratic predictor"]
-  P083 --> R009["R-009 · Warm gain / cold loss; accuracy pass"]
+  P083 --> R009["R-009 · Known-method measurement; pivot"]
   classDef fail fill:#ffefef,stroke:#b94a48,color:#74211f
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
@@ -43,6 +43,6 @@ Parallel track: [P-050](PROMPTS/P-050.md) → [R-005](RESULTS/R-005.md) → [P-0
 
 Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md). Measured negative branch: [P-080](PROMPTS/P-080.md) → [R-006](RESULTS/R-006.md) → [P-081](PROMPTS/P-081.md) → [R-007](RESULTS/R-007.md) (accuracy repaired; old ≥3× gate failed, 2.027× warm signal retained) → [P-082](PROMPTS/P-082.md) → [R-008](RESULTS/R-008.md) (1.209x cold synthetic workload gain). Future multi-state extension: [P-070](PROMPTS/P-070.md).
 
-New pretest branch: [P-030](PROMPTS/P-030.md) → [P-083](PROMPTS/P-083.md) ([PA-P-083](PRIOR_ART/PA-P-083.md)) → [R-009](RESULTS/R-009.md) (accuracy passes, warm-only conditional gain).
+New pretest branch: [P-030](PROMPTS/P-030.md) → [P-083](PROMPTS/P-083.md) ([PA-P-083](PRIOR_ART/PA-P-083.md)) → [R-009](RESULTS/R-009.md) (historical warm-only gain; **known-method research CLOSED/PIVOT**, no default tuning child). Search-only future prior-art matches go straight to a documented [frontier](FRONTIER.md) pivot, without a forced P/R edge.
 
 [All statuses and one-line decisions](INDEX.md).
