@@ -53,7 +53,7 @@ Older results are retrospective conversation records; R-006/R-007 are new report
 
 The [current frontier](FRONTIER.md) **retains** [R-008](RESULTS/R-008.md)'s measured ~1.21× synthetic repeated-use gain and has closed routine *continuous state-triggered event-time* warm-start benchmarking under [P-083](PROMPTS/P-083.md) and is searching for **different unresolved mathematical mechanisms**, not a better variant of a known event-root finder. [P-060](PROMPTS/P-060.md)'s repelling-cycle case and [P-040](PROMPTS/P-040.md)'s operator selector remain untested. **Their old ≥3× P-card thresholds are historical, not universal policy; changed-scope incremental tests require new linked cards with appropriate gates.** The frontier is re-ranked by expected payoff and test cost, not speedup spectacle.
 
-**Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
+**Compare operators only when evaluating a substantively new research question** or performing an explicitly owner-requested engineering study. Koenigs, direct polynomial composition and established domain-specific solvers supply prior-art context; their existence is a reason to search for different mathematics, not an automatic invitation to a speed contest.
 
 ## How to use this notebook
 

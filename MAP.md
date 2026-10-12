@@ -31,8 +31,8 @@ flowchart TD
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
   class R002,R004,R005,R006 fail
-  class R001,R003,R007,R008,R009 maybe
-  class P030,P040,P051,P060,P070,P083 untested
+  class R001,R003,R007,R008,R009,P083 maybe
+  class P030,P040,P051,P060,P070 untested
 ```
 
 ## Clickable reading order
