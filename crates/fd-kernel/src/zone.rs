@@ -197,6 +197,45 @@ impl Fx {
     }
 }
 
+/// Arithmetic needed by the shared polynomial stages. Each number type keeps its
+/// own range and rounding; the evaluators never convert a deep value to f64.
+trait Complex: Copy + Default {
+    fn add(self, other: Self) -> Self;
+    fn mul(self, other: Self) -> Self;
+    fn scale(self, scalar: f64) -> Self;
+}
+
+impl Complex for Cx {
+    #[inline(always)]
+    fn add(self, other: Self) -> Self {
+        Cx::add(self, other)
+    }
+    #[inline(always)]
+    fn mul(self, other: Self) -> Self {
+        Cx::mul(self, other)
+    }
+    #[inline(always)]
+    fn scale(self, scalar: f64) -> Self {
+        Cx::scale(self, scalar)
+    }
+}
+
+impl Complex for Fx {
+    #[inline(always)]
+    fn add(self, other: Self) -> Self {
+        Fx::add(self, other)
+    }
+    #[inline(always)]
+    fn mul(self, other: Self) -> Self {
+        Fx::mul(self, other)
+    }
+    #[inline(always)]
+    fn scale(self, scalar: f64) -> Self {
+        // Keep the deep evaluator's normalized multiply, including its rounding.
+        self.mul(Fx::new(Cx(scalar, 0.0), 0))
+    }
+}
+
 /// One tail patch: centre and half-width in `s = log w`, the steps `m` it covers (-1:
 /// invalid leaf, finish plainly), and the Taylor coefficients in `t = (s - centre) / r`.
 #[derive(Clone, Debug)]
@@ -1082,7 +1121,7 @@ fn pixel_deep<const D: bool>(
     let h0 = x.z24ma.add(d);
     let mut z = k.alpha.add(h0.to_cx());
     if h0.to_cx().abs() < k.r0 {
-        let (w0, dphi) = series_d_fx(&x.phi, h0);
+        let (w0, dphi) = series_d(&x.phi, h0);
         let (lw, aw) = (w0.ln_abs(), w0.arg());
         let (lr, ar) = (k.rho.abs().ln(), k.rho.1.atan2(k.rho.0));
         let j = ((k.r0.ln() - lw) / lr).floor();
@@ -1237,20 +1276,10 @@ fn attracted_deep(b: &[Fx; 8], deg: usize, u: Fx) -> bool {
     attracted(&bt, deg, u.m)
 }
 
-/// [`series_d`] in [`Fx`].
-fn series_d_fx(c: &[Fx], x: Fx) -> (Fx, Fx) {
-    let (mut s, mut d) = (Fx::default(), Fx::default());
-    for (i, a) in c.iter().enumerate().rev() {
-        s = s.add(*a).mul(x);
-        d = d.mul(x).add(a.mul(Fx::new(Cx((i + 1) as f64, 0.0), 0)));
-    }
-    (s, d)
-}
-
 /// `B(u)`, `B'(u)` and `B''(u)` for `B(u) = sum b[i] u^i`, `i <= deg`.
 #[inline]
-fn eval2(b: &[Cx; 8], deg: usize, u: Cx) -> (Cx, Cx, Cx) {
-    let (mut s, mut d, mut dd) = (b[deg], Cx::default(), Cx::default());
+fn eval2<N: Complex>(b: &[N; 8], deg: usize, u: N) -> (N, N, N) {
+    let (mut s, mut d, mut dd) = (b[deg], N::default(), N::default());
     for i in (0..deg).rev() {
         dd = dd.mul(u).add(d);
         d = d.mul(u).add(s);
@@ -1302,8 +1331,8 @@ fn attracted(b: &[Cx; 8], deg: usize, u: Cx) -> bool {
 
 /// `sum c[k-1] x^k` and its derivative.
 #[inline]
-fn series_d(c: &[Cx], x: Cx) -> (Cx, Cx) {
-    let (mut s, mut d) = (Cx::default(), Cx::default());
+fn series_d<N: Complex>(c: &[N], x: N) -> (N, N) {
+    let (mut s, mut d) = (N::default(), N::default());
     for (i, a) in c.iter().enumerate().rev() {
         s = s.add(*a).mul(x);
         d = d.mul(x).add(a.scale((i + 1) as f64));
@@ -1342,6 +1371,84 @@ fn patch(k: &Zone, ln_w0: f64, arg_w0: f64, j: f64) -> Option<(Cx, Cx, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_cx_bits(actual: Cx, expected: Cx) {
+        assert_eq!(
+            actual.0.to_bits(),
+            expected.0.to_bits(),
+            "{actual:?} {expected:?}"
+        );
+        assert_eq!(
+            actual.1.to_bits(),
+            expected.1.to_bits(),
+            "{actual:?} {expected:?}"
+        );
+    }
+
+    fn assert_fx_bits(actual: Fx, expected: Fx) {
+        assert_eq!(actual.e, expected.e, "{actual:?} {expected:?}");
+        assert_cx_bits(actual.m, expected.m);
+    }
+
+    #[test]
+    fn shared_series_preserves_complex_values_and_deep_exponents() {
+        // Dyadic inputs make this independent expanded cubic exact in binary64.
+        let c = [Cx(1.0, -2.0), Cx(-0.5, 0.25), Cx(0.125, -0.125)];
+        let x = Cx(0.5, 0.25);
+        let x2 = x.mul(x);
+        let expected_s = c[0].mul(x).add(c[1].mul(x2)).add(c[2].mul(x2.mul(x)));
+        let expected_d = c[0]
+            .add(c[1].scale(2.0).mul(x))
+            .add(c[2].scale(3.0).mul(x2));
+        let (s, d) = series_d(&c, x);
+        assert_cx_bits(s, expected_s);
+        assert_cx_bits(d, expected_d);
+        for e in [-3000, 0, 3000] {
+            // c[k] * x^(k+1) stays finite while x and the derivative leave f64 range.
+            let coefficients =
+                std::array::from_fn::<_, 3, _>(|k| Fx::new(c[k], -(k as i64 + 1) * e));
+            let (s, d) = series_d(&coefficients, Fx::new(x, e));
+            assert_fx_bits(s, Fx::new(expected_s, 0));
+            assert_fx_bits(d, Fx::new(expected_d, -e));
+        }
+        let (s, d) = series_d::<Cx>(&[], x);
+        assert_eq!((s, d), (Cx::default(), Cx::default()));
+        let (s, d) = series_d::<Fx>(&[], Fx::new(x, -3000));
+        assert_fx_bits(s, Fx::default());
+        assert_fx_bits(d, Fx::default());
+    }
+
+    #[test]
+    fn shared_polynomial_preserves_both_derivatives_in_each_range() {
+        // B(x) = 1 + (2-i)x + (3+i)x^2, including degree-zero and linear cases.
+        let mut b = [Cx::default(); 8];
+        b[0] = Cx(1.0, 0.0);
+        b[1] = Cx(2.0, -1.0);
+        b[2] = Cx(3.0, 1.0);
+        let x = Cx(0.5, 0.25);
+        for degree in 0..=2 {
+            let (s, d, dd) = eval2(&b, degree, x);
+            let expected = match degree {
+                0 => (b[0], Cx::default(), Cx::default()),
+                1 => (b[0].add(b[1].mul(x)), b[1], Cx::default()),
+                _ => (
+                    b[0].add(b[1].mul(x)).add(b[2].mul(x.mul(x))),
+                    b[1].add(b[2].scale(2.0).mul(x)),
+                    b[2].scale(2.0),
+                ),
+            };
+            assert_cx_bits(s, expected.0);
+            assert_cx_bits(d, expected.1);
+            assert_cx_bits(dd, expected.2);
+            for e in [-3000, 0, 3000] {
+                let coefficients = std::array::from_fn(|k| Fx::new(b[k], -(k as i64) * e));
+                let (s, d, dd) = eval2(&coefficients, degree, Fx::new(x, e));
+                assert_fx_bits(s, Fx::new(expected.0, 0));
+                assert_fx_bits(d, Fx::new(expected.1, -e));
+                assert_fx_bits(dd, Fx::new(expected.2, -2 * e));
+            }
+        }
+    }
 
     #[test]
     fn gpu_f64_constants_use_scaled_decimal_offsets() {
@@ -1402,7 +1509,7 @@ mod tests {
             max_iter: 20_000,
             escape_radius: 1e10,
             columns: fd_samples::ColumnSet::of(columns),
-            threads: 4,
+            threads: 1,
             tier: None,
         }
     }
