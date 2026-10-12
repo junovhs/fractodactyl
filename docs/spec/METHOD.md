@@ -97,6 +97,22 @@ A dead idea is a result. Record negative and positive results in the log below, 
 the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
+### Parallel-in-time reference orbits (2026-10-11, owner-run research; killed)
+
+Question 1 of `docs/research/10-11-26/frontier-questions.md`; full answer in
+`docs/research/10-11-26/q1-parallel-in-time-reference-orbits.md`.
+- **Killed:** whole-orbit Newton with an affine prefix scan, seeded from a double orbit.
+  At c = −2 + 2^-256 (N = 384, 1,600 bits) the seed's residuals are 2^-256, yet sweep 1
+  makes the max residual 2^+1015 and the corrections diverge from there. The new residual
+  is exactly −δ_n², so Newton only helps once the seed is already close everywhere.
+- Guard bits grow with orbit length (amplification 2^511 at n = 384); there is no fixed
+  budget. A low-precision scan fails (53-424 bits all miss 2^-40 at n = 384).
+- Cost: one full-precision sweep is 5.36x / 5.54x sequential MPFR at 10k / 100k bits,
+  over the 4x kill line before counting multiple sweeps.
+- **Still open (speculative):** certified segment Newton on short blocks whose entry
+  states are already known (keyframes, compiled operators), admitted by
+  β + κR² ≤ R, 2κR < 1. Periodic-closure multiple shooting must beat the factored compiler.
+
 ### FX-07: dense studio haze (2026-10-11)
 
 **Red baseline and rejected round 1 (owner's 128x72 VIDE-01 frame 721):** the pre-FX-07 master-ice look (new `haze` line removed) gives RMS luminance contrast **0.041470** and mean saturation **0.269814** in the 3,587 / 9,216 fine-band pixels. The first attempted treatment gives 0.446991 / 0.832632 (10.779x / 3.086x). Its ordinary frame is byte-identical, but only because 436 / 9,216 fine-band pixels did not reach its **25% whole-frame gate**. Crossing that gate in a zoom causes a whole-frame appearance pop. **Reject that frame-gated treatment** despite the 2x metrics. Owner ran `cargo test --workspace` (passed after a timing flake retry), Clippy (clean), and `haze_check.py` (old incomplete contract: passed).
