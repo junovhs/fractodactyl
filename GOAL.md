@@ -6,6 +6,8 @@ Discover, test, and eventually generalize mathematical methods that make previou
 
 The expected output is **findings**: credible new methods, repeatable incremental improvements, transferable gains, useful failures, limits of known methods, and unexpected connections. A negative test that eliminates a plausible approach is progress. Avoid novelty claims without prior-art review.
 
+**Mandatory research distinction:** Established mathematics with a new implementation benchmark is **not** a newly discovered algorithm. Before any new experiment, agents must actually search the published literature, **commit the literal search queries, dated results with source links, closest predecessor and exact unresolved gap** alongside the new hypothesis, and classify known-method benchmarking versus an open scientific question. [PRIOR_ART.md](PRIOR_ART.md) defines the enforceable audit and blocker. When searches cannot run, the new experiment is **BLOCKED**; no source-free novelty narrative is allowed. Preserve incremental gains without inventing mathematical originality.
+
 ## Agent autonomy
 
 Agents are **not required to follow a preselected technical roadmap** or keep pursuing power electronics. At each research session, independently read the evidence, propose competing leads across domains, select the **highest information-to-cost** test, run it, and update the [frontier](FRONTIER.md). The owner need not know which algorithm to pursue. Follow evidence rather than fashion, hunches, or sunk cost.

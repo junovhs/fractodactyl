@@ -8,11 +8,11 @@
 
 Our **[standing goal](GOAL.md)** is self-directed discovery of useful mathematical shortcuts for expensive computation; **no particular domain or hypothesis is compulsory**. At the start of each session agents inspect the **[live research frontier](FRONTIER.md)**, challenge its ranking, choose the cheapest decisive experiment, and change direction when the evidence warrants. The owner does not need to invent a technical plan.
 
-Each experiment also has a **[binary proof of done](PROOF_OF_DONE.md)**; formal proof, when warranted, follows the **[Lean policy](LEAN.md)**. A completed failed experiment is valuable. A good-looking benchmark without fair comparison or documentation is not complete.
+Each *new* experiment also has a **[10/10 binary proof of done](PROOF_OF_DONE.md)**, including prior-art search; historical R-001–R-008 used 9/9. It formal proof, when warranted, follows the **[Lean policy](LEAN.md)**. A completed failed experiment is valuable. A good-looking benchmark without fair comparison or documentation is not complete.
 
 ## Instructions for research agents
 
-**Start with [AGENTS.md](AGENTS.md) or [CLAUDE.md](CLAUDE.md)**—the two files contain exactly the same operating instructions. They define the mandatory sequence: pre-register a ≤150-word question, freeze fair baseline and kill criteria, run a quick Python probe, file every result, update the lineage graph and index, verify the Git commit. Use [question](TEMPLATES/QUESTION.md) and [result](TEMPLATES/RESULT.md) templates. **Do not add Fractodactyl source code to this branch.**
+**Start with [AGENTS.md](AGENTS.md) or [CLAUDE.md](CLAUDE.md)**—the two files contain exactly the same operating instructions. **Prior-art HARD GATE:** Before every new numerical experiment, **run external literature searches and commit exact queries + dated results/source URLs in a [prior-art dossier](PRIOR_ART.md) alongside its P-card.** No documented search → **do not run**. A numerical speedup against a strong rival is not necessarily new mathematics. The original PWM experiment omitted this check; see the [retrospective evidence](PRIOR_ART/PA-PWM-RETRO.md). They define the mandatory sequence: pre-register a ≤150-word question, freeze fair baseline and kill criteria, run a quick Python probe, file every result, update the lineage graph and index, verify the Git commit. Use [question](TEMPLATES/QUESTION.md), [prior-art](PRIOR_ART/TEMPLATE.md) and [result](TEMPLATES/RESULT.md) templates. **Do not add Fractodactyl source code to this branch.**
 
 ## Start here
 
