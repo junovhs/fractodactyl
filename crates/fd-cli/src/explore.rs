@@ -44,10 +44,7 @@ fn embedded_page() -> String {
           html.embedded #studio { right: 8px; top: 8px; bottom: 8px; }
         </style></head>"#,
     );
-    page.replace(
-        "</body>",
-        r#"<script src="/v2/embed.js"></script></body>"#,
-    )
+    page.replace("</body>", r#"<script src="/v2/embed.js"></script></body>"#)
 }
 
 /// Derive the real Linux UI directly from the finalised HTML mockup. Its
@@ -106,24 +103,65 @@ fn v2_page() -> String {
 /// cannot serve arbitrary local files. All resources stay on loopback.
 fn v2_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
     match path {
-        "/v2/img/banner-band.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-band.png")[..])),
-        "/v2/img/banner-left.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-left.png")[..])),
-        "/v2/img/banner-right.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-right.png")[..])),
-        "/v2/img/icon-explore.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-explore.png")[..])),
-        "/v2/img/icon-fossils.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-fossils.png")[..])),
-        "/v2/img/icon-map.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-map.png")[..])),
-        "/v2/img/icon-nest.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-nest.png")[..])),
-        "/v2/img/icon-pan.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-pan.png")[..])),
-        "/v2/img/icon-snapshot.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-snapshot.png")[..])),
-        "/v2/img/icon-zoom.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-zoom.png")[..])),
-        "/v2/img/mascot-icon.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/mascot-icon.png")[..])),
-        "/v2/img/mascot.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/mascot.png")[..])),
-        "/v2/img/nav.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/nav.png")[..])),
-        "/v2/img/seahorse.jpg" => Some(("image/jpeg", &include_bytes!("../../../viewer/mockup/img/seahorse.jpg")[..])),
+        "/v2/img/banner-band.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/banner-band.png")[..],
+        )),
+        "/v2/img/banner-left.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/banner-left.png")[..],
+        )),
+        "/v2/img/banner-right.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/banner-right.png")[..],
+        )),
+        "/v2/img/icon-explore.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-explore.png")[..],
+        )),
+        "/v2/img/icon-fossils.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-fossils.png")[..],
+        )),
+        "/v2/img/icon-map.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-map.png")[..],
+        )),
+        "/v2/img/icon-nest.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-nest.png")[..],
+        )),
+        "/v2/img/icon-pan.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-pan.png")[..],
+        )),
+        "/v2/img/icon-snapshot.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-snapshot.png")[..],
+        )),
+        "/v2/img/icon-zoom.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/icon-zoom.png")[..],
+        )),
+        "/v2/img/mascot-icon.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/mascot-icon.png")[..],
+        )),
+        "/v2/img/mascot.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/mascot.png")[..],
+        )),
+        "/v2/img/nav.png" => Some((
+            "image/png",
+            &include_bytes!("../../../viewer/mockup/img/nav.png")[..],
+        )),
+        "/v2/img/seahorse.jpg" => Some((
+            "image/jpeg",
+            &include_bytes!("../../../viewer/mockup/img/seahorse.jpg")[..],
+        )),
         _ => None,
     }
 }
-
 
 /// Shared between connection threads: one render runs at a time, and a request older
 /// than the newest generation the page has sent is skipped instead of rendered.
@@ -227,10 +265,28 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
     match path {
         "/v2" | "/v2/" => {
             let page = v2_page();
-            respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], page.as_bytes())
+            respond(
+                &mut stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                &[],
+                page.as_bytes(),
+            )
         }
-        "/v2/live.js" => respond(&mut stream, "200 OK", "application/javascript; charset=utf-8", &[], V2_LIVE.as_bytes()),
-        "/v2/embed.js" => respond(&mut stream, "200 OK", "application/javascript; charset=utf-8", &[], V2_BRIDGE.as_bytes()),
+        "/v2/live.js" => respond(
+            &mut stream,
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            &[],
+            V2_LIVE.as_bytes(),
+        ),
+        "/v2/embed.js" => respond(
+            &mut stream,
+            "200 OK",
+            "application/javascript; charset=utf-8",
+            &[],
+            V2_BRIDGE.as_bytes(),
+        ),
         "/looks" => respond(
             &mut stream,
             "200 OK",
@@ -270,11 +326,23 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
         "/" => {
             if query.split('&').any(|arg| arg == "embed=1") {
                 let page = embedded_page();
-                respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], page.as_bytes())
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    &[],
+                    page.as_bytes(),
+                )
             } else {
-                respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], PAGE.as_bytes())
+                respond(
+                    &mut stream,
+                    "200 OK",
+                    "text/html; charset=utf-8",
+                    &[],
+                    PAGE.as_bytes(),
+                )
             }
-        },
+        }
         "/render" => match render(query, server) {
             Ok(Some((w, h, info, rgb))) => {
                 let headers = [
@@ -613,7 +681,6 @@ fn raw_pixels(h: &Header, s: &Samples) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn v2_is_real_viewer_not_fake_mockup_timer() {

@@ -58,6 +58,20 @@ if command -v cargo >/dev/null; then
 fi
 [ -x "$FD" ] || fail "fd was not built; install Rust (cargo) and try again."
 
+# A classic fd server started before V2 was built cannot serve /v2/.
+# Restart only that exact fd explore process; do not terminate another server.
+v2_ready() {
+  (exec 4<>"/dev/tcp/127.0.0.1/$PORT" &&
+   printf 'GET /v2/ HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' >&4 &&
+   IFS= read -r -t 2 reply <&4 &&
+   [[ "$reply" == *" 200 "* ]]) 2>/dev/null
+}
+if [[ "$URL" == */v2/ ]] && up && ! v2_ready; then
+  pkill -f "/fd explore --port $PORT\$" || fail "port $PORT is occupied by a different server"
+  for _ in $(seq 30); do up || break; sleep 0.1; done
+  up && fail "the old fd explore server did not stop; see $LOG"
+fi
+
 if ! up; then
   setsid "$FD" explore --port "$PORT" >>"$LOG" 2>&1 < /dev/null &
   for _ in $(seq 50); do up && break; sleep 0.1; done
