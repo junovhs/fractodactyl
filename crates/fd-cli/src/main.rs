@@ -9,6 +9,7 @@ mod control;
 mod explore;
 mod film;
 mod film_gpu;
+mod filmcheck;
 mod keyframe;
 mod lod;
 mod manifest;
@@ -77,6 +78,8 @@ usage:
           [--twist TURNS] [--ease on|off] [--size WxH] [--ss N] [--iter N] [--zone FILE]
           [--look L] [--preset LOOK] [--gpu on|off] [--gpu-kernel f64] [--keyframes M] [look knobs] [--crf N] [--x264 P] [--chroma 420|444] [--compare-every K] [--frames A..B]
           [appearance flags as fd shade; film defaults --aa on --unresolved interior]
+  fd filmcheck REF SHORTCUT [--size WxH] [--heatmap FILE]
+          (raw-dir RGB24 folders, PNG frame folders or mp4; defaults to out/filmcheck-worst.ppm)
   fd compile PATH --store DIR [--size WxH] [--ss N] [--iter N] [--columns C]
              [--kernel K] [--tile-px N] [--bla level|frame|group|none] [--bla-levels K]
              [--fps F] [--lead S] [--workers N] [--policy slack|edf|first-use]
@@ -113,6 +116,7 @@ fn main() {
         Some("play") => play::run(&argv[1..]),
         Some("path") => path::run(&argv[1..]),
         Some("film") => film::run(&argv[1..]),
+        Some("filmcheck") => filmcheck::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         Some("explore") => explore::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
