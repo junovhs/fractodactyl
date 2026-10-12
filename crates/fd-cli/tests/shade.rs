@@ -129,3 +129,78 @@ fn two_looks_from_one_result_without_iterating() {
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn preset_survives_removed_build_worktree() {
+    let dir = std::env::temp_dir().join(format!("fd-runtime-looks-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".git/worktrees/probe")).unwrap();
+    std::fs::create_dir_all(dir.join("looks")).unwrap();
+    let worktree = dir.join("scratch/probe");
+    std::fs::create_dir_all(worktree.join("bin")).unwrap();
+    std::fs::write(
+        worktree.join(".git"),
+        "gitdir: ../../.git/worktrees/probe\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join(".git/worktrees/probe/commondir"), "../..\n").unwrap();
+    let preset = dir.join("looks/runtime-probe.look");
+    std::fs::write(&preset, fd_shade::Look::builtin("ice").unwrap().to_text()).unwrap();
+    let samples = dir.join("tiny.fds");
+    fd(&[
+        "render",
+        "--re",
+        "0",
+        "--im",
+        "0",
+        "--width",
+        "4",
+        "--size",
+        "8x4",
+        "--ss",
+        "1",
+        "--iter",
+        "64",
+        "--threads",
+        "1",
+        "-o",
+        samples.to_str().unwrap(),
+    ]);
+    let executable = worktree.join(format!("bin/fd{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(env!("CARGO_BIN_EXE_fd"), &executable).unwrap();
+    let shade = |exe: &std::path::Path, cwd: &std::path::Path, name: &str, out: &str| {
+        let output = Command::new(exe)
+            .current_dir(cwd)
+            .env_remove("FD_LOOKS")
+            .args([
+                "shade",
+                samples.to_str().unwrap(),
+                "--preset",
+                name,
+                "-o",
+                dir.join(out).to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        std::fs::read(dir.join(out).join("tiny.studio.png")).unwrap()
+    };
+    let before = shade(&executable, &worktree, "runtime-probe", "before");
+    let retained = dir.join(format!("fd{}", std::env::consts::EXE_SUFFIX));
+    std::fs::rename(executable, &retained).unwrap();
+    std::fs::remove_dir_all(worktree).unwrap();
+    let after = shade(&retained, &dir, "runtime-probe", "after");
+    let explicit = shade(&retained, &dir, preset.to_str().unwrap(), "explicit");
+    assert_eq!(
+        before, after,
+        "removed build checkout must not lose its preset"
+    );
+    assert_eq!(
+        after, explicit,
+        "named preset must load the main checkout's file"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
