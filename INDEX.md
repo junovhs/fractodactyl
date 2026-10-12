@@ -12,7 +12,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-021](PROMPTS/P-021.md) | CONDITIONAL | Shrink chart and amortize | [R-003](RESULTS/R-003.md), overturned by [R-004](RESULTS/R-004.md) |
 | [P-022](PROMPTS/P-022.md) | CLOSED | Same-math direct polynomial competition | [R-004](RESULTS/R-004.md) |
 | [P-030](PROMPTS/P-030.md) | UNTESTED · PRIORITY 1 | Parameter-dependent switching maps | Follows R-004 |
-| [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |\n| [P-081](PROMPTS/P-081.md) | IN PROGRESS · PRIORITY 1 | Change only Taylor order to five | Follows [R-006](RESULTS/R-006.md); preregistered, result pending |\n| [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
+| [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |\n| [P-081](PROMPTS/P-081.md) | KILL | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): accuracy PASS, cold only 1.020× (gate ≥3×) |\n| [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
 | [P-060](PROMPTS/P-060.md) | UNTESTED | Direct composition at repelling Mandelbrot cycle | Follows R-004 |
@@ -26,6 +26,6 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-002](RESULTS/R-002.md) | REPORTED | Broad-domain Koenigs fails | No valid timing claim | **KILL** |
 | [R-003](RESULTS/R-003.md) | REPORTED | Local empirical pass | ~4.04× over repeated map at 8192 × 64; not fair final rival | **SUPERSEDED** |
 | [R-004](RESULTS/R-004.md) | REPORTED | Empirical sampled comparison | Direct composition ~5.27× faster cold than Koenigs | **KILL Koenigs preference** |
-| [R-005](RESULTS/R-005.md) | REPORTED | Global Newton diverges | Full-width scan too costly at high precision | **KILL global scan** |\n| [R-006](RESULTS/R-006.md) | REPORTED · new run | **1.056531374e-7 > 1e-7** | NOT RUN — accuracy failed | **KILL q=4** |
+| [R-005](RESULTS/R-005.md) | REPORTED | Global Newton diverges | Full-width scan too costly at high precision | **KILL global scan** |\n| [R-006](RESULTS/R-006.md) | REPORTED · new run | **1.056531374e-7 > 1e-7** | NOT RUN — accuracy failed | **KILL q=4** |\n| [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020× cold vs exact rival** | **KILL q=5 economics** |
 
 No demonstrated novel industrial gain or certified speed-up. R-006 has raw observations and a reconstruction recipe; scripts remain outside this documentation-only Git branch.
