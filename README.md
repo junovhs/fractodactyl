@@ -40,14 +40,14 @@ A **failed** hypothesis is a valid, permanently retained result. **A conditional
 - Broad-domain Koenigs interpolation failed the accuracy gate ([R-002](RESULTS/R-002.md)).
 - Shrinking the domain made a local jump accurate; large batches showed a win **only against a weaker repeated-map competitor** ([R-003](RESULTS/R-003.md)).
 - A fairer **direct composition of the same polynomial** was about **5.27× faster than Koenigs** in that toy test, killing the preferred Koenigs option ([R-004](RESULTS/R-004.md)).
-- Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).
+- Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).\n- A newly executed degree-four PWM switched-return test missed its predeclared 1e-7 accuracy gate on 2/128 trajectories, so no speed timing was run ([R-006](RESULTS/R-006.md)). A degree-five, otherwise identical retest is preregistered ([P-081](PROMPTS/P-081.md)).
 - **No industrial speed-up, no certified industrial simulator, no general-purpose nonlinear compiler has been demonstrated.**
 
 These are **retrospective conversation records**. Original executable files, raw samples and environment snapshots were not committed here. See each result's provenance limits; do not present them as independent reproducibility packs.
 
 ## Current frontier
 
-The [current frontier](FRONTIER.md) tentatively ranks **[P-030: automatically guarded, parameter-dependent switching maps](PROMPTS/P-030.md)** and **[P-060: polynomial composition near repelling cycles](PROMPTS/P-060.md)**. Neither has a measured result. **These are starting candidates, not an assigned roadmap**—an agent should replace them when a better cheap, discriminating experiment is identified.
+The [current frontier](FRONTIER.md) currently tests **[P-081: degree-five guarded PWM kick](PROMPTS/P-081.md)** as the immediate changed-assumption follow-up under **[P-030: switching maps](PROMPTS/P-030.md)**; **[P-060: repelling-cycle polynomial composition](PROMPTS/P-060.md)** remains an untested alternative. Neither has a measured result. **These are starting candidates, not an assigned roadmap**—an agent should replace them when a better cheap, discriminating experiment is identified.
 
 **Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
 
