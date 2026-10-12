@@ -30,7 +30,7 @@ We are not trying to make every chaotic future computable, to sell a prettier fr
 
 ## Success definition
 
-A result advances only when (1) correctness passes a stated gate, (2) **cold** end-to-end time including construction is at least **3× faster** on a useful workload, (3) the opponent gets to use the **same** caching/composition tricks, and (4) an automatic domain/parameter admission rule exists or is the explicit next experiment. Higher claims require a specialist baseline and rigorous bounds. Individual questions may impose stricter gates.
+**A credible 1.10x improvement is worth considering** if it is accurate, consistently better than a strong same-math rival, and saves meaningful end-to-end compute on a real workload. Even smaller gains can matter at scale. Assess total time saved, amortization, numerical coverage, implementation risk, and research cost. **>=3x is a major-breakthrough tier, not a universal pass/fail gate.** Old preregistered experimental thresholds cannot be retroactively changed.
 
 A **failed** hypothesis is a valid, permanently retained result. **A conditional win superseded by a stronger baseline is not a win.**
 
@@ -40,10 +40,11 @@ A **failed** hypothesis is a valid, permanently retained result. **A conditional
 - Broad-domain Koenigs interpolation failed the accuracy gate ([R-002](RESULTS/R-002.md)).
 - Shrinking the domain made a local jump accurate; large batches showed a win **only against a weaker repeated-map competitor** ([R-003](RESULTS/R-003.md)).
 - A fairer **direct composition of the same polynomial** was about **5.27× faster than Koenigs** in that toy test, killing the preferred Koenigs option ([R-004](RESULTS/R-004.md)).
-- Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).\n- A newly executed degree-four PWM switched-return test missed its predeclared 1e-7 accuracy gate on 2/128 trajectories, so no speed timing was run ([R-006](RESULTS/R-006.md)). Degree five repaired the accuracy issue but measured **only ~1.020× cold** versus compiled exact propagation, failing the ≥3× gate ([P-081](PROMPTS/P-081.md), [R-007](RESULTS/R-007.md)).
+- Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).
+- A newly executed degree-four PWM switched-return test missed its predeclared 1e-7 accuracy gate on 2/128 trajectories, so no speed timing was run ([R-006](RESULTS/R-006.md)). Degree five repaired the accuracy issue but measured **only ~1.020× cold** versus compiled exact propagation, failing the ≥3× gate ([P-081](PROMPTS/P-081.md), [R-007](RESULTS/R-007.md)).
 - **No industrial speed-up, no certified industrial simulator, no general-purpose nonlinear compiler has been demonstrated.**
 
-These are **retrospective conversation records**. Original executable files, raw samples and environment snapshots were not committed here. See each result's provenance limits; do not present them as independent reproducibility packs.
+Older results are retrospective conversation records; R-006/R-007 are new reported sandbox runs. Executable files, full raw samples and environment snapshots are **not committed to this documentation-only branch**; do not describe these records as independent reproducibility packs.
 
 ## Current frontier
 
