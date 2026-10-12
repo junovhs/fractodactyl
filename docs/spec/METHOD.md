@@ -1839,3 +1839,157 @@ promote the FP64 kernel. This environment lacks `glslc`,
 `glslangValidator`, `cargo` and a Vulkan device; actual GLSL compilation,
 Rust tests, clippy and per-pixel performance/accuracy need the owner's
 `cargo test -p fd-cli --release gpu_zone_f64_parity -- --nocapture`.
+
+### GPU-02 round 1: float32-stage zone film gate (2026-10-11, ChatGPT; superseded by round 2)
+
+`fd film RE IM --zone Z --keyframes 2 --gpu-kernel f32|mixed --mp4 FILE`
+uses the GPU-03 Vulkan zone packing, coverage gate, output columns and CPU
+fallback. Both variants run the 23-step approach, Koenigs/psi series and
+16-coefficient patch Horner in float32; the patch anchor is added in binary64
+to avoid discarding the small Horner correction. The jump's logarithm, phase
+and exponent are calculated with the baseline FP64 transcendental functions
+before the float32 complex multiply, to avoid the PROB-14 floating phase error.
+The `f32` variant finishes in float32 with binary64 output scaling; `mixed`
+finishes in binary64, including DE and normal. The return map remains FP64;
+these are mixed-stage kernels, not an all-float32 zone map.
+
+**Validity/fallback (DEC-10/17/18/21):** The CPU evaluates the full zone
+coverage/truncation bound and packs exact decimal camera deltas; the shader
+never constructs a deep centre or width from a rounded f64 camera. Vulkan
+availability, buffer limits and non-finite escaped columns reject GPU output
+and use the CPU double zone, with the device disabled after the first failed
+keyframe. Frames outside the zone use the existing per-frame CPU kernel.
+The film never lowers size, sample density or iteration cap to accommodate
+the GPU. The command `bash scripts/check/GPU-02.sh` is the promotion gate:
+ten seconds at 1920x1080 and 60 fps, `master-ice`, same keyframe sampling
+and iteration cap, both RGB24 raw frame sets, followed by `fd filmcheck`.
+The check requires evidence that Vulkan rendered keyframes (a whole-CPU
+fallback is not a passing shortcut), prints CPU and GPU keyframe render seconds
+and leaves MP4, raw frames and heatmap only under ignored `out/gpu02/`.
+The check tests **all frames and pixels** via filmcheck, including flicker;
+until it passes on the desktop, no f32/mixed shortcut is approved for
+DEC-18 or benchmark claims. A one-second smoke check uses
+`DURATION=1 TO=1e-31 SIZE=480x270 bash scripts/check/GPU-02.sh`.
+
+Pipeline, buffers and the command buffer are reused across keyframes of the
+same grid/constant shape; the grid dispatch uses multiple workgroup rows when
+a 2x 1080p keyframe exceeds a single x dimension's Vulkan limit. No new
+dependencies. GitHub Actions [38193916055](https://github.com/junovhs/fractodactyl/actions/runs/38193916055)
+passed the `check` job (rustfmt, workspace check, warning-denied Clippy
+and workspace tests), including shaderc compilation of both new variants.
+The desktop RX 5700 XT Vulkan filmcheck has not been run; it remains the
+DEC-18 acceptance gate, so no visual equivalence or speed claim is made.
+
+### GPU-02 round 2: guarded float32 finish and per-sample work hoisting (2026-10-12, Claude)
+
+**Round 1 desktop result (red).** The full gate failed: frames 284-297
+(widths ~3e-39 to 1e-39) reached 99.87-99.53% within one level outside
+noise, and from keyframe 42 (width ~1e-42) on the GPU returned non-finite
+columns. The run then fell back to the CPU, so only 41 of 67 keyframes were
+Vulkan and the reported 1.16x was diluted. A 480x270 per-sample probe
+against the CPU zone traced both failures to the float32 Koenigs psi series.
+It formed `vec2(w0) * vec2(rho^j)`, where w0 is tiny (denormal in f32) and
+rho^j huge (inf in f32 below ~1e-42), and its absolute rounding (~2e-9 in z)
+is then amplified by the finish. Nu was off by up to 10 px in that band. The
+float32 approach and phi series were harmless. Round 1's f32 finish also
+squared |z| up to ~1e40 (f32 inf) and carried dz/dc (~1/width) unscaled.
+
+**Round 2 kernels.** `zone_f64.comp` builds three variants:
+- **f64:** GPU-03 math. Its output is unchanged to the last printed digit of
+  the parity test.
+- **mixed:** binary64 return map, approach, Koenigs series and patch, then a
+  guarded f32 finish.
+- **f32:** like mixed, but the approach and both Koenigs series also run in
+  f32 under an error bound.
+
+The w0·rho^j product is always binary64. The Horner patch is always binary64:
+16 terms, negligible cost.
+
+**Validity, error and fallback (DEC-10/19/20/21).**
+- *f32 front.* It tracks a first-order absolute error bound on the landing z:
+  23 approach steps, the Horner rounding of the phi and psi series, and their
+  derivatives. If the bound exceeds 1/4 of the tolerance in output pixels, the
+  sample restarts from the binary64 return-map checkpoint and runs the front
+  in binary64.
+- *Finish hand-over.* The finish runs in binary64 until the pixel spacing
+  |dz/dc|·px exceeds `SWITCH_PX_Z = 4096·2^-24·max(|z|,1)/tol`, so that f32
+  can resolve neighbouring pixels. At landing, the spacing is ~1e-9 in z,
+  below f32 resolution, and every sample failed a guard started there. The
+  hand-over is subgroup-uniform (`subgroupAll`), because per-lane hand-over
+  diverged waves and ran slower than f64. Devices without subgroup vote in
+  compute are rejected for f32/mixed, and those films use the CPU.
+- *Finish guard.* The f32 tail carries dz/dc as an f32 mantissa times 2^e
+  (renormalised by 2^-80) and a running error bound `ep` in units of the
+  hand-over spacing: `ep' = 2|z|ep + 8·2^-24(|z|²+|c|)/s`. At escape, or at
+  the iteration cap, `ep/|dv|` is the position error in output pixels. Above
+  `TOL_PX = 1e-3` (the strict DEC-18 bar), the sample resumes in binary64
+  from the hand-over checkpoint.
+- *Escape arithmetic.* The escape test squares |z| in binary64 once a
+  component nears the radius, and nu, DE and the normal angle at escape are
+  binary64. The guard bounds position, not f32 derivative rounding, so DE and
+  the normal may differ by a few 1e-3 px.
+- *Fallbacks.* Unchanged from round 1: non-finite or invalid output rejects
+  the keyframe and disables Vulkan for the rest of the film (CPU zone), and
+  frames outside the zone use the per-frame CPU kernel.
+
+**Per-sample work hoisted (owner rule: no work that every pixel repeats
+identically).**
+- (a) fp64 log/exp/atan/sincos coefficients are compile-time tables used by
+  fma Horner steps. They used to be rebuilt per call with about 60 binary64
+  divides per sample.
+- (b) One log|w0| serves the jump count and the patch, which used to be two
+  logs. log(r0)/log|rho| and 1/log|rho| are packed by fd-kernel into
+  constant slots 22 and 31 (slot 22 used to be `ss`, which the shader never
+  read), so j is one fma.
+- (c) The zone degree and phi/psi lengths are Vulkan specialisation
+  constants. This made no measurable difference on RADV but costs nothing.
+- (d) The shader writes host column formats: nu f64, de f32, and normal u16 |
+  class << 16 as u32. That is 16 B/sample instead of 32. The host reads mapped
+  memory in place, with no `to_vec`, and copies the columns across `threads`.
+
+**Measurements** (RX 5700 XT RADV, 3840x2160 keyframes of the v0 path, 8 CPU
+threads for the CPU column, ms per keyframe):
+
+| | f64 dispatch+readback | unpack | f64 whole | mixed whole | CPU zone |
+|---|---|---|---|---|---|
+| round 1 | 342-520 (incl. 130-160 copy) | 87-121 | 445-640 | 384-499 (film log) | 1000-1900 |
+| round 2 | 112-222 | 29-30 | 170-250 | 172-255 | 1000-1900 |
+
+Ablation of the round 2 f64 kernel: return map ~15 ms, front ~20 ms, and the
+finish ~80-180 ms. Mean finish work is ~150 iterations, about 25 ms of FP64
+throughput, so most of the finish time is waves waiting on their slowest
+near-boundary sample (GPU-04). The guarded f32 tail takes 25-50% of finish
+iterations, fails on ~0.05% of samples, and ties f64 dispatch time. **The
+f32 stages do not beat the optimised FP64 kernel on this GPU (DEC-20
+scoring).** The film speed-up comes from the hoisting, which applies to all
+three variants. Follow-ups: GPU-09 (f32 perturbation finish against a shared
+binary64 reference, which removes the landing-spacing limit), with the
+measurements recorded on GPU-04 and GPU-05.
+
+**Desktop parity test** `gpu_zone_f32_guarded_parity` (480x270, 100000 iter,
+widths 1e-37 to 2e-49, both variants):
+- **mixed:** at most 3 samples per frame above 1e-3 px, worst 2.3e-3 px.
+- **f32:** at most 216 samples per frame above 1e-3 px (at 1e-42), worst
+  4.2e-3 px.
+- **Class:** no mismatches except one at 2e-49, which the f64 kernel shares.
+
+The test asserts no more than 1 class mismatch, a worst error of 0.05 px or
+less, and no more than 0.5% of samples above 1e-3 px. It skips without a
+float64 Vulkan device, as GitHub's lavapipe has none.
+
+**Gate.**
+`OUT=out/gpu02 CARGO_TARGET_DIR=... bash scripts/check/GPU-02.sh`
+(GPU_KERNEL=mixed, 10 s, 1920x1080, 60 fps, master-ice, keyframes 2, iter
+100000, 1e-29 to 2e-49) prints **PASS fd-filmcheck/1 frames=600**:
+- every frame at least 99.9999% within one level outside reference noise.
+  On the final-tree run, one pixel in frame 379 was the only one off; the
+  run before it had none off.
+- zero extra flicker;
+- all 67 keyframes on Vulkan mixed, with no fallback;
+- keyframe render seconds: CPU 45.80, GPU 11.99 (3.82x). The earlier run
+  measured 46.08 against 12.04.
+
+Film wall time is 182 s against 150 s. The remainder is CPU prepare (~57 s)
+and sample shading (~56 s), which this gate leaves on the CPU (GPU-06 shading
+is `--gpu on`). The smallest repro first was frames 270..310 of the same
+film: PASS on all 40 frames, keyframe seconds 4.25 against 1.17.

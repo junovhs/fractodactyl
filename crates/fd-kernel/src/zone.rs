@@ -576,7 +576,8 @@ impl Zone {
             self.bias.0,
             self.bias.1,
             p.escape_radius * p.escape_radius,
-            p.ss as f64,
+            // Jump count j = floor(log(r0)/log|rho| - log|w0|/log|rho|).
+            self.r0.ln() / self.rho.abs().ln(),
             self.patch_nx as f64,
             self.phi.len() as f64,
             self.psi.len() as f64,
@@ -585,7 +586,7 @@ impl Zone {
             view.rotation.cos(),
             view.rotation.sin(),
             px * p.ss as f64,
-            0.0,
+            1.0 / self.rho.abs().ln(),
         ];
         // A fixed 8x8 complex biseries and the 23 orbit points precede the variable data.
         for i in 0..8 {

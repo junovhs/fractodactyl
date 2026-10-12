@@ -14,7 +14,7 @@
 //! precision and the output needs no second dither.
 use crate::film::{render_frame_kernel, Used};
 use crate::path::sig6;
-use fd_kernel::{Params, Zone};
+use fd_kernel::{zone_covers, Params, Zone};
 use fd_samples::{Header, Samples, View};
 use fd_shade::{Appearance, Look, Pass, PreparedStudio, Rgb8};
 
@@ -34,7 +34,7 @@ pub(crate) struct Keyframes<'a> {
     /// Keyframe render parameters (M x the output size, ss 1).
     p: Params,
     zone: Option<&'a Zone>,
-    zone_f64: bool,
+    zone_renderer: Option<crate::zone_gpu::Renderer>,
     /// Rendered keyframes still needed: (index, width, header, samples).
     cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
     studio: Option<Look>,
@@ -79,7 +79,7 @@ impl<'a> Keyframes<'a> {
             out: (out.0 as usize, out.1 as usize),
             p,
             zone,
-            zone_f64: false,
+            zone_renderer: None,
             cache: Vec::new(),
             studio,
             gpu: None,
@@ -136,9 +136,9 @@ impl<'a> Keyframes<'a> {
         self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
-    /// Select FP64 Vulkan samples; unsupported frames retain the CPU zone.
-    pub(crate) fn enable_zone_f64(&mut self) {
-        self.zone_f64 = true;
+    /// Select Vulkan samples; unsupported frames retain the CPU zone.
+    pub(crate) fn enable_zone_kernel(&mut self, mode: crate::zone_gpu::Kernel) {
+        self.zone_renderer = Some(crate::zone_gpu::Renderer::new(mode));
     }
 
     fn width_str(&self, j: usize) -> String {
@@ -162,7 +162,21 @@ impl<'a> Keyframes<'a> {
             rotation: 0.0,
         };
         let t = std::time::Instant::now();
-        let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, self.zone_f64)?;
+        let gpu_result = match (self.zone, self.zone_renderer.as_mut()) {
+            (Some(zone), Some(renderer)) if zone_covers(&view, &self.p, zone)? => {
+                Some(renderer.render(&view, &self.p, zone))
+            }
+            _ => None,
+        };
+        let (h, s, used) = match gpu_result {
+            Some(Ok((h, s))) => (h, s, Used::Zone),
+            Some(Err(e)) => {
+                eprintln!("fd film: Vulkan zone unavailable ({e}); using CPU zone");
+                self.zone_renderer = None;
+                render_frame_kernel(&view, &self.p, self.zone, false)?
+            }
+            None => render_frame_kernel(&view, &self.p, self.zone, false)?,
+        };
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         let t_prepare = std::time::Instant::now();
         let prepared = if self.gpu.is_some() {
