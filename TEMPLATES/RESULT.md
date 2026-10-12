@@ -9,6 +9,7 @@
 **PRIOR ART:** PRETEST VERIFIED / BLOCKED / RETROSPECTIVE
 **Search evidence:** [PA-P-NNN](../PRIOR_ART/PA-P-NNN.md) · pretest commit SHA
 **Claim class:** KNOWN_METHOD_BENCHMARK / KNOWN_METHOD_NEW_APPLICATION / OPEN_GAP_HYPOTHESIS / NOVELTY_UNVERIFIED
+**Pretest triage:** PROCEED (distinct unresolved claim) / OWNER-REQUESTED ENGINEERING EXCEPTION
 
 ## Question and frozen gate
 
@@ -16,7 +17,7 @@ Quote the exact hypothesis, test and numerical pass/kill thresholds as preregist
 
 ## Prior-art findings (must precede new experiments)
 
-Exact executed queries, dated search provider and source/result links are in the linked committed PA file. Name closest known paper/method, specialist rival, overlapping mechanism/application, and *specific* unresolved gap. Say **KNOWN METHOD / ENGINEERING BENCHMARK** when literature already establishes the idea. If missing pretest evidence: **POD: NO**, not a new discovery.
+Exact executed queries, dated search provider and source/result links are in the linked committed PA file. Name closest known paper/method, specialist rival, overlapping mechanism/application, and *specific* unresolved gap. An established method with no distinct gap should already have been cited and **PIVOTED before experiment**. Say **KNOWN METHOD / ENGINEERING BENCHMARK** only for explicitly owner-requested replication or honest historical results. If missing pretest evidence: **POD: NO**, not a new discovery.
 
 ## Setup and opponent
 
@@ -59,4 +60,4 @@ Include raw observed numbers and explicit measurement uncertainty. If unrun, wri
 
 ## Interpretation and next edge
 
-State the **frozen gate result** and **any smaller positive effects independently** (including effects <1.10× or <3×), what the test does *not* prove, uncertainty, accuracy/certification, and whether the expected total saved compute justifies a new test. Never discard an accurate effect only for missing an old ambition; also never call a noisy or wrong result a gain. Link child cards, preserve failures and label reported-only evidence.
+State the **frozen gate result** and **any smaller positive effects independently** (including effects <1.10× or <3×), what the test does *not* prove, uncertainty, accuracy/certification, and whether the expected total saved compute justifies a new test. Never discard an accurate effect only for missing an old ambition; also never call a noisy or wrong result a gain. Link child cards only when a distinct unresolved question motivates them; a literature collision calls for **PIVOT**, not a new tuning benchmark. Preserve failures and label reported-only evidence.
