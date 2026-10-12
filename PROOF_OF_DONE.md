@@ -19,7 +19,7 @@ Every **new** `RESULTS/R-NNN.md` must contain the **10/10 checklist** below. The
 - [ ] **Limits, prior-art novelty class and evidence level:** distinguish an already established technique from a new claimed delta, list hardware/tool versions/reproducibility artifacts or what is missing; use `REPORTED`, `REPRODUCED` or `CERTIFIED` honestly. Include the cheapest follow-up or reason to stop.
 - [ ] **Graph and Git checked:** the result, parent P-card, `INDEX.md`, `MAP.md` and current `FRONTIER.md` if changed agree, links resolve, the repository contains only research documents, and the commit/ref is verified. If Git write access fails, this is **unchecked** until filing succeeds.
 
-The 9th box may be checked only after committing and reading back the record. Final `POD: YES` is therefore an **audited assertion** by the agent, not a substitute for independent verification. On editing a file with a Git API that cannot atomically self-verify, finish the commit then perform a read-back, and mark POD via a subsequent commit if required.
+The 10th box may be checked only after committing and reading back the record. Final `POD: YES` is therefore an **audited assertion** by the agent, not a substitute for independent verification. On editing a file with a Git API that cannot atomically self-verify, finish the commit then perform a read-back, and mark POD via a subsequent commit if required.
 
 ## Distinct claims — do not collapse them
 
