@@ -1,6 +1,33 @@
 # Active research frontier
 
-**State as of 2026-10-12, after R-009 and owner-directed prior-art triage correction.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
+**State as of 2026-10-12, after R-009 and a new, search-only literature triage.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
+
+## 2026-10-12 literature triage — no numerical experiments
+
+**Disposition: four candidate mechanisms were eliminated as autonomous discovery directions before testing.** These are **search-only** decisions: none is an experimental failure, a reproduction, a theorem about nonexistence of improvements, or a claim that an exact specialist application has been exhaustively studied. No P-card, R-card, POD score or numerical speed claim was created. Read the individual citations in [SOURCES.md](SOURCES.md).
+
+| Candidate | Nearest primary prior art and substantive overlap | Decision / important distinction |
+|---|---|---|
+| [P-040](PROMPTS/P-040.md), generic cost-aware, certificate-admitted operator chooser | [Petzold 1983](https://doi.org/10.1137/0904010) switches ODE integration algorithms on predicted efficiency; [Schupp & Ábrahám 2018](https://doi.org/10.1007/978-3-319-89963-3_17) adapt computation precision/configuration in verified hybrid reachability and reuse intermediate analysis. | **PIVOT as discovery lead; legacy question stays UNTESTED.** Their specific solver/representation menus differ from integration vs composition vs Koenigs; that difference alone is not a substantive new mathematical principle. |
+| [P-060](PROMPTS/P-060.md), polynomial iterate powering | [Brent & Traub 1980](https://doi.org/10.1137/0209004) explicitly analyzes computing iterated formal power series via the composition analogue of repeated squaring, and related coordinate transforms. | **PIVOT as discovery lead; UNTESTED.** Repelling-cycle domain/derivative/validated radii are not established by this abstract, but repeated composition itself is not a new mechanism. |
+| [P-051](PROMPTS/P-051.md), certified short-segment parallel correction | [Parallel multiple shooting (1994)](https://doi.org/10.1016/S0167-8191(06)80013-X), [Chaudhry et al. 2016](https://doi.org/10.1137/16M1079014) on posterior error for time-parallel methods, and [van der Hoeven's 2025 manuscript](https://www.texmacs.org/joris/lagrange/lagrange.html) on high-precision **fixed-initial-condition** trajectories, local segment certificates and parallel global certification. The 2025 manuscript explicitly recognizes essentially sequential initial trajectory generation. | **PIVOT as discovery lead; UNTESTED.** The latter work concerns analytic ODEs, not the exact quadratic-map/MPFR benchmark; no demonstrated alternative to serial seed construction, and no basis yet for a novel test. |
+| Fresh cross-domain suggestion: reuse verified hybrid search work under dynamic refinement | [Schupp & Ábrahám 2018](https://doi.org/10.1007/978-3-319-89963-3_17) already formalizes selective precision/configuration refinement and storage/reuse of earlier search results. | **PIVOT immediately**, without creating a new P-number or racing this published algorithm. |
+
+**Search provenance:** actual external web searches executed 2026-10-12; provider: web search, then publisher/author primary abstracts and accessible text. Representative **exact queries executed** (not a pretest experimental dossier):
+
+- `validated numerical ODE solver automatic method selection interval error bounds switching Taylor models adaptive method selection primary paper`
+- `certified adaptive choice between multiple validated numerical integration methods Taylor interval algorithm selection solver validated dynamic switching`
+- `power series composition fast iteration repeated squaring polynomial map repelling periodic point Koenigs complex dynamics`
+- `analytic iteration of power series repelling fixed point local truncated composition Brent Traub Koenigs linearization`
+- `parallel multiple shooting interval Newton rigorous orbit high precision complex dynamics Mandelbrot validated segmented computations`
+- `fixed initial condition rigorous validated time parallel multiple shooting highly unstable chaotic trajectory certified interface enclosures`
+- `rigorous parareal validated trajectory identical initial condition chaotic dynamics interval Newton`
+- `certified hybrid systems parametric reachability event sequence regions reuse flowpipe guard transition cache parameter sweep`
+- `parameter space partition certificate same event sequence hybrid dynamical systems flowpipe reuse`
+
+**Evidence limits:** Petzold and Brent–Traub publisher abstracts were checked; Schupp–Ábrahám open-access full-text introduction/method was reviewed; van der Hoeven's author manuscript sections 2–3 were reviewed. The 1994/2016 sources were reviewed at abstract level. This is targeted triage, **not exhaustive novelty clearance**, and does not imply equivalence of ODE flow to a discrete polynomial recurrence.
+
+**New highest-information SEARCH QUESTION (not an approved experiment):** Can any mathematically *distinct* interface construction for fixed-initial-condition, highly expanding nonlinear iterates avoid the sequential high-precision prefix/seed dependency **without** substituting a shadowing orbit with a different initial value? First investigate the closest lower-bound, divide-and-conquer and certified fixed-seed literature; identify a rigorous delta and plausible scientific workload **before** proposing any P/PA pair. A mere new batching workload for an established certification method is **not** eligible for autonomous benchmarking.
 
 ## Research policy and decision distinction
 
@@ -21,17 +48,11 @@ All these measurements are **REPORTED**, not independently REPRODUCED or CERTIFI
 
 - [R-009](RESULTS/R-009.md): P-083 pretest-search-vetted known-method benchmark on a continuously state-triggered two-state hybrid. Quadratic event-time warm start gives **1.277× warm** over compiled midpoint safeguarded Newton at 262,144 repeated updates, **but cold is slower** (1,164.116 vs 1,122.827 ms medians). Empirical accuracy gate passed (max 9.619e-14 final-state, 0 wrong event classes), yet **all 2,048 events required fallback beyond two Newton steps**. **CONDITIONAL** historical warm result, but **STOP routine known-method follow-up** as a discovery direction: event localization is established and no substantive uncovered mechanism has been identified. Prior-art dossier [PA-P-083](PRIOR_ART/PA-P-083.md) was committed before execution; no novelty claim.
 
-## Discovery-first literature leads — NOT approved experiments
+## Discovery portfolio after search triage — not approved experiments
 
-These are **search targets**, not evidence of novel mathematics, approved P-cards, or a requirement to run tests. Search for the closest primary method *before coding*. If it already addresses the same substantive claim, cite it and choose a different mechanism. A new outside-domain candidate may outrank any row.
-
-| Search priority | Different mechanism worth examining | What could eliminate it | First action |
-|---:|---|---|---|
-| 1 | Certificate- and cost-aware operator admission ([P-040](PROMPTS/P-040.md)) | Published certified adaptive solver/selector already realizes the proposed mechanism | Literature check; find an actual unanswered admission principle or PIVOT |
-| 2 | Precision-aware segmentation of long-horizon computation ([P-051](PROMPTS/P-051.md)) | Existing multiple-shooting, time-parallel or validated integration settles the claimed shortcut | Literature check; isolate a genuinely different mathematical decomposition or PIVOT |
-| 3 | Repelling-cycle structure ([P-060](PROMPTS/P-060.md)) or a new cross-domain mechanism | Classical polynomial composition/linearization already answers the specific question | Read the closest mathematics; if established, move on instead of racing the old approach |
-
-The scoped measured gains in [R-008](RESULTS/R-008.md) and [R-009](RESULTS/R-009.md) are retained evidence. **Neither PWM polynomial approximation nor standard event-root warm starts is an automatic next research project.** A good session may finish with multiple literature eliminations and a fresher mathematical question, without any numerical run.
+1. **Investigate the fixed-initial-condition sequential-prefix obstruction** as a mathematical literature question, distinguishing exact initial data from shadowing a nearby trajectory, discrete polynomial recurrences from ODEs and total certification from the cost of generating the starting numeric orbit. Check [van der Hoeven 2025](https://www.texmacs.org/joris/lagrange/lagrange.html) and adjacent divide-and-conquer complexity results first; if no substantive gap emerges, pivot outside the legacy lineage.
+2. **Seek a different mechanism across other scientific or industrial computations**, with a concrete real-world workload and cheap falsifiable theoretical criterion; search primary literature before any model run.
+3. **Retain [P-040](PROMPTS/P-040.md), [P-051](PROMPTS/P-051.md), [P-060](PROMPTS/P-060.md) as untested historical questions, not default experiments.** Each generic mechanism has close published predecessors. A new P/PA pair is justified only by a materially new mathematical delta; ordinary parameter sweeps, another operator menu, and faster known-method implementation do not suffice.
 
 ## Handoff discipline
 
