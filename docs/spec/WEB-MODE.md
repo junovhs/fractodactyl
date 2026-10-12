@@ -11,9 +11,27 @@ Set `WEB_DIR` to the session scratchpad; it holds briefs, messages and saved cha
 
 ## Rules (from the owner)
 
-- **The agent does as little as possible.** No coding, no doc edits, no experiments in
-  web mode: anything found in review goes back to ChatGPT. The agent orchestrates,
-  verifies and runs the Ishoo landing. Exception: the owner says "take over".
+- **The agent does as little as possible.** No feature coding and no experiments in web
+  mode: design work and real bugs go back to ChatGPT. The agent orchestrates, does
+  cursory checks and runs the Ishoo landing. Exception: the owner says "take over".
+- **Small direct fixes are allowed (owner, 2026-10-11: "relax it 3% to speed things up
+  75%").** The agent fixes it directly, instead of spending a round, when the fix is
+  obvious from the error and tiny (about 10 lines or fewer: a type conversion, a wrong
+  flag for this machine's tool versions, a typo, formatting), or when the problem is
+  this machine's environment rather than the code. Commit it on `gpt/ID` with a short
+  message so ChatGPT sees it next round. Anything needing diagnosis goes back.
+- **Cursory review, not diagnosis.** When something is wrong, the agent says so in one
+  line ("crashes in harvest_nuclei; looks like numpy types") and forwards the evidence
+  by script (logs, tracebacks, report files piped into the reply file) without reading
+  it all. Finding the cause is ChatGPT's job.
+- **Scope each chat small.** One chat turn should be one focused change that fits in a
+  single round (roughly under 30 minutes of ChatGPT time). Split big issues into
+  sequential steps (`ishoo_decompose`) and send one step per chat. Long turns make
+  ChatGPT verbose, lose the thread, and claim done early.
+- **New chat for deep debugging.** If a bug needs real investigation, open a fresh chat
+  with only that problem and its evidence, instead of continuing a long chat.
+- **Take over after two failed rounds** on the same problem, or earlier near an
+  owner deadline.
 - **Never hand-type long text.** Briefs come from the Ishoo store (`brief.py`), and replies
   are assembled by script from report files (grep the lines that matter). Keep the
   agent's context nearly empty.
@@ -66,7 +84,7 @@ Set `WEB_DIR` to the session scratchpad; it holds briefs, messages and saved cha
 
 ## When to take over
 
-If ChatGPT is on its third or fourth failing round, or the owner says so, stop sending
+If ChatGPT fails twice on the same problem, or the owner says so, stop sending
 and do it yourself. Question the premise first: FIX-42 asked for de within 0.2% of
 mpmath on samples 1e-14 px from the boundary. No f64 renderer can do that, and the
 project never scores de/normal below 1e-3 px (compare.rs, BENC-04). Four ChatGPT fixes
