@@ -4,6 +4,10 @@
 
 > **BRANCH-ONLY RESEARCH SNAPSHOT — DO NOT MERGE INTO MAIN.** The visible files on this branch are documentation only. The history still descends from the original repository; its working tree does not contain the renderer. Deleting files from this branch does **not** delete them from `main`.
 
+## Instructions for research agents
+
+**Start with [AGENTS.md](AGENTS.md) or [CLAUDE.md](CLAUDE.md)**—the two files contain exactly the same operating instructions. They define the mandatory sequence: pre-register a ≤150-word question, freeze fair baseline and kill criteria, run a quick Python probe, file every result, update the lineage graph and index, verify the Git commit. Use [question](TEMPLATES/QUESTION.md) and [result](TEMPLATES/RESULT.md) templates. **Do not add Fractodactyl source code to this branch.**
+
 ## Start here
 
 1. **[Research map](MAP.md)** — a branching graph of research questions, tests, overturned conclusions, and new leads.

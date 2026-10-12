@@ -1,0 +1,21 @@
+# P-NNN · Short research question
+
+**Status:** UNTESTED · **Parent:** P-NNN or R-NNN · **Priority:** 1/2/3
+
+**Question:** Can ...?
+
+**Mechanism:** Explain the reusable mathematical structure.
+
+**Value:** Name the industry/science workload that gets cheaper.
+
+**Fair opponent:** Fastest relevant specialized / same-math approach.
+
+**Probe:** Inputs, sample size, precision, hardware and ≤30-second test.
+
+**Gate:** Accuracy first (numeric maximum and discrete classes); then ≥3× cold end-to-end speed, unless justified otherwise. Explicitly state what kills this idea.
+
+**Next if pass/fail:** What single test or branch follows? No vague “investigate further.”
+
+**Results:** None yet.
+
+<!-- Entire prompt, including heading/metadata, must be <=150 words. Freeze thresholds before executing. -->
