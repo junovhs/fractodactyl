@@ -17,9 +17,25 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let known: Vec<&str> = FLAGS
         .iter()
         .copied()
-        .chain(["store", "orbit", "bla", "refine", "max-px", "zone"])
+        .chain([
+            "store",
+            "orbit",
+            "bla",
+            "refine",
+            "max-px",
+            "zone",
+            "gpu-kernel",
+        ])
         .collect();
     let a = Args::parse(argv, &known)?;
+    let gpu_f64 = match a.str("gpu-kernel") {
+        None => false,
+        Some("f64") => true,
+        Some(value) => return Err(format!("--gpu-kernel: expected f64, got {value:?}")),
+    };
+    if gpu_f64 && a.str("zone").is_none() {
+        return Err("--gpu-kernel f64 requires --zone".into());
+    }
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
     // `--orbit ID`: a stored reference orbit for this exact centre instead of computing it.
@@ -72,7 +88,18 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
     let (header, samples, refined) = match (a.str("refine"), table) {
         _ if zone.is_some() => {
-            render_zone(&view, &p, zone.as_ref().unwrap()).map(|(h, s, _, _)| (h, s, None))?
+            let z = zone.as_ref().unwrap();
+            if gpu_f64 {
+                match crate::zone_gpu::render(&view, &p, z) {
+                    Ok((h, s)) => (h, s, None),
+                    Err(e) => {
+                        eprintln!("fd: FP64 Vulkan zone unavailable ({e}); using CPU zone");
+                        render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
+                    }
+                }
+            } else {
+                render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
+            }
         }
         (None, Some((orbit, table))) => {
             let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;
@@ -172,9 +199,14 @@ iterations {iterations}",
 
 /// The view and render parameters named by the shared flags.
 pub(crate) fn job(a: &Args) -> Result<(View, Params), String> {
+    let (re, im) = match a.positional.as_slice() {
+        [re, im] if a.str("re").is_none() && a.str("im").is_none() => (re.as_str(), im.as_str()),
+        [] => (a.need("re")?, a.need("im")?),
+        _ => return Err("supply RE IM or --re RE --im IM".into()),
+    };
     let view = View {
-        center_re: a.need("re")?.into(),
-        center_im: a.need("im")?.into(),
+        center_re: re.into(),
+        center_im: im.into(),
         width: a.need("width")?.into(),
         rotation: a.num("rotation", 0.0)?,
     };

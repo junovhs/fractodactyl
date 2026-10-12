@@ -69,11 +69,20 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "offset",
         "t0",
         "gpu",
+        "gpu-kernel",
         "raw-dir",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
+    let zone_f64 = match a.str("gpu-kernel") {
+        None => false,
+        Some("f64") => true,
+        Some(value) => return Err(format!("--gpu-kernel: expected f64, got {value:?}")),
+    };
+    if zone_f64 && a.str("zone").is_none() {
+        return Err("--gpu-kernel f64 requires --zone".into());
+    }
     let gpu_on = match a.str("gpu").unwrap_or("off") {
         "off" => false,
         "on" => true,
@@ -340,6 +349,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             Some(keys)
         }
     };
+    if zone_f64 {
+        if let Some(k) = keys.as_mut() {
+            k.enable_zone_f64();
+        }
+    }
     if gpu_on {
         if keys.is_some() && views.iter().any(|v| v.rotation != 0.0) {
             eprintln!(
@@ -489,7 +503,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             continue;
         }
         let t = Instant::now();
-        let (hd, mut s, used) = render_frame(view, &p, zone.as_ref())?;
+        let (hd, mut s, used) = render_frame_kernel(view, &p, zone.as_ref(), zone_f64)?;
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
         if let Some(normal) = s.normal.as_mut().filter(|_| view.rotation != 0.0) {
@@ -960,8 +974,26 @@ pub(crate) fn render_frame(
     p: &Params,
     zone: Option<&Zone>,
 ) -> Result<(Header, Samples, Used), String> {
+    render_frame_kernel(view, p, zone, false)
+}
+
+/// Zone FP64 Vulkan is an opt-in backend; failures fall back before consuming samples.
+pub(crate) fn render_frame_kernel(
+    view: &View,
+    p: &Params,
+    zone: Option<&Zone>,
+    gpu_f64: bool,
+) -> Result<(Header, Samples, Used), String> {
     if let Some(z) = zone {
         if zone_covers(view, p, z)? {
+            if gpu_f64 {
+                match crate::zone_gpu::render(view, p, z) {
+                    Ok((h, s)) => return Ok((h, s, Used::Zone)),
+                    Err(e) => {
+                        eprintln!("fd film: FP64 Vulkan zone unavailable ({e}); using CPU zone")
+                    }
+                }
+            }
             let (h, s, _, _) = render_zone(view, p, z)?;
             return Ok((h, s, Used::Zone));
         }

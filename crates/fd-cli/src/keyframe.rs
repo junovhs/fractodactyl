@@ -12,7 +12,7 @@
 //! margin at its edge, so switching to the next keyframe pair is continuous.
 //! Keyframe shading is dithered per sample, so the filtered result keeps sub-level
 //! precision and the output needs no second dither.
-use crate::film::{render_frame, Used};
+use crate::film::{render_frame_kernel, Used};
 use crate::path::sig6;
 use fd_kernel::{Params, Zone};
 use fd_samples::{Header, Samples, View};
@@ -34,6 +34,7 @@ pub(crate) struct Keyframes<'a> {
     /// Keyframe render parameters (M x the output size, ss 1).
     p: Params,
     zone: Option<&'a Zone>,
+    zone_f64: bool,
     /// Rendered keyframes still needed: (index, width, header, samples).
     cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
     studio: Option<Look>,
@@ -78,6 +79,7 @@ impl<'a> Keyframes<'a> {
             out: (out.0 as usize, out.1 as usize),
             p,
             zone,
+            zone_f64: false,
             cache: Vec::new(),
             studio,
             gpu: None,
@@ -134,6 +136,11 @@ impl<'a> Keyframes<'a> {
         self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
+    /// Select FP64 Vulkan samples; unsupported frames retain the CPU zone.
+    pub(crate) fn enable_zone_f64(&mut self) {
+        self.zone_f64 = true;
+    }
+
     fn width_str(&self, j: usize) -> String {
         sig6(self.w0 * self.footprint / 2f64.powi(j as i32))
     }
@@ -155,7 +162,7 @@ impl<'a> Keyframes<'a> {
             rotation: 0.0,
         };
         let t = std::time::Instant::now();
-        let (h, s, used) = render_frame(&view, &self.p, self.zone)?;
+        let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, self.zone_f64)?;
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         let t_prepare = std::time::Instant::now();
         let prepared = if self.gpu.is_some() {

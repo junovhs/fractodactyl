@@ -1763,3 +1763,79 @@ keyframe axes while direct ss2 samples turn with the frame (inherent filter
 orientation, not lost detail). `film_spin_keyframes` checks mean <=1.25x, p99
 <=+25, the 180-degree frame within 1.05x, and that the direct 180-degree frame is
 the unrotated frame upside down (mean diff < 2).
+
+### GPU-03: Vulkan FP64 zone baseline (2026-10-11; pending desktop gate)
+
+`fd render RE IM --width W --zone Z --gpu-kernel f64` (or the equivalent
+`--re RE --im IM` flags) and `fd film RE IM --zone Z --keyframes 2
+--gpu-kernel f64` request Vulkan 1.2 FP64 zone samples. The single compute
+dispatch evaluates biseries returns, the 23-step approach, Koenigs jump,
+16-coefficient tail-patch Horner (or inverse-series fallback), plain finish and
+derivative columns. GPU-06's ash/shaderc SPIR-V stack is reused; no new
+dependencies. The log reports constant preparation, Vulkan setup,
+dispatch/readback, unpack and whole-frame wall times; arithmetic stages are
+fused into the dispatch.
+
+**DEC-10/17/20/21 contract:** zone coverage/first-return truncation guard and
+decimal centre subtraction remain CPU-side, with the view pitch scaled from
+its fixed-point mantissa/exponent. No deep centre or camera width is parsed as
+f64 to locate a pixel. Unsupported middle-band, beyond-f64 zone operators,
+bounded columns, device/precision/memory failures decline to the CPU zone
+(or normal per-frame path outside zone), with stderr reason. This baseline
+has no lossy-precision fast path. A named all-pixel test compares each
+escaped sample's nu displacement, DE and normal displacement at 1e-3 pixel
+and all classes for the six PROB-08 480x270 frames; no spot-check promotion.
+
+**Verification:** the chat environment has no cargo/rustc or usable Vulkan
+device; no Rust build, clippy, Vulkan dispatch or parity measurements were
+performed here. Desktop owner gate (prints CPU and GPU ms/frame):
+`cargo test -p fd-cli --release gpu_zone_f64_parity -- --nocapture`.
+Follow with `cargo test --workspace` and
+`cargo clippy --workspace --all-targets`. Until the desktop gate passes,
+GPU-03 is an **unverified baseline**, not a DEC-20 performance winner.
+
+### GPU-03 round 1: shader FP64 transcendental repair (2026-10-11)
+
+The owner's first Vulkan 1.2 build found that GLSL has no binary64 overloads
+for `log`, `log2`, `exp`, `sin`, `cos` or `atan(y,x)` (nine
+shaderc errors). The owner already renamed the reserved `patch` identifier
+to `horner_patch` on `gpt/GPU-03`; this round preserves that fix.
+`zone_f64.comp` now implements all six functions without narrowing to f32:
+
+- `fp64_log`: `frexp` normalization to [1/sqrt(2),sqrt(2)] and a
+  12-term odd atanh series. Its *mathematical truncation bound*
+  is <6.0e-21 in natural-log units before binary64 rounding.
+  `fp64_log2` multiplies this result by a binary64 1/ln(2).
+- `fp64_exp`: reduce by the closest integer multiple of ln(2), use
+  binary64 fused hi/lo subtraction, degree-20 Taylor and `ldexp`.
+  The degree-20 Taylor remainder is <6.0e-30 (absolute on the
+  reduced interval), before rounding.
+- `fp64_sincos`: binary64 fused hi/lo pi/2 reduction, sine degree 27
+  and cosine degree 26 Horner, with exact quadrant selection. Taylor
+  remainders at |r| <= pi/4 are <1.1e-34 (sin) and <3.8e-33 (cos).
+- `fp64_atan2`: octant reduction to |t| <= sqrt(2)-1 and a
+  24-term alternating odd atan series; omitted term <3.6e-21 rad.
+  The result is used both for Koenigs patch lookup and pixel normals.
+
+**Measured scalar accuracy, not GPU execution:** On Python 3.13.5 binary64,
+`python tools/research/gpu03/f64_math_probe.py` ran 90,000 seeded samples
+for each function against `math`, using the shader's same reduction and
+coefficient recurrences. Maximum observed errors:
+
+| Function | Input domain in the probe | Maximum observed error |
+| --- | --- | --- |
+| `fp64_log` | positive normals with decimal exponents -295..295 | 1.137e-13 absolute ln units |
+| `fp64_log2` | same | 2.274e-13 absolute log2 units |
+| `fp64_exp` | -680..680 | 2.22e-16 relative |
+| `fp64_sincos` sine | -1500..1500 rad | 1.12e-16 absolute |
+| `fp64_sincos` cosine | -1500..1500 rad | 1.12e-16 absolute |
+| `fp64_atan2` | x,y independently -1..1 | 4.45e-16 rad absolute |
+
+The ranges cover the v0/PROB-08 arguments; the numbers are empirical maxima
+from the independent scalar mirror, not certified bounds on GPU arithmetic,
+tail-patch decisions or every-pixel image errors. **DEC-17 acceptance remains
+the six-frame desktop shaderc/Vulkan parity gate**; the scalar study does not
+promote the FP64 kernel. This environment lacks `glslc`,
+`glslangValidator`, `cargo` and a Vulkan device; actual GLSL compilation,
+Rust tests, clippy and per-pixel performance/accuracy need the owner's
+`cargo test -p fd-cli --release gpu_zone_f64_parity -- --nocapture`.
