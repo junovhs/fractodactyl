@@ -540,7 +540,8 @@ fn list_looks() -> Vec<String> {
         .iter()
         .map(|(n, _)| n.to_string())
         .collect();
-    let mut own: Vec<String> = std::fs::read_dir(crate::shade::looks_dir())
+    let mut own: Vec<String> = fd_shade::looks_dir()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
         .map(|rd| {
             rd.filter_map(|e| e.ok())
                 .filter_map(|e| {
@@ -587,9 +588,11 @@ fn name_of(query: &str) -> Result<&str, String> {
 /// `looks/NAME.look` if it exists, else the built-in.
 fn load_look(query: &str) -> Result<String, String> {
     let n = name_of(query)?;
-    match std::fs::read_to_string(crate::shade::looks_dir().join(format!("{n}.look"))) {
-        Ok(t) => Ok(t),
-        Err(_) => fd_shade::BUILTIN
+    match fd_shade::looks_dir()
+        .and_then(|dir| std::fs::read_to_string(dir.join(format!("{n}.look"))).ok())
+    {
+        Some(t) => Ok(t),
+        None => fd_shade::BUILTIN
             .iter()
             .find(|(b, _)| *b == n)
             .map(|(_, t)| t.to_string())
@@ -602,14 +605,8 @@ fn save_look(query: &str, body: &[u8]) -> Result<String, String> {
     let n = name_of(query)?;
     let text = std::str::from_utf8(body).map_err(|_| "preset is not UTF-8")?;
     let look = fd_shade::Look::parse(text)?;
-    let dir = crate::shade::looks_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let path = dir.join(format!("{n}.look"));
-    std::fs::write(&path, look.to_text()).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(format!(
-        "saved {}",
-        path.canonicalize().unwrap_or(path).display()
-    ))
+    let path = fd_shade::save_look(n, &look)?;
+    Ok(format!("saved {}", path.display()))
 }
 
 /// Validate and write `places/NAME.place` (EXPL-08).

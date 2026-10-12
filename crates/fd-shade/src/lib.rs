@@ -2,6 +2,7 @@
 //! recomputes fractal math: recolouring costs one pass over stored samples (DEC-07).
 //! This crate depends on `fd-samples` only, never on a kernel, so a look cannot
 //! iterate (a test below holds that line).
+mod looks;
 mod palette;
 mod png;
 mod relief;
@@ -9,6 +10,7 @@ mod resolve;
 mod studio;
 mod umber;
 
+pub use looks::{looks_dir, save_look};
 pub use png::encode as png;
 pub use resolve::Rgb8;
 pub use studio::{Look, PreparedStudio, Studio, BUILTIN};
