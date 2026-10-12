@@ -1,41 +1,32 @@
-# Research method
+# Research method: construct, compute, understand, extend
 
-## Scope of agent autonomy
+## Primary objective
 
-The durable mission is in [GOAL.md](GOAL.md); the provisional highest-information leads are in [FRONTIER.md](FRONTIER.md). There is no permanently prescribed problem: agents select among current or new cheap experiments based on actual evidence and anticipated impact, documenting decisions. Findings, including failed and overturned results, are the product.
+Use mathematical computation to **find new solutions**. A known technique may supply the crucial building block; the experiment should answer a new consequential question beyond its published result. Do not equate a close citation with a solved application, and do not default to trying to beat that citation in timing alone.
 
-**Every new R-card must satisfy the ten-step [binary proof of done](PROOF_OF_DONE.md), including pre-experiment external-literature-search evidence.** A failed hypothesis may be `POD: YES`; a favorable but poorly evidenced result is `POD: NO`. The gate and evidence classifications are separate. [Lean formalization](LEAN.md) is optional and selective, never a default 30-second probe requirement.
+## Default discovery cycle (Track A)
 
-## Discovery gate before the experiment contract
+1. Identify a tractable unresolved proposition from [FRONTIER](FRONTIER.md), including promising unanswered parts of older P-cards.
+2. For each plausible published ingredient, write the exact known statement, the mathematical assumption it uses, and the *new extension or combination* to derive. A search is an accelerator of insight, not an obligatory series of vetoes.
+3. Produce an **explicit falsifiable construction**: equations/recurrence, input domain, proposed error mechanism or new algorithm, expected observable, and a counterexample that would reject it.
+4. **Run a cheap probe in Chat** when computation can discriminate it. Prefer a <30-second experiment; state seeds/precision and actual tool output. Start with correctness and pathologies, then costs only if relevant.
+5. Use observed failure/success to formulate the next improved construction or a derived obstruction. Report the strongest counterexample; no success claims from merely plausible reasoning.
+6. Record the exploration even if negative. Mark `EXPLORATORY`, novelty unverified and any missing reproducibility artifacts. **No three-query dossier or pretest Git commit is needed just to compute an exploratory numerical example.**
+7. Escalate only a promising, precisely stated hypothesis to Track B; or keep working an informative unresolved obstacle. A literature-only session is an explicit exception, not the preferred default output.
 
-**If the literature already establishes the idea, do not test it.** Cite the actual source, record the overlapping mathematical mechanism/application, mark **PIVOT** and search for another mechanism. A plausible speed advantage of a slightly different implementation is **not** a fresh research hypothesis. For search-only eliminations, no three-query complete dossier, P-card, R-card or numerical run is required. For a genuinely open mechanism/application delta, complete all three targeted external searches and preregister before computation. Only an **explicit owner-requested** engineering/replication task permits a known-method benchmark. See [PRIOR_ART.md](PRIOR_ART.md).
+## Confirmatory experimental protocol (Track B)
 
-## Experiment contract
+Before the *frozen confirmatory* run, carry out external prior-art research and preregister linked P/PA files as described in [PRIOR_ART.md](PRIOR_ART.md). A related published technique may be part of `TRIAGE: EXTEND` or a justified `EVALUATE` question; merely proving a core algorithm old does not invalidate a genuinely new consequence. Preserve previously run explorations separately and do not claim the confirmation was the first test.
 
-1. **Triage first.** Search original mathematical mechanisms and applications. A decisive prior-art collision -> **cite it, PIVOT, and choose a different idea**. An experiment-worthy unresolved question or owner-requested engineering exception -> run ≥3 external queries, preserve exact search provenance and source links, read a primary source and specify the precise surviving delta. No access or inconclusive novelty justification -> do not compute.
-2. **Register only justified experiments.** For `TRIAGE: PROCEED` or `TRIAGE: OWNER-REQUESTED EXCEPTION`, commit the ≤150-word P-card with its finished PA dossier in one pretest commit and verify read-back. Freeze strong fair rivals, exact domain and correctness/performance gates. `KNOWN_METHOD_BENCHMARK` is reserved for explicitly requested known-method work, not a default autonomous discovery path.
+- **Accuracy first:** independent higher-accuracy oracle and pathological/domain cases; default maximum absolute state error ≤1e-7 and zero wrong discrete classes unless the specific P-card chooses a defensible different threshold. State and derivative checks if relevant. Empirical tests do not certify all inputs.
+- **Strongest meaningful comparison:** when measuring benefits, compare against correct same-math and specialist methods with equal permitted caching, composition, compilation, batching and validation. Do not engineer a weak baseline or assume known algorithm must be beaten if the novelty is mathematical rather than economic.
+- **Measured cost:** cold build/preprocessing/setup, warm kernel, realistic reuse count and actual amortized totals, in absolute units. At least three repeated paired/interleaved timings with ranges for a promising signal; report hardware/environment and uncertainty.
+- **No universal speed floor:** 1% improvement may matter when robust and widely used. Preserve frozen legacy gates and distinguish a failed historical performance target from a smaller valid effect.
+- **Honest provenance:** `REPORTED`, `REPRODUCED`, `CERTIFIED`, and `PROOF: NONE/INTERVAL/LEAN/OTHER` are separate from novelty. Lean is optional, relevant to mathematical identities when warranted.
+- **Decision:** test the specific hypothesis, explain negative results, preserve smaller true gains and ask what extension the evidence makes possible; avoid routine benchmark races unless they illuminate that question.
 
-3. **Compete fairly.** The rival can cache, reuse, precompute, compose maps and use specialized methods, exactly as our candidate can. Measure **cold** time and warm time separately.
-4. **Probe fast.** Target under 30 seconds in Python, then under five minutes for discriminating follow-ups; invest more only when accuracy and plausible absolute savings justify it. A small measured gain can warrant a follow-up even if a historical performance threshold failed.
-5. **Correctness first.** State error must be measured against an independently accurate reference. Empirical holdout errors are not error certificates. For switched systems compare **event sequence and branch**, parameter derivatives, and state.
-6. **Reproduce.** Log exact equations, parameters, seeds, sample counts, hardware, numerical precision, packages/versions, compiler warm-up, timing ranges, costs, precision failures and provenance of executable/raw data. Missing items must be marked missing.
-7. **Decision.** Keep the original preregistered numerical GATE immutable. Separately record **the measured effect** and **whether follow-up is worthwhile**: KEEP for a credible, correctly measured relevant end-to-end saving of any magnitude; CONDITIONAL for warm/subsystem gains or unproven transfer; STOP when expected further payoff does not justify the cost; KILL only the *specific falsified hypothesis or gate*; SUPERSEDED if a stronger rival reverses the result. A frozen 3× failure cannot become PASS, but can contain a valid smaller improvement.
-8. **Fork, don't erase.** Create follow-up P-cards linked from the previous R-card, update MAP and INDEX. Retain dead ends and corrections.
-9. **Separate originality from measured utility and scientific priority.** If a later prior-art review exposes known overlap, correct the claim and **stop autonomous follow-up** on that same technique. Preserve authentic speedup observations even when the technique is old; they do not prove originality or obligate further benchmarking. New R-cards link the pretest source record/commit; missing searches mean `POD: NO`. Earlier nine-check results are retained as history.
+## Record and handoff
 
-## Default gates (unless overridden in a P-card)
+All attempted computations must have an R-card or linked explicit numerical record with equations, actual observed values/failures and status. Exploratory records may legitimately be `POD: NO`; this is not a reason to skip the computation. Confirmatory `POD: YES` requires the [10/10 audit](PROOF_OF_DONE.md) and Git read-back. Update [INDEX](INDEX.md) and [MAP](MAP.md) on new P/R IDs; update [FRONTIER](FRONTIER.md) when priorities materially change.
 
-- Error: max absolute state error ≤ 1e-7 on the stated holdout; **zero wrong switching branches or event itineraries**.
-- Speed: **no global minimum**—not 3× and not 1.10×. If a P-card needs a numerical economic gate, predeclare one justified by workload, expected absolute saved time, precision/noise and implementation cost; **1.01×, 1.05× or 1.10×** can all matter when robust. Threefold is only an aspirational breakthrough tier or a **historically frozen** experiment target. A failure to clear the *chosen* gate cannot erase a smaller real observed gain.
-- Error certification: empirical agreement alone is not a certificate; report `PROOF: NONE` until an auditable enclosure or a formal checked theorem proves the relevant claim. No pixel displacement claims from state error alone.
-- Automatic operator admission: may decline. Domain selection cost and failures count in cold time.
-- **Economic accounting:** distinguish one-shot cold, warm kernel, and **realistically amortized total including build/JIT**, with explicit repeat counts, absolute saved seconds, error/coverage and implementation cost. A warm speedup is not by itself an application win. For multiple changes use a combined benchmark; separate-stage speedups follow Amdahl's law and do not automatically multiply.
-- **Distraction control:** a known published solution is an early elimination, not an automatic performance project. Record every legitimate positive effect from experiments already run, even if not worth further optimization. Use expected saved computation, applicability and experiment cost to ration effort; do not use a fixed speedup multiple as a proxy. A measured 1% gain must be distinguished from timer noise; prioritize representative workloads, strong rivals and controlled repeatability.
-
-## Provenance tags
-
-**REPORTED** = measurements stated in a prior chat, not independently recreated from frozen files here. **REPRODUCED** = executable, command, seed, and raw results archived and rerun. **CERTIFIED** = proved enclosure/error contract, with proof attached. All current R-cards are REPORTED.
-
-## Scope safety
-
-This branch should contain documentation and table data only. It is **not for merging** into Fractodactyl main because its tree intentionally omits the renderer. More complex experiments belong in the sandbox and can be summarized here.
+The branch is a documentation-only research tree. Use the Chat compute sandbox for scripts; no renderer/source or binary output is committed without permission. Never touch `main`.

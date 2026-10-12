@@ -1,29 +1,23 @@
 # Standing goal: discover useful computational shortcuts
 
-**This is the project's durable objective, not an assignment to one technique or industry.**
+**The goal is to create new mathematical/computational solutions**, not merely benchmark existing algorithms or repeatedly identify that related published work exists. Seek transferable reductions in the cost of scientific/industrial calculation where nonlinear or other structure can be exploited. Fractodactyl inspired the tools and discipline; rendering is not the permanent target.
 
-Discover, test, and eventually generalize mathematical methods that make **scientific or industrial computation more efficient**, especially where nonlinear dynamics contain exploitable structure. Fractodactyl supplied the first techniques and research discipline; rendering is **not** the goal.
+## How discoveries happen
 
-The expected output is **findings**: promising unanswered mechanisms, credible new mathematical shortcuts, transferable gains, meaningful failures, previously measured incremental benefits and unexpected connections. **Finding that a proposed idea was already published is a successful early research result:** cite the source, record the precise overlap and investigate a *different* hypothesis without running it. Do not default to a "try to beat this known algorithm" project. Preserve legitimate historical speed measurements without letting them dictate discovery priorities.
+**Read prior art to climb higher.** Take established mathematics as an ingredient: derive an extension, combine apparently separate mechanisms, remove an assumption or bottleneck, develop an error certificate, identify a new operator/representation, or prove a useful bound. Say precisely what the starting source already gives and what new proposition remains to be tested. Do not call an old algorithm a new discovery; **do not abandon its unexplored consequences simply because it is published**. A direct speed race against a known method is not the mission unless answering a meaningful open scientific/application question requires it.
 
-**Mandatory discovery triage:** Search primary prior art **before deciding to run an experiment**. When the same core mechanism and materially similar application already exist, **STOP/PIVOT**, record the citation and explore a different mechanism, rather than relabeling an implementation race a new discovery. Only a substantive unresolved mathematical/application question passes to preregistration and fair performance comparisons; the owner may explicitly request non-novel replication/deployment work as an exception. Any new *experiment* still requires a pretest-committed, actually executed three-query dossier and linked P-card as in [PRIOR_ART.md](PRIOR_ART.md). Unavailable searches are **BLOCKED**; no matching hit alone never establishes novelty.
+**Use computation to discover.** Start with a falsifiable prediction, perform a tiny actual calculation/simulation or symbolic derivation in the available Chat environment, check error and counterexamples, and revise. Default to producing empirical or mathematical evidence every research session, not only literature notes. Negative tests, hard counterexamples and impossibility arguments are progress. A session without a run must say why; a bibliography by itself is not the goal.
 
-## Agent autonomy
+**Two levels of evidence:** cheap transparent *exploratory probes* can precede a full literature dossier and are never advertised as preregistered or novel. Strong confirmatory correctness/performance/novelty claims require actual prior-art searches, recorded sources and pretest-committed P/PA cards, fair baselines, controlled validation and [10/10 audit](PROOF_OF_DONE.md). See [AGENTS.md](AGENTS.md), [PRIOR_ART.md](PRIOR_ART.md) and [METHOD.md](METHOD.md). Literature search inability does not preclude an honestly labeled exploratory calculation; it does preclude confirming novelty.
 
-Agents are **not required to follow a preselected technical roadmap** or keep pursuing power electronics. At each research session, independently read the evidence, propose competing leads across domains, eliminate already-known approaches, select a high-information *unresolved* idea, run an experiment only if the literature triage warrants it, and update the [frontier](FRONTIER.md). The owner need not know which algorithm to pursue. Follow evidence rather than fashion, hunches, or sunk cost.
+## Recognition and research priorities
 
-Search broadly enough to find surprising connections, but demand a **substantive difference from published work**, a concrete mechanism, comparable baseline and cheap falsifiable probe before investing. A session can productively end with a cited literature elimination and a new direction, without any experiment. Preserve cross-domain transfer opportunities; avoid both aimless brainstorming and premature commitment to one application.
+- **Creativity:** produce a new equation, construction, algorithm, certificate, theorem, or useful mechanism beyond cited ingredients. It can be narrow and domain-specific before transfer is established.
+- **Correctness:** independent accuracy checks and failure/domain boundaries before performance claims; mathematical proof when warranted. Do not equate empirical fit to certification.
+- **Transfer and usefulness:** a realistic science/industrial workload is preferable to a contrived demonstration; measure specialist rivals only where comparison illuminates the claim.
+- **Economics:** no universal 3×, 1.10× or other speed threshold. A repeatable 1% gain can matter at scale. Preserve honest historical gates separately from smaller measured gains. Count cold setup, warm reuse, amortization and absolute compute savings.
+- **Autonomy:** the research agent chooses useful mathematical questions and computes to distinguish them; the owner should not have to invent the next hypothesis.
 
-## How we recognize a valuable discovery
+**The loop:** learn what is known → derive a farther-reaching proposition → execute a falsifying probe → revise or certify → archive findings → pick the next question. The aspiration of a general mathematical compiler is not assumed feasible. Historical observations are `REPORTED` until independently reproducible.
 
-- **Usefulness:** a plausible real workload (science, industry, computation), not merely a pretty demonstration.
-- **Transfer:** a mechanism that plausibly works beyond a handcrafted fractal coordinate or single toy model.
-- **Truthfulness:** independent accuracy checks first, rigorous guarantees where needed; no overstated certification.
-- **Economics:** **no mandatory speedup floor—not 3×, not 1.10×.** A reliable 1% gain can be meaningful in a heavily used computation; a 10%, 30%, or 2× gain deserves to be preserved. Measure a realistic workload against the strongest accurate same-math/specialist rival, with startup, warm reuse, amortization and absolute time saved clearly distinguished. Allocate further research effort by expected cumulative saved compute, applicability, uncertainty and implementation cost; treat 3× as an ambitious breakthrough tier, never a universal survival gate.
-- **Autonomy:** hypotheses and next experiments are selected from evidence; all tests and dead ends are recorded for other agents.
-
-**Two independent questions:** (1) Is a gain accurate, repeatable and fairly measured? (2) Does its expected real-world payoff justify more investigation? Do not erase a genuine positive effect merely because it misses a predeclared experimental speed target; preserve the original `GATE: FAIL` and record the narrower opportunity for a new preregistered test. Likewise, a small gain may be real but not a priority to optimize further. Existing P-card numerical thresholds remain historical facts, not defaults for new work.
-
-A general-purpose mathematical compiler is a **research aspiration, not an assumed feasible outcome**. We may discover narrower valuable algorithms instead.
-
-[Dynamic frontier](FRONTIER.md) · [Operating rules](AGENTS.md) · [Binary proof of done](PROOF_OF_DONE.md) · [Research map](MAP.md).
+[Frontier](FRONTIER.md) · [Methods](METHOD.md) · [Research map](MAP.md) · [Proof of done](PROOF_OF_DONE.md).

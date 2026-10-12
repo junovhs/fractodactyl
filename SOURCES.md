@@ -16,7 +16,7 @@ Relevant PWM/hybrid prior art (this notebook does **not** claim novelty for stat
 
 Related established numerical methods: [Bader, Blanes & Casas (2019), optimized matrix-exponential Taylor polynomials](https://doi.org/10.3390/math7121174); [Al-Mohy & Higham (2011), truncated Taylor algorithms for matrix-exponential action](https://doi.org/10.1137/100788860); [Sastre, Ibáñez & Defez (2019), boosting the matrix exponential](https://doi.org/10.1016/j.amc.2018.08.017).
 
-**Mandatory forward-looking executed literature searches:** [PRIOR_ART](PRIOR_ART.md). Generic reference lists or these citations alone are **not** a pre-experiment search dossier.
+**Forward-looking protocol:** [PRIOR_ART](PRIOR_ART.md). The literature is an inventory of mathematical ingredients and limitations for new constructions, **not an automatic instruction to abandon related questions**. A three-query source dossier is mandatory before **confirmatory** tests, but not every small explicitly exploratory calculation. Generic references alone cannot establish a novel result.
 
 Prior art to beat (not claims of novelty):
 
@@ -41,3 +41,7 @@ The following sources were located by **actual external searches on 2026-10-12**
 - **Wayne B. Hayes and Kenneth R. Jackson**, *Rigorous Shadowing of Numerical Solutions of Ordinary Differential Equations by Containment*, [DOI 10.1137/S0036142901399100](https://doi.org/10.1137/S0036142901399100). Validates a true nearby trajectory; **do not confuse shadowing with certification of the original fixed initial condition**.
 
 Scope caution: consulted publisher abstracts, an open full-text article and an author manuscript; paywalled full articles were not claimed as inspected. Nothing in this source list alone proves global novelty or a useful speedup.
+
+## 2026-10-12 interpretation correction
+
+The search-only decisions documented earlier on this date reflected a now-superseded *policy* that treated prior-art overlaps as vetoes. The citations and reported overlaps remain informative; they do not establish that untested mathematical extensions of P-040, P-051 or P-060 cannot yield new capabilities. Agents should use the cited methods as ingredients, derive concrete new consequences, and run exploratory falsification before deciding whether a formal study is justified. This correction makes no novelty or numerical performance claim.
