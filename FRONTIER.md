@@ -18,7 +18,7 @@ This is an *evidence goal*, not a commitment to circuits, Koenigs, or a particul
 
 **These are candidates, not obligations.** An agent may introduce and prioritize a better cross-domain hypothesis whenever it documents *why the new cheap experiment has higher expected information value*. Keep a small active portfolio (typically 1–3 leads), not a sprawling backlog of untested speculative prompts.
 
-## Required per-session choice
+## Active preregistered probe (2026-10-12)\n\n[P-080](PROMPTS/P-080.md) tests the P-030 mechanism on a sampled-data, two-state PWM converter with clipping branches. This outranks P-060 for this session: same short numerical probe can falsify both the chart accuracy and the cold economics against a strong, exact analytical competitor, with immediate relevance to converter parameter sweeps. Its fixed-schedule switch is deliberately limited; success would not establish continuous state-triggered event admission. If it fails, the next avenue should target event-time sensitivity/automatic partitioning where the exact sampled-duty shortcut is unavailable.\n\n## Required per-session choice
 
 1. State the highest-impact unanswered uncertainty and **why this experiment beats the alternatives**.
 2. Choose or register the P-ID; freeze its accuracy and cost gates before computation.

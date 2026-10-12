@@ -18,13 +18,13 @@ flowchart TD
   P000 --> P050["P-050 · Whole-orbit Newton scan"]
   P050 --> R005["R-005 · Global scan FAILED"]
   R005 --> P051["P-051 · Certified segmented solve"]
-  P030 --> P070["P-070 · Multistate event-domain generalization"]
+  P030 --> P080["P-080 · Guarded PWM exact rival"]\n  P030 --> P070["P-070 · Multistate event-domain generalization"]
   classDef fail fill:#ffefef,stroke:#b94a48,color:#74211f
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
   class R002,R004,R005 fail
   class R001,R003 maybe
-  class P030,P040,P051,P060,P070 untested
+  class P030,P040,P051,P060,P070,P080 untested
 ```
 
 ## Clickable reading order
@@ -33,6 +33,6 @@ flowchart TD
 
 Parallel track: [P-050](PROMPTS/P-050.md) → [R-005](RESULTS/R-005.md) → [P-051](PROMPTS/P-051.md).
 
-Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md). Future multi-state extension: [P-070](PROMPTS/P-070.md).
+Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md). Selected, preregistered child of P-030: [P-080](PROMPTS/P-080.md). Future multi-state extension: [P-070](PROMPTS/P-070.md).
 
 [All statuses and one-line decisions](INDEX.md).
