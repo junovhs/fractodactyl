@@ -398,6 +398,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let raw_dir = a.str("raw-dir");
     if let Some(dir) = raw_dir {
         std::fs::create_dir_all(dir).map_err(|e| format!("--raw-dir {dir}: {e}"))?;
+        std::fs::write(format!("{dir}/size.txt"), format!("{w}x{h}\n"))
+            .map_err(|e| format!("--raw-dir metadata: {e}"))?;
     }
     let crf: u32 = a.num("crf", 16)?;
     let preset = a.str("x264").unwrap_or("slow");
