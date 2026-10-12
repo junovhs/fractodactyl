@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fractodactyl Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Colours sampled from assets/Fractodactyl Mandelbrot Explorer Desktop.png */
+  :root {
+    --desk: #0e8a8c;
+    --frame-outer: #1d2370;
+    --frame-blue: #5e6cf6;
+    --frame-light: #bbc4f8;
+    --frame-inner: #313981;
+    --menu: #d9cfc4;
+    --peri-hi: #d4cbf2;
+    --peri: #a6a1f4;
+    --peri-lo: #9e96f7;
+    --peri-line: #333886;
+    --close: #fa4b6c;
+    --close-hi: #ff8ea3;
+    --select: #0a2fd6;
+    --ink: #161310;
+    --ui: "Noto Sans", Tahoma, Verdana, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--desk); font: 500 13px/1.3 var(--ui); color: var(--ink); overflow: hidden; user-select: none; }
+  button { font: inherit; color: inherit; border: 0; background: none; padding: 0; }
+
+  /* Every [data-stone] element gets a painted SVG skin from paintStone() below. */
+  [data-stone] { background-repeat: no-repeat; background-size: 100% 100%; }
+
+  /* ---------- Desktop ---------- */
+  .desktop { position: fixed; inset: 0 0 40px 0; background: radial-gradient(ellipse at 30% 20%, #17a3a5, transparent 60%), radial-gradient(ellipse at 80% 90%, #0b7375, transparent 55%), var(--desk); overflow: hidden; }
+  .confetti { position: absolute; inset: 0; pointer-events: none; }
+  .icons { position: absolute; top: 14px; left: 8px; display: flex; flex-direction: column; gap: 16px; z-index: 2; }
+  .icon { width: 108px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #fff; text-align: center; font-size: 13px; text-shadow: 1px 1px 0 #000; }
+  .icon .glyph { font-size: 42px; line-height: 1; filter: drop-shadow(2px 2px 0 rgba(0,0,0,.35)); }
+  .icon img { width: 64px; height: 56px; object-fit: contain; filter: drop-shadow(2px 2px 0 rgba(0,0,0,.35)); }
+  .icon span { padding: 1px 3px; }
+  .icon.sel span { background: var(--select); outline: 1px dotted #fff; }
+
+  /* ---------- Window frame: navy line / blue / light stripe / blue / navy line ---------- */
+  .window {
+    position: absolute; top: 14px; left: 138px; right: 16px; bottom: 14px; min-width: 860px;
+    border: 1px solid var(--frame-outer); border-radius: 7px 7px 4px 4px;
+    background: linear-gradient(#7e8bfa, var(--frame-blue) 30%, #5363ec);
+    padding: 2px; box-shadow: 5px 7px 0 rgba(0,0,0,.28); z-index: 3;
+  }
+  .window > .stripe { height: 100%; border: 1px solid var(--frame-light); border-radius: 5px 5px 3px 3px; padding: 2px; background: linear-gradient(#6f7cf4, #5967ea); }
+  .window .content { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--frame-inner); border-radius: 3px 3px 1px 1px; overflow: hidden; background: var(--menu); }
+
+  /* ---------- Title bar: banner drawn at whole device-pixel scales only ---------- */
+  .titlebar { position: relative; flex: none; height: 124px; overflow: hidden; background: #0170fc; image-rendering: pixelated; border-bottom: 1px solid var(--frame-inner); }
+  .titlebar .fill-l, .titlebar .fill-r { position: absolute; top: 0; bottom: 0; background-repeat: repeat-x; image-rendering: pixelated; }
+  .titlebar .fill-l { left: 0; background-image: url(img/banner-left.png); background-position: right top; }
+  .titlebar .fill-r { right: 0; background-image: url(img/banner-right.png); background-position: left top; }
+  .titlebar .band { position: absolute; top: 0; image-rendering: pixelated; display: block; }
+  .appicon { position: absolute; top: 6px; left: 6px; z-index: 2; }
+
+  /* Window buttons: periwinkle bevel, 2px navy outline, chunky black glyphs */
+  .winbtns { position: absolute; top: 7px; right: 7px; display: flex; gap: 3px; z-index: 2; }
+  .winbtn, .sbtn {
+    display: grid; place-items: center; border: 2px solid var(--peri-line); border-radius: 4px;
+    background: linear-gradient(var(--peri-hi), var(--peri) 40%, var(--peri-lo));
+    box-shadow: inset 2px 2px 0 rgba(255,255,255,.75), inset -2px -2px 0 rgba(58,52,170,.35), 1px 1px 0 rgba(0,0,30,.35);
+  }
+  .winbtn { width: 32px; height: 28px; }
+  .winbtn.close { background: linear-gradient(var(--close-hi), var(--close) 40%, #ef3d60); box-shadow: inset 2px 2px 0 rgba(255,255,255,.55), inset -2px -2px 0 rgba(150,0,40,.3), 1px 1px 0 rgba(0,0,30,.35); }
+  .winbtn:active, .sbtn:active { box-shadow: inset 2px 2px 0 rgba(30,30,110,.45); }
+  .winbtn svg, .sbtn svg { display: block; shape-rendering: crispEdges; }
+
+  .menubar { display: flex; gap: 2px; padding: 3px 8px 4px; flex: none; background: var(--menu); border-bottom: 1px solid #fff; }
+  .menubar span { padding: 2px 9px; font-size: 15px; }
+  .menubar span:hover { background: var(--select); color: #fff; }
+
+  /* ---------- Toolbar: cracked warm-grey stone strip with sandstone slabs ---------- */
+  .toolbar { display: flex; gap: 10px; padding: 9px 10px 8px; flex: none; border-top: 1px solid #fff; border-bottom: 1px solid #8f8a8c; }
+  .tool { flex: 1 1 0; min-width: 100px; height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; padding-bottom: 4px; font-weight: 600; font-size: 16px; cursor: pointer; }
+  .tool .ico { width: 36px; height: 36px; display: grid; place-items: center; font-size: 28px; line-height: 1; }
+  .tool .ico img { max-width: 100%; max-height: 100%; }
+  .tool:active { transform: translateY(2px); }
+  .caret { font-size: 11px; margin-left: -4px; }
+
+  /* ---------- Body ---------- */
+  .body { flex: 1; display: flex; gap: 6px; padding: 6px; min-height: 0; background: var(--menu); }
+  .sidebar { width: 220px; flex: none; display: flex; flex-direction: column; gap: 10px; padding: 9px 8px; overflow: hidden; }
+  .panel { position: relative; padding: 8px 10px 12px; color: #2c1d0c; }
+  .panel h3 { margin: 0 0 6px; font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; color: #23170a; }
+  .headslab { display: inline-flex; padding: 4px 14px 6px; margin: -2px 0 8px -2px; }
+  .headslab h3 { margin: 0; font-size: 19px; }
+
+  .compass { position: absolute; right: -8px; top: -12px; width: 52px; height: 52px; border-radius: 50%; z-index: 2;
+    background: radial-gradient(circle, #fffaf0 0 50%, #e2be5a 52% 60%, #9c7420 62% 70%, #6b4c12 72% 100%); box-shadow: 1px 2px 2px rgba(0,0,0,.4); display: grid; place-items: center; }
+  .compass::before { content: ""; width: 7px; height: 34px; background: linear-gradient(#e0304a 50%, #3949c8 50%); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); transform: rotate(35deg); }
+  .mapsil { height: 50px; margin: 0 0 8px; opacity: .55; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 8px; font-size: 13px; margin: 0; }
+  .kv dt { color: #3d2a14; } .kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .navthumb { position: relative; height: 112px; border: 2px solid #2a1c0c; border-radius: 3px; overflow: hidden; box-shadow: 1px 1px 0 rgba(255,240,210,.7); }
+  .navthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .navthumb .here { position: absolute; left: 47%; top: 43%; width: 14%; height: 18%; border: 2px solid #ff2a2a; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 36px); gap: 3px; justify-content: center; margin: 10px 0 8px; }
+  .dbtn { display: grid; place-items: center; padding-bottom: 3px; cursor: pointer; }
+  .dbtn:active, .zbtn:active { transform: translateY(2px); }
+  .zoombtns { display: flex; gap: 10px; }
+  .zbtn { flex: 1; height: 38px; display: grid; place-items: center; padding-bottom: 3px; cursor: pointer; }
+
+  .presets ul { list-style: none; margin: 0; padding: 2px; height: 124px; overflow-y: scroll; background: #f7f2ea; border: 2px solid; border-color: #5f574d #fff #fff #5f574d; border-radius: 2px; font-size: 13.5px; color: #111; }
+  .presets li { padding: 2px 6px; }
+  .presets li.sel { background: var(--select); color: #fff; }
+
+  /* Periwinkle scrollbars (list uses the real one, viewport a drawn one) */
+  ::-webkit-scrollbar { width: 18px; }
+  ::-webkit-scrollbar-track { background: #e2dbd1; border-left: 1px solid #9d958c; }
+  ::-webkit-scrollbar-thumb { border: 2px solid var(--peri-line); border-radius: 3px; background: linear-gradient(90deg, #c4c4fb, #8a8cf3 50%, #6f72ef); }
+  ::-webkit-scrollbar-button:single-button { height: 18px; border: 2px solid var(--peri-line); border-radius: 3px; background: linear-gradient(var(--peri-hi), var(--peri)); }
+
+  .viewport { flex: 1; min-width: 0; display: flex; gap: 2px; }
+  .canvas { position: relative; flex: 1; overflow: hidden; border: 3px solid; border-color: #3a2a9c #7b6cf0 #7b6cf0 #3a2a9c; outline: 1px solid var(--frame-inner); background: #0b1530; }
+  .canvas img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .45s ease; }
+  .vscroll { width: 22px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 0 1px; background: #e2dbd1; border: 1px solid #9d958c; }
+  .sbtn { height: 22px; flex: none; }
+  .track { flex: 1; position: relative; }
+  .thumb { position: absolute; left: 1px; right: 1px; top: 14%; height: 24%; border: 2px solid var(--peri-line); border-radius: 3px; background: linear-gradient(90deg, #c4c4fb, #8a8cf3 50%, #6f72ef); }
+
+  /* ---------- Status bar: stone cells, segmented progress ---------- */
+  .statusbar { display: flex; gap: 5px; padding: 4px 6px 6px; flex: none; font-size: 13.5px; border-top: 1px solid #fff; }
+  .cell { padding: 4px 10px 6px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .cell.grow { flex: 1; min-width: 0; }
+  .progress { flex: 1; min-width: 120px; height: 20px; padding: 2px; border-radius: 3px; background: #f4f0ea; box-shadow: inset 1px 1px 0 #77706a, inset -1px -1px 0 #fff; }
+  .progress i { display: block; height: 100%; width: 0; transition: width .25s linear;
+    background: linear-gradient(rgba(255,255,255,.35), transparent 50%, rgba(0,0,60,.15)), repeating-linear-gradient(90deg, #2286fb 0 12px, #0d2a78 12px 14px); }
+
+  /* ---------- Taskbar ---------- */
+  .taskbar { position: fixed; left: 0; right: 0; bottom: 0; height: 40px; display: flex; align-items: center; gap: 6px; padding: 4px; background: #c1c0c1; border-top: 1px solid #fff; z-index: 10; }
+  .w95 { box-shadow: inset -1px -1px 0 #0a0a0a, inset 1px 1px 0 #fff, inset -2px -2px 0 #808080, inset 2px 2px 0 #dfdfdf; }
+  .w95in { box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #fff; }
+  .start { height: 32px; padding: 0 10px; display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 15px; }
+  .flag { width: 22px; height: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; transform: skewX(-8deg); }
+  .flag b:nth-child(1) { background: #f03c1e; } .flag b:nth-child(2) { background: #3cb43c; } .flag b:nth-child(3) { background: #2a6ef0; } .flag b:nth-child(4) { background: #ffd21e; }
+  .task { height: 32px; width: 220px; padding: 0 8px; display: flex; align-items: center; gap: 6px; font-size: 14px; background: #e6e6e6; }
+  .task img { width: 22px; height: 20px; object-fit: contain; }
+  .tray { margin-left: auto; height: 32px; padding: 0 12px; display: flex; align-items: center; gap: 12px; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="desktop">
+  <svg class="confetti" viewBox="0 0 1440 1040" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <g opacity=".9">
+      <polygon points="265,40 330,20 300,85" fill="#9b5de5"/><polygon points="1120,25 1175,8 1160,70" fill="#4cc9f0"/>
+      <polygon points="40,780 95,745 90,815" fill="#2ec4b6"/><polygon points="15,960 80,935 55,1010" fill="#9b5de5"/>
+      <polygon points="1390,560 1435,520 1440,600" fill="#f15bb5"/><polygon points="1300,980 1360,955 1350,1030" fill="#fee440"/>
+      <rect x="880" y="10" width="70" height="12" rx="3" fill="#fee440" transform="rotate(18 915 16)"/>
+      <rect x="20" y="880" width="58" height="11" rx="3" fill="#f15bb5" transform="rotate(-30 49 885)"/>
+      <rect x="50" y="1000" width="64" height="11" rx="3" fill="#fee440" transform="rotate(20 82 1005)"/>
+      <path d="M560 1012 q20 -20 40 0 t40 0 t40 0" stroke="#f15bb5" stroke-width="7" fill="none" stroke-linecap="round"/>
+      <path d="M40 690 q16 -16 32 0 t32 0" stroke="#fee440" stroke-width="6" fill="none" stroke-linecap="round"/>
+      <circle cx="105" cy="740" r="7" fill="#f15bb5"/>
+    </g>
+  </svg>
+
+  <div class="icons">
+    <div class="icon"><div class="glyph">🖥️</div><span>My Computer</span></div>
+    <div class="icon"><div class="glyph">📁</div><span>My Documents</span></div>
+    <div class="icon"><div class="glyph">🌐</div><span>Network Neighborhood</span></div>
+    <div class="icon"><div class="glyph">🗑️</div><span>Recycle Bin</span></div>
+    <div class="icon"><div class="glyph">🧭</div><span>The Internet</span></div>
+    <div class="icon sel"><img src="img/mascot-icon.png" alt=""><span>Fractodactyl</span></div>
+  </div>
+
+  <div class="window"><div class="stripe"><div class="content">
+
+    <div class="titlebar" id="titlebar">
+      <div class="fill-l" id="fillL"></div>
+      <img class="band" id="band" src="img/banner-band.png" alt="Fractodactyl — Explore the Infinite!">
+      <div class="fill-r" id="fillR"></div>
+      <div class="winbtns">
+        <button class="winbtn" title="Minimise"><svg width="18" height="16"><rect x="2" y="10" width="13" height="4" fill="#000"/></svg></button>
+        <button class="winbtn" title="Maximise"><svg width="18" height="16"><path fill="#000" fill-rule="evenodd" d="M2 1h14v14H2z M4.5 5h9v7.5h-9z"/></svg></button>
+        <button class="winbtn close" title="Close"><svg width="18" height="16" style="shape-rendering:auto"><path d="M3.5 2.5 L14.5 13.5 M14.5 2.5 L3.5 13.5" stroke="#000" stroke-width="3.6"/></svg></button>
+      </div>
+    </div>
+
+    <div class="menubar">
+      <span><u>F</u>ile</span><span><u>E</u>dit</span><span><u>V</u>iew</span><span>E<u>x</u>pedition</span><span><u>O</u>ptions</span><span><u>H</u>elp</span>
+    </div>
+
+    <div class="toolbar" data-stone="strip" data-seed="toolbar">
+      <!-- icon slots: drop the owner's icon PNGs into .ico as <img> -->
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-zoom.png" alt=""></span>Zoom <span class="caret">▼</span></button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-pan.png" alt=""></span>Pan</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-explore.png" alt=""></span>Explore</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-fossils.png" alt=""></span>Fossils</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-snapshot.png" alt=""></span>Snapshot</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-map.png" alt=""></span>Map</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-nest.png" alt=""></span>Nest</button>
+    </div>
+
+    <div class="body">
+      <aside class="sidebar" data-stone="wood" data-seed="sidebar">
+        <section class="panel" data-stone="parch" data-seed="exp">
+          <div class="compass" aria-hidden="true"></div>
+          <div class="headslab" data-stone="header" data-seed="exphead"><h3>Expedition</h3></div>
+          <svg class="mapsil" viewBox="0 0 180 50" aria-hidden="true"><g fill="#5a4630">
+            <path d="M14 10 q10-6 24-2 q8 4 4 12 q-6 6-4 14 q-4 6-8 2 q-2-8-10-10 q-8-4-6-16z"/>
+            <path d="M40 30 q8 0 8 8 q-2 10-6 10 q-4-6-2-18z"/>
+            <path d="M70 8 q10-4 16 2 q-2 6 4 8 q4 10-4 16 q-6 6-10 0 q-4-8-8-10 q-4-8 2-16z"/>
+            <path d="M92 6 q30-6 60 4 q8 6 0 12 q-10 2-14 8 q-8 2-12-4 q-10 0-14-6 q-14-2-20-14z"/>
+            <path d="M140 34 q12-2 16 4 q-2 6-10 6 q-8-2-6-10z"/></g></svg>
+          <dl class="kv">
+            <dt>Location:</dt><dd>Seahorse Valley</dd>
+            <dt>Zoom:</dt><dd id="zoomVal">3.3 × 10⁴</dd>
+            <dt>Coordinates:</dt><dd>−0.743643887<br>+ 0.131825904i</dd>
+          </dl>
+        </section>
+
+        <section class="panel" data-stone="parch" data-seed="nav">
+          <h3><span>✋</span>Navigation</h3>
+          <div class="navthumb"><img src="img/nav.png" alt="Overview"><div class="here"></div></div>
+          <div class="dpad">
+            <span></span><button class="dbtn" data-stone="grey"><svg width="22" height="20" viewBox="0 0 22 20"><path d="M11 1 L20 10 H14.5 V19 H7.5 V10 H2z" fill="#3b55e6" stroke="#121a6e" stroke-width="1.6" stroke-linejoin="round"/></svg></button><span></span>
+            <button class="dbtn" data-stone="grey"><svg width="20" height="22" viewBox="0 0 20 22"><path d="M2 11 L17 2 V20z" fill="#3b55e6" stroke="#121a6e" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            <button class="dbtn" data-stone="grey"><svg width="22" height="20" viewBox="0 0 22 20"><path d="M11 1.5 L20.5 10 H17.5 V18.5 H13 V13 H9 V18.5 H4.5 V10 H1.5z" fill="#3b55e6" stroke="#121a6e" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            <button class="dbtn" data-stone="grey"><svg width="20" height="22" viewBox="0 0 20 22"><path d="M18 11 L3 2 V20z" fill="#3b55e6" stroke="#121a6e" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+            <span></span><button class="dbtn" data-stone="grey"><svg width="22" height="20" viewBox="0 0 22 20"><path d="M11 19 L20 10 H14.5 V1 H7.5 V10 H2z" fill="#3b55e6" stroke="#121a6e" stroke-width="1.6" stroke-linejoin="round"/></svg></button><span></span>
+          </div>
+          <div class="zoombtns">
+            <button class="zbtn" data-stone="green" id="zoomOut"><svg width="20" height="20"><rect x="2" y="8" width="16" height="4.5" fill="#000"/></svg></button>
+            <button class="zbtn" data-stone="green" id="zoomIn"><svg width="20" height="20"><path d="M2 8h16v4.5H2z M7.75 2h4.5v16h-4.5z" fill="#000"/></svg></button>
+          </div>
+        </section>
+
+        <section class="panel presets" data-stone="parch" data-seed="pre">
+          <h3><svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 1.5 L18.5 18 H1.5z" fill="#a24be6" stroke="#3d145e" stroke-width="1.6" stroke-linejoin="round"/></svg>Presets</h3>
+          <ul id="presets">
+            <li class="sel">Master Ice</li><li>Deep Blue</li><li>Stone Spiral</li><li>Icy Caverns</li><li>Midnight Fossil</li>
+            <li>Ocean Trench</li><li>Coral</li><li>Steel</li><li>Zebra</li><li>Random Discovery</li>
+          </ul>
+        </section>
+      </aside>
+
+      <div class="viewport">
+        <div class="canvas"><img id="frame" src="img/seahorse.jpg" alt="Seahorse Valley rendered by fd in the master-ice look"></div>
+        <div class="vscroll">
+          <button class="sbtn"><svg width="12" height="9"><path d="M6 0 L12 9 H0z" fill="#0d1a8a"/></svg></button>
+          <div class="track"><div class="thumb"></div></div>
+          <button class="sbtn"><svg width="12" height="9"><path d="M6 9 L12 0 H0z" fill="#0d1a8a"/></svg></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar" data-stone="strip" data-seed="status">
+      <div class="cell grow" data-stone="cell" data-seed="c1"><img src="img/icon-fossils.png" alt="" width="20" height="20"><span id="status">Rendering Mandelbrot Set…</span><div class="progress"><i id="bar"></i></div></div>
+      <div class="cell" data-stone="cell" data-seed="c2" id="zoomStatus">Zoom: 3.3 × 10⁴</div>
+      <div class="cell" data-stone="cell" data-seed="c3">Iter: 20,000</div>
+      <div class="cell" data-stone="cell" data-seed="c4">−0.743643887 + 0.131825904i</div>
+    </div>
+
+  </div></div></div>
+</div>
+
+<div class="taskbar">
+  <div class="start w95"><div class="flag"><b></b><b></b><b></b><b></b></div>Start</div>
+  <div class="task w95in"><img src="img/mascot-icon.png" alt="">Fractodactyl</div>
+  <div class="tray w95in"><span>🔊</span><span id="clock"></span></div>
+</div>
+
+<script>
+/* ===== Banner: logical 640x62 band, drawn at an integer number of device pixels per logical pixel,
+   positioned so the mascot..tagline span (logical x 75..615, centre 345) is always fully visible. ===== */
+const BAND_W = 640, BAND_H = 66, KEEP_W = 540, KEEP_MID = 345, BTN_ZONE = 124, MAX_H = 140;
+function layoutBanner() {
+  const tb = document.getElementById('titlebar'), band = document.getElementById('band');
+  const fl = document.getElementById('fillL'), fr = document.getElementById('fillR');
+  const dpr = window.devicePixelRatio || 1;
+  const avail = tb.clientWidth - BTN_ZONE;
+  let k = Math.min(Math.floor(avail * dpr / KEEP_W), Math.floor(MAX_H * dpr / BAND_H));
+  k = Math.max(1, k);
+  const px = k / dpr, h = BAND_H * px, w = BAND_W * px;
+  const snap = v => Math.round(v * dpr) / dpr;
+  const left = snap(avail / 2 - KEEP_MID * px + 4);
+  tb.style.height = h + 'px';
+  Object.assign(band.style, { width: w + 'px', height: h + 'px', left: left + 'px' });
+  fl.style.width = Math.max(0, left) + 'px';
+  fl.style.backgroundSize = `${150 * px}px ${h}px`;
+  fr.style.left = (left + w) + 'px';
+  fr.style.backgroundSize = `${48 * px}px ${h}px`;
+}
+
+/* ===== Stone painter: one SVG skin per element, at its exact size (never stretched). ===== */
+const SKINS = {
+  sand:   { face: '#ecd6b4', face2: '#e1c49d', slab: '#6b5443', slabR: '#846a53', line: '#57422f', hi: '#fffaf0', crack: '#9b7d5e', crackHi: '#fff6e8', speck: '#a5845f', cracks: [1, 2], radius: 9, depth: 3, mottle: .22, crackA: .5 },
+  grey:   { face: '#e6e4e4', face2: '#cbc8c9', slab: '#6d6a6b', slabR: '#7d7a7b', line: '#4b494a', hi: '#ffffff', crack: '#8f8c8d', crackHi: '#ffffff', speck: '#9a9798', cracks: [0, 1], radius: 7, depth: 3, mottle: .16, crackA: .45 },
+  green:  { face: '#6be3a0', face2: '#33b86c', slab: '#1d7343', slabR: '#22804b', line: '#13502e', hi: '#e2fff0', crack: '#2c9a5c', crackHi: '#b8f5d2', speck: '#2a9c5d', cracks: [0, 0], radius: 9, depth: 3, mottle: .06 },
+  header: { face: '#f0c78c', face2: '#e0aa66', slab: '#8a5a24', slabR: '#9a6830', line: '#6e4515', hi: '#fff1d6', crack: '#b9853f', crackHi: '#ffe7bd', speck: '#b98445', cracks: [0, 1], radius: 6, depth: 2, mottle: .2, torn: true, crackA: .5 },
+  parch:  { face: '#f7e0b0', face2: '#e6bd78', line: '#8e6129', hi: '#fff6dd', crack: '#c99a55', crackHi: '#fff1d0', speck: '#b98a4c', cracks: [1, 2], mottle: .25, torn: true, burn: '#b9772f', crackA: .45 },
+  strip:  { face: '#ccc4c7', face2: '#bfb6ba', crack: '#9f9699', crackHi: '#ece7e9', speck: '#a39b9e', cracks: [3, 5], flat: true, mottle: .18, crackA: .55 },
+  wood:   { face: '#d6a463', face2: '#c08746', crack: '#94622d', crackHi: '#f4cf98', speck: '#9d6b33', cracks: [4, 6], flat: true, mottle: .3, line: '#7c4f1c', crackA: .5 },
+  cell:   { face: '#e0d9d3', face2: '#d2cac3', line: '#77706a', hi: '#ffffff', crack: '#aaa29b', crackHi: '#ffffff', speck: '#aaa29b', cracks: [0, 0], radius: 5, mottle: .12, sunken: true },
+};
+
+function rngFrom(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return () => { h += 0x6D2B79F5; let t = h; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+/* Rounded-rectangle outline; sometimes a tiny chip knocked out of the top edge. */
+function roundPath(w, h, rad, r) {
+  const k = rad, chip = (x0, x1, y, dir) => {
+    if (x1 - x0 < 40 || r() > .35) return `L${x1} ${y}`;
+    const x = x0 + (x1 - x0) * (.15 + r() * .7), wd = 3 + r() * 3, d = (.6 + r() * .6) * dir;
+    return `L${x.toFixed(1)} ${y} L${(x + 1.2).toFixed(1)} ${(y + d).toFixed(1)} L${(x + wd - 1).toFixed(1)} ${(y + d * .8).toFixed(1)} L${(x + wd).toFixed(1)} ${y} L${x1} ${y}`;
+  };
+  const top = chip(k, w - k, 0, 1);
+  return `M${k} 0 ${top} Q${w} 0 ${w} ${k} L${w} ${h - k} Q${w} ${h} ${w - k} ${h} L${k} ${h} Q0 ${h} 0 ${h - k} L0 ${k} Q0 0 ${k} 0Z`;
+}
+/* Torn parchment/slab edge: small perpendicular wobble every few pixels, softened corners. */
+function tornPath(w, h, r) {
+  const pts = [], amp = 1.3, step = () => 5 + r() * 5, c = 5;
+  const run = (x0, y0, x1, y1, nx, ny) => { const len = Math.hypot(x1 - x0, y1 - y0); for (let t = 0; t < len; t += step()) { const f = t / len, a = (r() - .5) * 2 * amp; pts.push([x0 + (x1 - x0) * f + nx * a, y0 + (y1 - y0) * f + ny * a]); } };
+  run(c, 1.5, w - c, 1.5, 0, 1); run(w - 1.5, c, w - 1.5, h - c, 1, 0); run(w - c, h - 1.5, c, h - 1.5, 0, 1); run(1.5, h - c, 1.5, c, 1, 0);
+  return 'M' + pts.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join(' L') + 'Z';
+}
+/* A hairline crack running in from an edge, wandering, sometimes branching. */
+function crack(x, y, ang, len, r, out, depth = 0) {
+  const pts = [[x, y]]; let l = 0;
+  while (l < len) { const s = 2.5 + r() * 4; ang += (r() - .5) * .9; x += Math.cos(ang) * s; y += Math.sin(ang) * s; pts.push([x, y]); l += s;
+    if (depth < 1 && r() < .2) crack(x, y, ang + (r() < .5 ? -1 : 1) * (.5 + r() * .7), len * .4, r, out, depth + 1); }
+  out.push(pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' '));
+}
+
+function paintStone(el) {
+  const s = SKINS[el.dataset.stone]; if (!s) return;
+  const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight); if (!w || !h) return;
+  const r = rngFrom((el.dataset.seed || el.textContent.trim() || 'x') + w);
+  const depth = s.flat || s.sunken || !s.depth ? 0 : s.depth;
+  const fh = h - depth - (depth ? 1 : 0);             // face height; slab + 1px shadow below
+  const face = s.flat ? `M0 0H${w}V${h}H0Z` : s.torn ? tornPath(w, fh, r) : roundPath(w, fh, s.radius, r);
+  const seed = Math.floor(r() * 999);
+  let g = `<defs>
+    <clipPath id="f"><path d="${face}"/></clipPath>
+    <linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.face}"/><stop offset="1" stop-color="${s.face2}"/></linearGradient>
+    <linearGradient id="sg" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${s.slab}"/><stop offset="1" stop-color="${s.slabR || s.slab}"/></linearGradient>
+    <linearGradient id="hm" x1="0" y1="0" x2=".35" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <mask id="hmask"><rect width="${w}" height="${h}" fill="url(#hm)"/></mask>
+    <filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="2" seed="${seed}"/>
+      <feColorMatrix values="0 0 0 0 .35  0 0 0 0 .27  0 0 0 0 .18  1.7 0 0 0 -.62"/></filter>
+    <filter id="blot" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".045" numOctaves="2" seed="${seed + 7}"/>
+      <feColorMatrix values="0 0 0 0 .4  0 0 0 0 .3  0 0 0 0 .2  1.4 0 0 0 -.52"/></filter>
+    <filter id="soft"><feGaussianBlur stdDeviation="1"/></filter>
+    <filter id="burn"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>`;
+  if (depth) {
+    g += `<path d="${face}" transform="translate(1.5 ${depth + 1})" fill="#000" opacity=".28" filter="url(#soft)"/>`;
+    g += `<path d="${face}" transform="translate(1 ${depth})" fill="url(#sg)" stroke="${s.line}" stroke-width="1"/>`;
+  }
+  g += `<path d="${face}" fill="url(#fg)"/>`;
+  g += `<g clip-path="url(#f)"><rect width="${w}" height="${h}" filter="url(#blot)" opacity="${s.mottle * 1.6}"/>`;
+  g += `<rect width="${w}" height="${h}" filter="url(#grain)" opacity="${s.mottle}"/>`;
+  if (s.burn) g += `<path d="${face}" fill="none" stroke="${s.burn}" stroke-width="9" opacity=".45" filter="url(#burn)"/>`;
+  const [cmin, cmax] = s.cracks, n = cmin + Math.floor(r() * (cmax - cmin + 1)), lines = [];
+  for (let i = 0; i < n; i++) {                         // start on an edge, bias toward corners, head inward
+    const side = Math.floor(r() * 4), tt = r() < .5 ? r() * .18 : 1 - r() * .18;
+    const [x, y, a] = [[tt * w, 0, Math.PI / 2], [w, tt * fh, Math.PI], [tt * w, fh, -Math.PI / 2], [0, tt * fh, 0]][side];
+    crack(x, y, a + (r() - .5) * 1.2, 6 + r() * Math.min(w, fh) * .45, r, lines);
+  }
+  for (const p of lines) g += `<polyline points="${p}" fill="none" stroke="${s.crackHi}" stroke-width="1" opacity="${(s.crackA || .5) * .9}" transform="translate(.7 .8)" stroke-linejoin="round" stroke-linecap="round"/>
+                               <polyline points="${p}" fill="none" stroke="${s.crack}" stroke-width=".9" opacity="${s.crackA || .5}" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const specks = Math.min(16, Math.round(w * fh / 450));
+  for (let i = 0; i < specks; i++) g += `<circle cx="${(r() * w).toFixed(1)}" cy="${(r() * fh).toFixed(1)}" r="${(.4 + r() * .7).toFixed(2)}" fill="${r() < .7 ? s.speck : '#fff'}" opacity=".55"/>`;
+  if (s.sunken) g += `<path d="${face}" fill="none" stroke="#000" stroke-width="3" opacity=".18" transform="translate(1 1)"/>`;
+  g += `</g>`;
+  if (!s.flat) {
+    if (s.hi && !s.sunken) g += `<path d="${face}" fill="none" stroke="${s.hi}" stroke-width="3" mask="url(#hmask)" clip-path="url(#f)"/>`;
+    g += `<path d="${face}" fill="none" stroke="${s.line}" stroke-width="1" opacity="${s.sunken ? .7 : .9}"/>`;
+    if (s.sunken) g += `<path d="${face}" fill="none" stroke="#fff" stroke-width="1" transform="translate(.8 .8)" opacity=".8" clip-path="url(#f)"/>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${g}</svg>`;
+  el.style.backgroundImage = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
+}
+
+const ro = new ResizeObserver(es => es.forEach(e => paintStone(e.target)));
+document.querySelectorAll('[data-stone]').forEach(el => { paintStone(el); ro.observe(el); });
+layoutBanner();
+new ResizeObserver(layoutBanner).observe(document.getElementById('titlebar'));
+matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener('change', layoutBanner);
+
+/* ===== Small behaviours ===== */
+const clock = document.getElementById('clock');
+const tick = () => clock.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+tick(); setInterval(tick, 10000);
+const bar = document.getElementById('bar'), status = document.getElementById('status');
+function render() {
+  let p = 0; status.textContent = 'Rendering Mandelbrot Set…'; bar.style.width = '0%';
+  const t = setInterval(() => { p = Math.min(100, p + 4 + Math.random() * 9); bar.style.width = p + '%'; if (p >= 100) { clearInterval(t); status.textContent = 'Ready'; } }, 140);
+}
+render();
+document.querySelectorAll('#presets li').forEach(li => li.addEventListener('click', () => {
+  document.querySelectorAll('#presets li').forEach(x => x.classList.remove('sel')); li.classList.add('sel'); render(); }));
+let z = 0; const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+const fmt = n => { const e = Math.floor(Math.log10(n)); return (n / 10 ** e).toFixed(1) + ' × 10' + [...String(e)].map(d => SUP[d]).join(''); };
+function setZoom(dz) { z = Math.max(0, Math.min(3, z + dz)); document.getElementById('frame').style.transform = `scale(${2 ** z})`;
+  const t = fmt(33333 * 2 ** z); document.getElementById('zoomVal').textContent = t; document.getElementById('zoomStatus').textContent = 'Zoom: ' + t; render(); }
+document.getElementById('zoomIn').onclick = () => setZoom(1);
+document.getElementById('zoomOut').onclick = () => setZoom(-1);
+</script>
+</body>
+</html>
