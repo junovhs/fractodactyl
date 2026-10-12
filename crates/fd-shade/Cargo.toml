@@ -1,9 +1,0 @@
-[package]
-name = "fd-shade"
-description = "Late looks over palette-independent samples: no fractal math, no kernel"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-
-[dependencies]
-fd-samples = { path = "../fd-samples" }

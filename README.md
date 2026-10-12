@@ -1,41 +1,50 @@
-# Fractodactyl
+# Computational Structure Lab
 
-Fractodactyl is reset around one goal:
+**A research notebook, not a renderer fork.** This branch exists to discover whether mathematical structure can replace long, expensive computations in nonlinear systems. Fractodactyl is the originating testbed, not the content of this branch.
 
-**Make genuine deep Mandelbrot rendering dramatically cheaper by compiling a known zoom path into a bounded, reusable mathematical atlas.**
-
-The previous twin-minibrot swap prototype is intentionally absent from this branch. It remains in Git history on `ishoo/POC-02` (commit `790be5b`) for reference.
+> **BRANCH-ONLY RESEARCH SNAPSHOT — DO NOT MERGE INTO MAIN.** The visible files on this branch are documentation only. The history still descends from the original repository; its working tree does not contain the renderer. Deleting files from this branch does **not** delete them from `main`.
 
 ## Start here
 
-0. **Start with `docs/spec/STATE.md`** (where we are, what to do next), then `ishoo_status`.
-1. Read `SPEC.md`.
-2. Read `docs/spec/ARCHITECTURE.md`.
-3. Run `ishoo_status`; Ishoo holds the live issues, plans and ADRs (`docs/spec/ISHOO-LEDGER.md` is the historical bootstrap list).
-4. Read the research reports under `docs/research/` (one folder per date).
-5. Read `docs/spec/METHOD.md` (how we work).
+1. **[Research map](MAP.md)** — a branching graph of research questions, tests, overturned conclusions, and new leads.
+2. **[Question and experiment index](INDEX.md)** — stable IDs, status, connections, and next action.
+3. **[Prompts](PROMPTS/)** — individual research questions of **150 words or fewer**, each stating mechanism, fair opponent, test and kill gate.
+4. **[Results](RESULTS/)** — what was measured, what failed, and what remains unknown.
+5. **[Method](METHOD.md)** — short experimental protocol and standards for evidence.
 
-`fd` (crates/fd-cli) renders, compiles and plays genuine deep zooms; `viewer/explore.cmd` (Windows) or `viewer/explore.sh` (Linux; `--install` adds a desktop icon, `--stop` stops the renderer) opens a local browser explorer.
+## The question
 
-## Make a film
+Can we automatically discover *reusable, numerically trustworthy representations* of selected nonlinear dynamics that make large collections of simulations much cheaper **than the strongest existing specialized methods**?
 
-```sh
-# once: the v0 zone (needs python3 with mpmath and numpy; about 15 s)
-tools/research/misiurewicz/make_zone.sh data/zones/v0.zone
-# a 1080p60 landing on the v0 minibrot: umber look, flowing bands, half a turn of twist
-fd film -0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502 \
-        0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922 \
-        --from 1e-40 --to 2.5e-49 --rate 0.3 --ease on --twist 0.5 --flow 0.08 \
-        --zone data/zones/v0.zone --mp4 landing.mp4
-```
+We are not trying to make every chaotic future computable, to sell a prettier fractal renderer, or to count acceleration against naive Python integration. We want a transferable reduction in the cost of real computation.
 
-`fd film` renders each frame with the cheapest valid kernel: the zone fast path where
-`--zone` covers it (about 20x faster), fd's per-frame BLA elsewhere. It shades in memory and
-pipes the frames to ffmpeg. Film defaults: the `studio` look with the `ice` preset, 0.15
-decades/s, 60 fps, 1920x1080, `--ss 2`, `--aa on`, `--unresolved interior`.
+## Success definition
 
-Looks: `--preset NAME` picks `looks/NAME.look` or a built-in (`ice`, `coral`, `steel`,
-`zebra`, `smoke`); `--density`, `--terrace`, `--slope`, `--light`, `--lines` and `--line-px`
-tweak it, and `--flow`/`--breathe`/`--drift` animate the bands. A `.look` file is a few
-`key value` lines (`stops #rrggbb ...`, `density 0.05`, ...). `fd film` with no arguments
-lists every flag.
+A result advances only when (1) correctness passes a stated gate, (2) **cold** end-to-end time including construction is at least **3× faster** on a useful workload, (3) the opponent gets to use the **same** caching/composition tricks, and (4) an automatic domain/parameter admission rule exists or is the explicit next experiment. Higher claims require a specialist baseline and rigorous bounds. Individual questions may impose stricter gates.
+
+A **failed** hypothesis is a valid, permanently retained result. **A conditional win superseded by a stronger baseline is not a win.**
+
+## What has happened so far
+
+- A fitted one-period map looked fast versus SciPy; a compiled-integrator baseline overturned the cold speed-up ([R-001](RESULTS/R-001.md)).
+- Broad-domain Koenigs interpolation failed the accuracy gate ([R-002](RESULTS/R-002.md)).
+- Shrinking the domain made a local jump accurate; large batches showed a win **only against a weaker repeated-map competitor** ([R-003](RESULTS/R-003.md)).
+- A fairer **direct composition of the same polynomial** was about **5.27× faster than Koenigs** in that toy test, killing the preferred Koenigs option ([R-004](RESULTS/R-004.md)).
+- Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).
+- **No industrial speed-up, no certified industrial simulator, no general-purpose nonlinear compiler has been demonstrated.**
+
+These are **retrospective conversation records**. Original executable files, raw samples and environment snapshots were not committed here. See each result's provenance limits; do not present them as independent reproducibility packs.
+
+## Current frontier
+
+The most relevant new question is **[P-030: automatically guarded, parameter-dependent switching maps](PROMPTS/P-030.md)**. An alternate narrowly targeted Fractodactyl comparison is [P-060: polynomial composition near repelling cycles](PROMPTS/P-060.md). Neither has a measured result.
+
+**Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
+
+## How to use this notebook
+
+Every new research question gets a short, stable **P-ID** file and an edge in the [map](MAP.md). Pre-register a benchmark and kill gate before the run. Every test gets a stable **R-ID**, including negative results. Update its parent prompt, the map, the index and any subsequent forked prompts. **Do not overwrite the old decision when later evidence overturns it: link the superseding result.**
+
+Experiments run in a temporary compute sandbox; research notes are committed here. The human does not need to run scripts. No executable code or production files are stored here unless explicitly requested.
+
+**Navigation:** [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Source boundaries](SOURCES.md)
