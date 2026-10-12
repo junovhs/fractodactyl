@@ -2,10 +2,11 @@
 
 **Status:** UNTESTED · **Parent:** P/R-NNN
 **Prior-art dossier:** [PA-P-NNN](../PRIOR_ART/PA-P-NNN.md) · **PRETEST Git commit:** SHA
-**Claim class:** KNOWN_METHOD_BENCHMARK / KNOWN_METHOD_NEW_APPLICATION / OPEN_GAP_HYPOTHESIS / NOVELTY_UNVERIFIED
+**Triage:** PROCEED (substantive unresolved claim) / OWNER-REQUESTED ENGINEERING EXCEPTION
+**Claim class:** OPEN_GAP_HYPOTHESIS / KNOWN_METHOD_NEW_APPLICATION / NOVELTY_UNVERIFIED / KNOWN_METHOD_BENCHMARK (owner exception only)
 
 **Closest published predecessor:** Authors/year/link; overlapping mechanism and application.
-**Specific unresolved delta (or none):** What prior art has NOT already done.
+**Specific unresolved delta:** What this idea answers that the nearest publication does not; if no substantive gap, PIVOT, no P-card.
 
 **Question:** Can ...?
 **Mechanism:** ...
@@ -16,4 +17,4 @@
 **Next:** Cheapest decisive pass/fail follow-up.
 **Results:** None.
 
-<!-- All content <=150 words. Commit this P-card AND a completed, ACTUALLY SEARCHED PA dossier together before computation. A link-only empty dossier is BLOCKED. See PRIOR_ART.md. -->
+<!-- FIRST search primary prior art. If the same mathematics/application is known, cite it in FRONTIER/SOURCES, PIVOT to another hypothesis, and do not make this P-card or run a speed contest. Only an actual unresolved gap or explicitly owner-requested engineering exception belongs here. Actual P-card <=150 words; commit with completed searched PA dossier before numerical testing. See PRIOR_ART.md. -->
