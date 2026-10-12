@@ -47,9 +47,11 @@ A **failed** hypothesis is a valid, permanently retained result. **A conditional
 
 Older results are retrospective conversation records; R-006/R-007 are new reported sandbox runs. Executable files, full raw samples and environment snapshots are **not committed to this documentation-only branch**; do not describe these records as independent reproducibility packs.
 
+- **P-083/R-009** tested a continuous state-triggered event model with a preregistered [prior-art dossier](PRIOR_ART/PA-P-083.md). The quadratic warm start had **1.277× warm** speed over a compiled safeguarded Newton opponent, with empirical accuracy pass and no event-class mistakes, but **cold was slower** and every event still needed additional root corrections. [R-009](RESULTS/R-009.md) is **CONDITIONAL**, not a deployable speedup or novel mathematics.
+
 ## Current frontier
 
-The [current frontier](FRONTIER.md) **retains** [R-008](RESULTS/R-008.md)'s measured ~1.21× synthetic repeated-use gain and prioritizes testing a different mechanism: *continuous state-triggered event times* under [P-030](PROMPTS/P-030.md). [P-060](PROMPTS/P-060.md)'s repelling-cycle case and [P-040](PROMPTS/P-040.md)'s operator selector remain untested. **Their old ≥3× P-card thresholds are historical, not universal policy; changed-scope incremental tests require new linked cards with appropriate gates.** The frontier is re-ranked by expected payoff and test cost, not speedup spectacle.
+The [current frontier](FRONTIER.md) **retains** [R-008](RESULTS/R-008.md)'s measured ~1.21× synthetic repeated-use gain and has now tested an initial *continuous state-triggered event-time* warm-start mechanism under [P-083](PROMPTS/P-083.md), motivating harder guard cases and stronger warm-start rivals. [P-060](PROMPTS/P-060.md)'s repelling-cycle case and [P-040](PROMPTS/P-040.md)'s operator selector remain untested. **Their old ≥3× P-card thresholds are historical, not universal policy; changed-scope incremental tests require new linked cards with appropriate gates.** The frontier is re-ranked by expected payoff and test cost, not speedup spectacle.
 
 **Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
 

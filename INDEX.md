@@ -21,7 +21,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-060](PROMPTS/P-060.md) | UNTESTED · legacy ≥3× gate | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
 | [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
 
-| [P-083](PROMPTS/P-083.md) | IN PROGRESS · **pretest literature reviewed** | Quadratic event-time predictor vs compiled exact-flow roots | [PA-P-083](PRIOR_ART/PA-P-083.md); R-009 pending |
+| [P-083](PROMPTS/P-083.md) | CONDITIONAL · **known-method benchmark** | Quadratic event-time predictor vs compiled exact-flow roots | [R-009](RESULTS/R-009.md): accuracy passes; 1.277× warm, cold loses |
 
 ## Experiment results
 
@@ -35,5 +35,6 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-006](RESULTS/R-006.md) | REPORTED · new run | **1.056531374e-7 > 1e-7** | NOT RUN — accuracy failed | **KILL q=4** |
 | [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL original >=3x gate; [R-008](RESULTS/R-008.md) confirms amortized follow-up** |
 | [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
+| [R-009](RESULTS/R-009.md) | REPORTED · new run · pretest prior art | **9.619e-14 state, 0 wrong event classes** | **1.277× warm; 0.965× cold** vs compiled midpoint Newton | **CONDITIONAL** · improve baseline/domain before transfer |
 
 Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain, certified speedup or algorithmic novelty. The [PWM prior-art audit](PRIOR_ART/PA-PWM-RETRO.md) was **retrospective**, not the mandatory pretest search; executables remain outside this documentation-only branch.
