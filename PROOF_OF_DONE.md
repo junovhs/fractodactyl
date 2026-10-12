@@ -9,7 +9,7 @@ Every **new** `RESULTS/R-NNN.md` must contain the **10/10 checklist** below. The
 ## Mandatory 10/10 completion checklist (new R-cards)
 
 - [ ] **P-ID and frozen gate:** the test refers to an existing ≤150-word hypothesis and identifies whether it was registered *before* execution. A retrospective report is labeled as such and **cannot** claim pre-registration.
-- [ ] **PRIOR ART EXECUTED BEFORE TESTING:** new P links a read-back, pretest-committed `PRIOR_ART/PA-P-NNN.md`, containing >=3 actual executed search queries, search date and provider, linked identifiable search results, at least one reviewed primary-source abstract/paper, closest known method and explicit novelty class/delta; if results fewer than three the true shortfall is recorded. Search unavailable or dossier merely retrospective => **UNCHECKED; POD: NO**.
+- [ ] **PRIOR ART EXECUTED BEFORE TESTING:** new P links a read-back, pretest-committed `PRIOR_ART/PA-P-NNN.md`, containing >=3 actual executed search queries, search date and provider, linked identifiable search results, at least one reviewed primary-source abstract/paper, closest known method, explicit novelty class/delta and **TRIAGE: PROCEED or explicit owner-requested exception**; if results fewer than three the true shortfall is recorded. Search unavailable or dossier merely retrospective => **UNCHECKED; POD: NO**.
 - [ ] **Exact tested case:** equations, parameters/initial conditions, sample counts, seeds (or deterministic recipe), accuracy target, and relevant event/escape criteria are recorded.
 - [ ] **Fair opponent:** identify the fastest relevant accurate same-math/specialist baseline **from the prior-art search**, or explicitly state that comparison was not run and why (e.g. first accuracy gate failed).
 - [ ] **Executed evidence:** actual observation or tool output is archived/referenced; simulation, extrapolation and absent data are labeled. An interrupted/failed run is described as such.
@@ -29,6 +29,8 @@ The 10th box may be checked only after committing and reading back the record. F
 | `GATE: PASS/FAIL/NOT TESTED` | Did the candidate satisfy the predeclared numerical thresholds? | Measured hypothesis decision |
 | `EVIDENCE` | Is it speculative, reported, reproduced, or certified? | Strength and reproducibility of support |
 | `PROOF: NONE/INTERVAL/LEAN/OTHER` | What, if anything, was mathematically proved? | Only a claim within its explicit theorem/domain |
+
+**POD is not approval to study an already-known idea.** Literature matches should ordinarily result in a **cited PIVOT and no numerical experiment**; search-only pivots have no R-card or POD. New known-method benchmarks require an **explicit owner request**, not an agent's decision to "try to beat" the published work. R-009's historical process audit remains intact; it did not justify further known-method optimization.
 
 **No proof of novelty or industrial impact is conferred by any of these labels.** Performance is empirical, never a theorem merely because the underlying operator is correct.
 
