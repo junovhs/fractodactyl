@@ -25,6 +25,7 @@
 //! A zone with `diag` lines also refuses a frame whose first-return truncation shift
 //! could exceed [`SHIFT_PX`] (PROB-20): decided before rendering (DEC-19).
 use crate::grid::{header, setup, Params, Stats};
+use crate::number::{Complex, Cx, Fx};
 use crate::sample::Outcome;
 use crate::store::{Row, Store};
 use crate::view::Plane;
@@ -46,193 +47,192 @@ const APPROACH: usize = 23;
 /// the v0 band-top frames (PROB-20).
 pub const SHIFT_PX: f64 = 5e-7;
 
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-struct Cx(f64, f64);
+/// Representation operations used by the one zone pixel pipeline. Range handling
+/// and established summation order belong to the number, not a second kernel.
+trait ZoneNumber: Complex {
+    const EXTENDED: bool;
+    type Orbit: OrbitNumber<Self>;
+    fn one() -> Self;
+    fn from_parts(m: Cx, e: i64) -> Self;
+    fn parts(self) -> (Cx, i64);
+    fn physical(self) -> Cx;
+    fn sub(self, other: Self) -> Self;
+    fn div(self, other: Self) -> Self;
+    fn coefficients(k: &Zone, i: usize) -> &[Self];
+    fn phi(k: &Zone) -> &[Self];
+    fn entry(k: &Zone) -> Self;
+    fn initial_delta(self, scale: ZoneSize) -> Self;
+    fn inside_guard(self, k: &Zone) -> bool;
+    fn settled(self, step: Self, u: Self) -> bool;
+    fn log_arg(self) -> (f64, f64);
+    fn jump(self, radius: f64, lr: f64) -> f64;
+    fn advance(self, j: f64, lr: f64, arg: f64) -> (Cx, Self);
+}
 
-impl Cx {
-    #[inline(always)]
-    fn add(self, o: Cx) -> Cx {
-        Cx(self.0 + o.0, self.1 + o.1)
+trait OrbitNumber<N: Complex>: Copy {
+    fn from_number(value: N) -> Self;
+    fn number(self) -> N;
+    fn physical(self) -> Cx;
+    fn derivative_step(self, z: Cx) -> Self;
+    fn delta_step(self, z: Cx) -> Self;
+    fn parts(self) -> (Cx, i64);
+}
+
+impl ZoneNumber for Cx {
+    const EXTENDED: bool = false;
+    type Orbit = Cx;
+    fn one() -> Self {
+        Cx(1.0, 0.0)
+    }
+    fn from_parts(m: Cx, e: i64) -> Self {
+        m.scale(exp2i(e))
+    }
+    fn parts(self) -> (Cx, i64) {
+        (self, 0)
+    }
+    fn physical(self) -> Cx {
+        self
+    }
+    fn sub(self, other: Self) -> Self {
+        Cx::sub(self, other)
+    }
+    fn div(self, other: Self) -> Self {
+        Cx::div(self, other)
+    }
+    fn coefficients(k: &Zone, i: usize) -> &[Self] {
+        &k.bis[i]
+    }
+    fn phi(k: &Zone) -> &[Self] {
+        &k.phi
+    }
+    fn entry(k: &Zone) -> Self {
+        k.z24ma
+    }
+    fn initial_delta(self, scale: ZoneSize) -> Self {
+        self.scale(scale.to_f64())
+    }
+    fn inside_guard(self, k: &Zone) -> bool {
+        let (scale, guard) = (k.scale.to_f64(), k.guard.to_f64());
+        if scale > 0.0 && guard > 0.0 {
+            self.abs() * scale <= guard
+        } else {
+            self.abs() <= k.guard.over(k.scale)
+        }
+    }
+    fn settled(self, step: Self, u: Self) -> bool {
+        self.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2()
+    }
+    fn log_arg(self) -> (f64, f64) {
+        (self.abs().ln(), self.1.atan2(self.0))
+    }
+    fn jump(self, radius: f64, lr: f64) -> f64 {
+        ((radius / self.abs()).ln() / lr).floor()
+    }
+    fn advance(self, j: f64, lr: f64, arg: f64) -> (Cx, Self) {
+        let (mg, t) = ((j * lr).exp(), j * arg);
+        let factor = Cx(mg * t.cos(), mg * t.sin());
+        (self.mul(factor), factor)
+    }
+}
+
+impl OrbitNumber<Cx> for Cx {
+    fn from_number(value: Cx) -> Self {
+        value
+    }
+    fn number(self) -> Cx {
+        self
+    }
+    fn physical(self) -> Cx {
+        self
     }
     #[inline(always)]
-    fn sub(self, o: Cx) -> Cx {
-        Cx(self.0 - o.0, self.1 - o.1)
+    fn derivative_step(self, z: Cx) -> Self {
+        z.mul(self).scale(2.0).add(Cx(1.0, 0.0))
     }
     #[inline(always)]
-    fn mul(self, o: Cx) -> Cx {
-        Cx(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
+    fn delta_step(self, z: Cx) -> Self {
+        z.scale(2.0).mul(self).add(self.mul(self))
     }
-    #[inline(always)]
-    fn scale(self, s: f64) -> Cx {
-        Cx(self.0 * s, self.1 * s)
+    fn parts(self) -> (Cx, i64) {
+        (self, 0)
     }
-    #[inline(always)]
-    fn norm2(self) -> f64 {
-        self.0 * self.0 + self.1 * self.1
+}
+
+impl ZoneNumber for Fx {
+    const EXTENDED: bool = true;
+    type Orbit = Lazy;
+    fn one() -> Self {
+        Fx::ONE
     }
-    #[inline(always)]
-    fn abs(self) -> f64 {
-        self.0.hypot(self.1)
+    fn from_parts(m: Cx, e: i64) -> Self {
+        Fx::new(m, e)
     }
-    #[inline(always)]
-    fn div(self, o: Cx) -> Cx {
-        let d = o.norm2();
-        Cx(
-            (self.0 * o.0 + self.1 * o.1) / d,
-            (self.1 * o.0 - self.0 * o.1) / d,
+    fn parts(self) -> (Cx, i64) {
+        (self.m, self.e)
+    }
+    fn physical(self) -> Cx {
+        self.to_cx()
+    }
+    fn sub(self, other: Self) -> Self {
+        Fx::sub(self, other)
+    }
+    fn div(self, other: Self) -> Self {
+        self.mul(other.inv())
+    }
+    fn coefficients(k: &Zone, i: usize) -> &[Self] {
+        &k.deep.as_ref().unwrap().bis[i]
+    }
+    fn phi(k: &Zone) -> &[Self] {
+        &k.deep.as_ref().unwrap().phi
+    }
+    fn entry(k: &Zone) -> Self {
+        k.deep.as_ref().unwrap().z24ma
+    }
+    fn initial_delta(self, scale: ZoneSize) -> Self {
+        self.mul(Fx::new(Cx(scale.mant, 0.0), scale.exp2))
+    }
+    fn inside_guard(self, k: &Zone) -> bool {
+        self.to_cx().abs() <= k.guard.over(k.scale)
+    }
+    fn settled(self, step: Self, u: Self) -> bool {
+        self.to_cx().norm2() < 1.0
+            && step.m.norm2() * exp2i(2 * (step.e - u.e)) <= 1e-24 * u.m.norm2()
+    }
+    fn log_arg(self) -> (f64, f64) {
+        (self.ln_abs(), self.arg())
+    }
+    fn jump(self, radius: f64, lr: f64) -> f64 {
+        ((radius.ln() - self.ln_abs()) / lr).floor()
+    }
+    fn advance(self, j: f64, lr: f64, arg: f64) -> (Cx, Self) {
+        let (lw, aw) = self.log_arg();
+        (
+            Fx::polar(lw + j * lr, aw + j * arg).to_cx(),
+            Fx::polar(j * lr, j * arg),
         )
     }
 }
 
-/// Complex `m * 2^e` with `1 <= max(|m.re|, |m.im|) < 2` (or `m = 0`): the deep path's
-/// number, for zones whose constants, states or derivatives leave f64's range (DEC-21).
-#[derive(Clone, Copy, Default, Debug)]
-struct Fx {
-    m: Cx,
-    e: i64,
-}
-
-impl Fx {
-    const ONE: Fx = Fx {
-        m: Cx(1.0, 0.0),
-        e: 0,
-    };
-
-    #[inline(always)]
-    fn new(m: Cx, e: i64) -> Fx {
-        Fx { m, e }.norm()
+impl OrbitNumber<Fx> for Lazy {
+    fn from_number(value: Fx) -> Self {
+        Lazy::from(value)
+    }
+    fn number(self) -> Fx {
+        self.fx()
+    }
+    fn physical(self) -> Cx {
+        self.to_cx()
     }
     #[inline(always)]
-    fn norm(self) -> Fx {
-        let a = self.m.0.abs().max(self.m.1.abs());
-        if a == 0.0 || !a.is_finite() {
-            return Fx {
-                m: self.m,
-                e: if a == 0.0 { 0 } else { self.e },
-            };
-        }
-        let k = ((a.to_bits() >> 52) & 0x7ff) as i64 - 1023;
-        if k == -1023 {
-            return Fx {
-                m: self.m.scale(exp2i(64)),
-                e: self.e - 64,
-            }
-            .norm();
-        }
-        Fx {
-            m: self.m.scale(exp2i(-k)),
-            e: self.e + k,
-        }
+    fn derivative_step(self, z: Cx) -> Self {
+        self.step(z)
     }
     #[inline(always)]
-    fn is_zero(self) -> bool {
-        self.m.0 == 0.0 && self.m.1 == 0.0
+    fn delta_step(self, z: Cx) -> Self {
+        self.square_plus_2z(z)
     }
-    #[inline(always)]
-    fn add(self, o: Fx) -> Fx {
-        if o.is_zero() {
-            return self;
-        }
-        if self.is_zero() {
-            return o;
-        }
-        let (a, b) = if self.e >= o.e { (self, o) } else { (o, self) };
-        let d = a.e - b.e;
-        if d > 110 {
-            return a;
-        }
-        Fx {
-            m: a.m.add(b.m.scale(exp2i(-d))),
-            e: a.e,
-        }
-        .norm()
-    }
-    #[inline(always)]
-    fn sub(self, o: Fx) -> Fx {
-        self.add(Fx {
-            m: o.m.scale(-1.0),
-            e: o.e,
-        })
-    }
-    #[inline(always)]
-    fn mul(self, o: Fx) -> Fx {
-        Fx {
-            m: self.m.mul(o.m),
-            e: self.e + o.e,
-        }
-        .norm()
-    }
-    #[inline(always)]
-    fn inv(self) -> Fx {
-        Fx {
-            m: Cx(1.0, 0.0).div(self.m),
-            e: -self.e,
-        }
-        .norm()
-    }
-    /// Nearest f64 pair: 0 below f64's range, infinite above it.
-    #[inline(always)]
-    fn to_cx(self) -> Cx {
-        if self.is_zero() {
-            return Cx::default();
-        }
-        if self.e < -1100 {
-            return Cx::default();
-        }
-        self.m.scale(exp2i(self.e))
-    }
-    #[inline(always)]
-    fn ln_abs(self) -> f64 {
-        self.m.abs().ln() + self.e as f64 * std::f64::consts::LN_2
-    }
-    #[inline(always)]
-    fn arg(self) -> f64 {
-        self.m.1.atan2(self.m.0)
-    }
-    /// `exp(ln_mag + i angle)`.
-    fn polar(ln_mag: f64, angle: f64) -> Fx {
-        let e = (ln_mag / std::f64::consts::LN_2).floor();
-        let r = (ln_mag - e * std::f64::consts::LN_2).exp();
-        Fx::new(Cx(r * angle.cos(), r * angle.sin()), e as i64)
-    }
-}
-
-/// Arithmetic needed by the shared polynomial stages. Each number type keeps its
-/// own range and rounding; the evaluators never convert a deep value to f64.
-trait Complex: Copy + Default {
-    fn add(self, other: Self) -> Self;
-    fn mul(self, other: Self) -> Self;
-    fn scale(self, scalar: f64) -> Self;
-}
-
-impl Complex for Cx {
-    #[inline(always)]
-    fn add(self, other: Self) -> Self {
-        Cx::add(self, other)
-    }
-    #[inline(always)]
-    fn mul(self, other: Self) -> Self {
-        Cx::mul(self, other)
-    }
-    #[inline(always)]
-    fn scale(self, scalar: f64) -> Self {
-        Cx::scale(self, scalar)
-    }
-}
-
-impl Complex for Fx {
-    #[inline(always)]
-    fn add(self, other: Self) -> Self {
-        Fx::add(self, other)
-    }
-    #[inline(always)]
-    fn mul(self, other: Self) -> Self {
-        Fx::mul(self, other)
-    }
-    #[inline(always)]
-    fn scale(self, scalar: f64) -> Self {
-        // Keep the deep evaluator's normalized multiply, including its rounding.
-        self.mul(Fx::new(Cx(scalar, 0.0), 0))
+    fn parts(self) -> (Cx, i64) {
+        (self.m, self.e)
     }
 }
 
@@ -857,15 +857,15 @@ pub fn render_zone(
                                 store.put(&mut row, i, o);
                                 continue;
                             }
-                            if let Some(deep) = &zone.deep {
+                            if zone.deep.is_some() {
                                 let v = off
                                     .exact
                                     .add(Fx::new(Cx(ux * plane.h_m, uy * plane.h_m), plane.h_e))
                                     .mul(inv_scale);
                                 let (o, w) = if deriv {
-                                    pixel_deep::<true>(zone, deep, v, p.max_iter, r2, &mut st)
+                                    pixel::<Fx, true>(zone, v, p.max_iter, r2, &mut st)
                                 } else {
-                                    pixel_deep::<false>(zone, deep, v, p.max_iter, r2, &mut st)
+                                    pixel::<Fx, false>(zone, v, p.max_iter, r2, &mut st)
                                 };
                                 its += w;
                                 store.put(&mut row, i, o);
@@ -878,9 +878,9 @@ pub fn render_zone(
                                 Cx(off.scaled.0 + ux * h, off.scaled.1 + uy * h)
                             };
                             let (o, w) = if deriv {
-                                pixel::<true>(zone, v, p.max_iter, r2, &mut st)
+                                pixel::<Cx, true>(zone, v, p.max_iter, r2, &mut st)
                             } else {
-                                pixel::<false>(zone, v, p.max_iter, r2, &mut st)
+                                pixel::<Cx, false>(zone, v, p.max_iter, r2, &mut st)
                             };
                             its += w;
                             store.put(&mut row, i, o);
@@ -910,60 +910,46 @@ pub fn render_zone(
     Ok((hd, s, stats, total.into_inner().unwrap()))
 }
 
-/// One sample at `c = C + v * scale`. With `D`, `dz/dc` is carried by the chain rule.
-/// Returns the outcome and the work it took (biseries returns + approach + jump +
-/// patch + plain steps, each counted once).
+/// One zone sample: the return, approach, jump and finish stages are instantiated
+/// over the number representation. Summation and range policies preserve the
+/// original rounding and fallback contracts.
+// DEC-24: each zone stage is written once for ordinary and deep numbers.
 #[inline]
-fn pixel<const D: bool>(
+fn pixel<N: ZoneNumber, const D: bool>(
     k: &Zone,
-    v: Cx,
+    v: N,
     max_iter: u64,
     r2: f64,
     st: &mut ZoneStats,
 ) -> (Outcome, u64) {
-    // Biseries coefficients in u, with the v powers folded in: b_i(v) and db_i/dv.
-    let mut b = [Cx::default(); 8];
-    let mut bv = [Cx::default(); 8];
+    let mut b = [N::default(); 8];
+    let mut bv = [N::default(); 8];
+    let (pv, ve) = powers(v, k.deg);
     for i in 0..=k.deg {
-        let (mut s, mut ds) = (Cx::default(), Cx::default());
-        for j in (0..=k.deg - i).rev() {
-            if D {
-                ds = ds.mul(v).add(s);
-            }
-            s = s.mul(v).add(k.bis[i][j]);
-        }
-        b[i] = s;
-        bv[i] = ds;
+        (b[i], bv[i]) = polynomial::<N, D, false>(N::coefficients(k, i), k.deg - i, v, &pv, ve);
     }
-    b[0] = b[0].add(k.bias);
-    // Stage 1: returns. u = (z_n - C) / scale, du/dv = dz/dc.
-    let (mut u, mut du) = (v, Cx(1.0, 0.0));
-    let mut n: u64 = 1;
+    b[0] = b[0].add(N::from_parts(k.bias, 0));
+    let (mut u, mut du) = (v, N::one());
+    let mut n = 1u64;
     let mut work = 0u64;
-    let scale = k.scale.to_f64();
-    let guard_f64 = k.guard.to_f64();
-    let legacy = scale > 0.0 && guard_f64 > 0.0;
-    let guard = k.guard.over(k.scale);
-    while (legacy && u.abs() * scale <= guard_f64) || (!legacy && u.abs() <= guard) {
+    // Stage 1: returns.
+    while u.inside_guard(k) {
         if n + k.period > max_iter {
             return (Outcome::Unresolved, work);
         }
-        let (mut s, mut su, mut sv) = (b[k.deg], Cx::default(), bv[k.deg]);
-        for i in (0..k.deg).rev() {
-            su = su.mul(u).add(s);
-            s = s.mul(u).add(b[i]);
-            sv = sv.mul(u).add(bv[i]);
-        }
-        let step = Cx(s.0 - u.0, s.1 - u.1);
+        let (pw, ue) = powers(u, k.deg);
+        let (s, su) = polynomial::<N, true, true>(&b, k.deg, u, &pw, ue);
+        let sv = if D {
+            polynomial::<N, false, true>(&bv, k.deg, u, &pw, ue).0
+        } else {
+            N::default()
+        };
+        let step = s.sub(u);
         if D {
             du = su.mul(du).add(sv);
         }
-        // Interior: the return map contracts here and has settled, or (checked after 16,
-        // 32, 64, ... returns) u provably lies in the basin of an attracting cycle of
-        // the return map of period <= 4 (an attracting q-cycle of the minibrot's
-        // return map is an attracting qP-cycle of f_c: the minibrot or one of its bulbs).
-        if (su.norm2() < 1.0 && step.norm2() <= 1e-24 * u.norm2())
-            || (work >= 16 && work.is_power_of_two() && attracted(&b, k.deg, u))
+        if su.settled(step, u)
+            || (work >= 16 && work.is_power_of_two() && cycle_basin(&b, k.deg, u))
         {
             st.returns += 1;
             return (Outcome::Interior { n }, work + 1);
@@ -973,174 +959,40 @@ fn pixel<const D: bool>(
         work += 1;
         st.returns += 1;
     }
-    // Stage 2: approach against C's critical orbit (fixed parameter C).
-    let mut d = u.scale(scale);
+    // Stage 2: approach against C's critical orbit.
+    let mut d = N::Orbit::from_number(u.initial_delta(k.scale));
+    let mut g = N::Orbit::from_number(du);
     for z in &k.orbit {
         if D {
-            du = z.add(d).mul(du).scale(2.0).add(Cx(1.0, 0.0));
+            g = g.derivative_step(z.add(d.physical()));
         }
-        d = z.scale(2.0).mul(d).add(d.mul(d));
+        d = d.delta_step(*z);
     }
+    let d = d.number();
+    du = g.number();
     n += APPROACH as u64;
     work += APPROACH as u64;
-    // Stage 3: Koenigs jump along the 2-cycle, then a tail patch.
-    let h0 = k.z24ma.add(d);
-    let mut z = k.alpha.add(h0);
-    if h0.abs() < k.r0 {
-        let (w0, dphi) = series_d(&k.phi, h0);
+    // Stage 3: Koenigs jump and optional tail patch.
+    let h0 = N::entry(k).add(d);
+    let mut z = k.alpha.add(h0.physical());
+    if h0.physical().abs() < k.r0 {
+        let (w0, dphi) = series_d(N::phi(k), h0);
         let lr = k.rho.abs().ln();
-        let j = ((k.r0 / w0.abs()).ln() / lr).floor();
-        if let Some((zp, dzs, m)) = patch(k, w0.abs().ln(), w0.1.atan2(w0.0), j) {
-            // z = P(t), t = (log w - centre) / r: dz/dc = P'(t) / r * phi'(h0) / w0 * dh0/dc.
-            if D {
-                du = dzs.mul(dphi).mul(du).div(w0);
-            }
-            z = zp;
-            n += 2 * j as u64 + m;
-            st.jumps += 1;
-            st.patches += 1;
-        } else if j > 0.0 {
-            let (mg, t) = ((j * lr).exp(), j * k.rho.1.atan2(k.rho.0));
-            let rj = Cx(mg * t.cos(), mg * t.sin());
-            let w = w0.mul(rj);
-            let (hw, dpsi) = series_d(&k.psi, w);
-            if D {
-                du = dpsi.mul(rj).mul(dphi).mul(du);
-            }
-            z = k.alpha.add(hw);
-            n += 2 * j as u64;
-            st.jumps += 1;
-        }
-        work += 1;
-    }
-    // Stage 4: plain steps at C.
-    loop {
-        if n >= max_iter {
-            return (Outcome::Unresolved, work);
-        }
-        if D {
-            du = z.mul(du).scale(2.0).add(Cx(1.0, 0.0));
-        }
-        z = z.mul(z).add(k.c);
-        n += 1;
-        work += 1;
-        st.plain += 1;
-        if z.norm2() > r2 {
-            let o = Outcome::Escaped {
-                n,
-                zr: z.0,
-                zi: z.1,
-                dr: du.0,
-                di: du.1,
-                dexp: 0,
-                ez: f64::INFINITY,
-                ed: f64::INFINITY,
-            };
-            return (o, work);
-        }
-    }
-}
-
-/// [`pixel`] for a deep zone: the same four stages with states, constants and `dz/dc`
-/// in [`Fx`]. `v = (c - C) / scale`. Returns `dz/dc` as mantissa and `dexp`.
-fn pixel_deep<const D: bool>(
-    k: &Zone,
-    x: &Deep,
-    v: Fx,
-    max_iter: u64,
-    r2: f64,
-    st: &mut ZoneStats,
-) -> (Outcome, u64) {
-    let mut b = [Fx::default(); 8];
-    let mut bv = [Fx::default(); 8];
-    let mut pv = [Cx(1.0, 0.0); 8];
-    for j in 1..=k.deg {
-        pv[j] = pv[j - 1].mul(v.m);
-    }
-    for i in 0..=k.deg {
-        b[i] = poly_fx(&x.bis[i], k.deg - i, &pv, v.e, 0);
-        if D {
-            bv[i] = poly_fx(&x.bis[i], k.deg - i, &pv, v.e, 1);
-        }
-    }
-    b[0] = b[0].add(Fx::new(k.bias, 0));
-    // Stage 1: returns.
-    let (mut u, mut du) = (v, Fx::ONE);
-    let mut n: u64 = 1;
-    let mut work = 0u64;
-    let guard = k.guard.over(k.scale);
-    while u.to_cx().abs() <= guard {
-        if n + k.period > max_iter {
-            return (Outcome::Unresolved, work);
-        }
-        // B(u), B'(u), dB/dv(u) term by term: u^i is u.m^i * 2^(i u.e), so each sum
-        // aligns and normalises once instead of after every Horner step.
-        let mut pw = [Cx(1.0, 0.0); 8];
-        for i in 1..=k.deg {
-            pw[i] = pw[i - 1].mul(u.m);
-        }
-        let s = poly_fx(&b, k.deg, &pw, u.e, 0);
-        let su = poly_fx(&b, k.deg, &pw, u.e, 1);
-        let sv = if D {
-            poly_fx(&bv, k.deg, &pw, u.e, 0)
-        } else {
-            Fx::default()
-        };
-        let step = s.sub(u);
-        if D {
-            du = su.mul(du).add(sv);
-        }
-        // As in `pixel`; `attracted` runs on the map conjugated by 2^u.e, which is f64.
-        let settled = su.to_cx().norm2() < 1.0
-            && step.m.norm2() * exp2i(2 * (step.e - u.e)) <= 1e-24 * u.m.norm2();
-        if settled || (work >= 16 && work.is_power_of_two() && attracted_deep(&b, k.deg, u)) {
-            st.returns += 1;
-            return (Outcome::Interior { n }, work + 1);
-        }
-        u = s;
-        n += k.period;
-        work += 1;
-        st.returns += 1;
-    }
-    // Stage 2: approach against C's critical orbit. Next to the O(1) orbit, d and dz/dc
-    // need no per-step normalisation: each is a mantissa with an exponent that is
-    // rescaled only when the mantissa drifts out of [2^-32, 2^32] (as in scaled.rs).
-    let mut d = Lazy::from(u.mul(Fx::new(Cx(k.scale.mant, 0.0), k.scale.exp2)));
-    let mut g = Lazy::from(du);
-    for z in &k.orbit {
-        if D {
-            g = g.step(z.add(d.to_cx()));
-        }
-        d = d.square_plus_2z(*z);
-    }
-    let d = d.fx();
-    du = g.fx();
-    n += APPROACH as u64;
-    work += APPROACH as u64;
-    // Stage 3: Koenigs jump from an entry offset h0 that may be far below f64's range.
-    let h0 = x.z24ma.add(d);
-    let mut z = k.alpha.add(h0.to_cx());
-    if h0.to_cx().abs() < k.r0 {
-        let (w0, dphi) = series_d(&x.phi, h0);
-        let (lw, aw) = (w0.ln_abs(), w0.arg());
-        let (lr, ar) = (k.rho.abs().ln(), k.rho.1.atan2(k.rho.0));
-        let j = ((k.r0.ln() - lw) / lr).floor();
+        let j = w0.jump(k.r0, lr);
+        let (lw, aw) = w0.log_arg();
         if let Some((zp, dzs, m)) = patch(k, lw, aw, j) {
             if D {
-                du = Fx::new(dzs, 0).mul(dphi).mul(du).mul(w0.inv());
+                du = N::from_parts(dzs, 0).mul(dphi).mul(du).div(w0);
             }
             z = zp;
             n += 2 * j as u64 + m;
             st.jumps += 1;
             st.patches += 1;
         } else if j > 0.0 {
-            let w = Fx::polar(lw + j * lr, aw + j * ar).to_cx();
+            let (w, factor) = w0.advance(j, lr, k.rho.1.atan2(k.rho.0));
             let (hw, dpsi) = series_d(&k.psi, w);
             if D {
-                du = Fx::new(dpsi, 0)
-                    .mul(Fx::polar(j * lr, j * ar))
-                    .mul(dphi)
-                    .mul(du);
+                du = N::from_parts(dpsi, 0).mul(factor).mul(dphi).mul(du);
             }
             z = k.alpha.add(hw);
             n += 2 * j as u64;
@@ -1149,34 +1001,36 @@ fn pixel_deep<const D: bool>(
         work += 1;
     }
     // Stage 4: plain steps at C.
-    let mut g = Lazy::from(du);
+    let mut g = N::Orbit::from_number(du);
     loop {
         if n >= max_iter {
             return (Outcome::Unresolved, work);
         }
         if D {
-            g = g.step(z);
+            g = g.derivative_step(z);
         }
         z = z.mul(z).add(k.c);
         n += 1;
         work += 1;
         st.plain += 1;
         if z.norm2() > r2 {
-            let o = Outcome::Escaped {
-                n,
-                zr: z.0,
-                zi: z.1,
-                dr: g.m.0,
-                di: g.m.1,
-                dexp: g.e,
-                ez: f64::INFINITY,
-                ed: f64::INFINITY,
-            };
-            return (o, work);
+            let (derivative, exponent) = g.parts();
+            return (
+                Outcome::Escaped {
+                    n,
+                    zr: z.0,
+                    zi: z.1,
+                    dr: derivative.0,
+                    di: derivative.1,
+                    dexp: exponent,
+                    ez: f64::INFINITY,
+                    ed: f64::INFINITY,
+                },
+                work,
+            );
         }
     }
 }
-
 /// `m 2^e` normalised only when `m` leaves `[2^-32, 2^32]`, with `2^e` and `2^-e` cached:
 /// the deep path's numbers next to an O(1) orbit, where per-step [`Fx`] normalisation
 /// would be the main cost.
@@ -1237,45 +1091,95 @@ impl Lazy {
     }
 }
 
-/// `sum_i c_i u^i` (`d = 0`) or its derivative `sum_i i c_i u^(i-1)` (`d = 1`), with
-/// `pw[i] = u.m^i` and `u = u.m 2^ue`.
+/// Mantissa powers shared by all coefficient evaluations of one state.
 #[inline(always)]
-fn poly_fx(c: &[Fx; 8], deg: usize, pw: &[Cx; 8], ue: i64, d: usize) -> Fx {
+fn powers<N: ZoneNumber>(u: N, deg: usize) -> ([Cx; 8], i64) {
+    let mut pw = [Cx(1.0, 0.0); 8];
+    let (mantissa, exponent) = u.parts();
+    if N::EXTENDED {
+        for i in 1..=deg {
+            pw[i] = pw[i - 1].mul(mantissa);
+        }
+    }
+    (pw, exponent)
+}
+
+/// Polynomial value and derivative. Horner order is retained for ordinary
+/// numbers; exponent-aligned term sums retain the deep representation's order.
+#[inline(always)]
+fn polynomial<N: ZoneNumber, const D: bool, const TOP: bool>(
+    c: &[N],
+    deg: usize,
+    u: N,
+    pw: &[Cx; 8],
+    ue: i64,
+) -> (N, N) {
+    if N::EXTENDED {
+        (
+            term_sum(c, deg, pw, ue, 0),
+            if D {
+                term_sum(c, deg, pw, ue, 1)
+            } else {
+                N::default()
+            },
+        )
+    } else {
+        let (mut s, mut d, end) = if TOP {
+            (c[deg], N::default(), deg)
+        } else {
+            (N::default(), N::default(), deg + 1)
+        };
+        for i in (0..end).rev() {
+            if D {
+                d = d.mul(u).add(s);
+            }
+            s = s.mul(u).add(c[i]);
+        }
+        (s, d)
+    }
+}
+
+/// Exponent-aligned polynomial sum, normalised once after summation.
+#[inline(always)]
+fn term_sum<N: ZoneNumber>(c: &[N], deg: usize, pw: &[Cx; 8], ue: i64, d: usize) -> N {
     let terms = || {
-        c[..=deg]
-            .iter()
-            .enumerate()
-            .skip(d)
-            .filter(|(_, a)| !a.is_zero())
+        c[..=deg].iter().enumerate().skip(d).filter(|(_, a)| {
+            let (m, _) = a.parts();
+            m.0 != 0.0 || m.1 != 0.0
+        })
     };
-    let Some(top) = terms().map(|(i, a)| a.e + (i - d) as i64 * ue).max() else {
-        return Fx::default();
+    let Some(top) = terms()
+        .map(|(i, a)| a.parts().1 + (i - d) as i64 * ue)
+        .max()
+    else {
+        return N::default();
     };
     let mut sum = Cx::default();
     for (i, a) in terms() {
+        let (m, e) = a.parts();
         let k = if d == 1 { i as f64 } else { 1.0 };
         sum = sum.add(
-            a.m.mul(pw[i - d])
-                .scale(k * exp2i(a.e + (i - d) as i64 * ue - top)),
+            m.mul(pw[i - d])
+                .scale(k * exp2i(e + (i - d) as i64 * ue - top)),
         );
     }
-    Fx::new(sum, top)
+    N::from_parts(sum, top)
 }
 
-/// [`attracted`] for an [`Fx`] state: the return map conjugated by `x = u / 2^u.e`
-/// (coefficients `b_i 2^(u.e (i - 1))`), which keeps the cycle test in f64.
-fn attracted_deep(b: &[Fx; 8], deg: usize, u: Fx) -> bool {
+/// Conjugate a deep return map into its mantissa chart for the shared cycle test.
+fn cycle_basin<N: ZoneNumber>(b: &[N; 8], deg: usize, u: N) -> bool {
     let mut bt = [Cx::default(); 8];
+    let (um, ue) = u.parts();
     for (i, (t, a)) in bt.iter_mut().zip(b).enumerate().take(deg + 1) {
-        *t = Fx {
-            m: a.m,
-            e: a.e + u.e * (i as i64 - 1),
-        }
-        .to_cx();
+        let (m, e) = a.parts();
+        *t = if N::EXTENDED {
+            N::from_parts(m, e + ue * (i as i64 - 1)).physical()
+        } else {
+            m
+        };
     }
-    attracted(&bt, deg, u.m)
+    attracted(&bt, deg, um)
 }
-
 /// `B(u)`, `B'(u)` and `B''(u)` for `B(u) = sum b[i] u^i`, `i <= deg`.
 #[inline]
 fn eval2<N: Complex>(b: &[N; 8], deg: usize, u: N) -> (N, N, N) {
@@ -1371,6 +1275,34 @@ fn patch(k: &Zone, ln_w0: f64, arg_w0: f64, j: f64) -> Option<(Cx, Cx, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zone_pixel_render_bytes_are_unchanged() {
+        for (deep, zone, expected) in [
+            (false, v0(), [0x30499ad7f43278cd, 0xf17526a7d999103d]),
+            (
+                true,
+                as_deep(v0()),
+                [0x243149996becf305, 0x23b2b21cf0acb4e7],
+            ),
+        ] {
+            for (i, width) in ["1e-36", "2e-48"].into_iter().enumerate() {
+                let mut p = params(&[Column::Nu, Column::De, Column::Normal]);
+                p.nx = 8;
+                p.ny = 4;
+                let (header, samples, _, _) = render_zone(&view(width), &p, &zone).unwrap();
+                let mut bytes = Vec::new();
+                fd_samples::write(&mut bytes, &header, &samples).unwrap();
+                let hash = bytes.iter().fold(0xcbf29ce484222325u64, |h, b| {
+                    (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
+                });
+                assert_eq!(
+                    hash, expected[i],
+                    "deep={deep} width={width}: .fds bytes changed"
+                );
+            }
+        }
+    }
 
     fn assert_cx_bits(actual: Cx, expected: Cx) {
         assert_eq!(

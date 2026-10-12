@@ -19,10 +19,10 @@
 mod bla;
 mod grid;
 mod interior;
+mod number;
 mod reference;
 mod refine;
 mod sample;
-mod scaled;
 mod store;
 mod view;
 mod zone;
