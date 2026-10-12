@@ -12,7 +12,7 @@ Every new `RESULTS/R-NNN.md` must contain the checklist below. The agent must wr
 - [ ] **Executed evidence:** actual observation or tool output is archived/referenced; simulation, extrapolation and absent data are labeled. An interrupted/failed run is described as such.
 - [ ] **Accuracy evaluated first:** report measured independent error and class/event mismatches, or state explicitly why impossible; never silently treat non-finite or missing values as passes.
 - [ ] **Cost accounted for:** cold time including build/preprocessing, appropriate warm time and repeats if promoted; or clearly mark `NOT RUN` because the predeclared accuracy gate failed.
-- [ ] **Binary decision:** pass/fail each predeclared threshold with numbers; report **KEEP / KILL / CONDITIONAL / SUPERSEDED / BLOCKED** and distinguish empirical accuracy from an error certificate.
+- [ ] **Two-part decision:** pass/fail each **historically frozen** numerical gate with numbers, then **separately** record any smaller credible gain and whether further pursuit merits KEEP / CONDITIONAL / STOP / SUPERSEDED. `KILL` applies only to the tested claim. Distinguish empirical accuracy from a certificate.
 - [ ] **Limits and evidence level:** list hardware, tool versions and reproducibility artifacts or what is missing; use `REPORTED`, `REPRODUCED` or `CERTIFIED` honestly. Include the cheapest follow-up or an explicit reason to stop.
 - [ ] **Graph and Git checked:** the result, parent P-card, `INDEX.md`, `MAP.md` and current `FRONTIER.md` if changed agree, links resolve, the repository contains only research documents, and the commit/ref is verified. If Git write access fails, this is **unchecked** until filing succeeds.
 
@@ -29,7 +29,7 @@ The 9th box may be checked only after committing and reading back the record. Fi
 
 **No proof of novelty or industrial impact is conferred by any of these labels.** Performance is empirical, never a theorem merely because the underlying operator is correct.
 
-**Original gate versus follow-up opportunity:** An old >=3x preregistered cold gate remains FAIL even if the run measured an accurate 2x warm improvement. A separately registered P-card may test whether real reuse converts it into a 1.1x or greater end-to-end gain. Do not erase failures, upgrade reported performance to reproduced, or dismiss sub-3x gains automatically. The completion checklist audits process, not the value of a discovery.
+**Original gate versus follow-up opportunity:** An old preregistered ≥3× cold gate remains FAIL even if the run measured an accurate 2× warm improvement; a new P-card may test real reuse, **without introducing a universal 1.10× gate either**. Retain all credible positive findings, including 1% or 5% effects when clearly above measurement noise. Decide separately whether the absolute saving is worth more work. Do not erase failures, overstate `REPRODUCED`, or equate a gate failure with "worthless." POD audits process, not scientific or economic importance.
 
 ## Formal proof is selective
 

@@ -1,7 +1,8 @@
 # R-NNN · Precise experiment title
 
 **Date:** YYYY-MM-DD · **Question:** [P-NNN](../PROMPTS/P-NNN.md)
-**Decision:** KEEP / KILL / CONDITIONAL / SUPERSEDED / BLOCKED
+**Original gate verdict:** PASS / FAIL / NOT TESTED
+**Observed gain and current opportunity:** KEEP / CONDITIONAL / STOP / SUPERSEDED / BLOCKED (separate from gate)
 **Failure category:** MATHEMATICS / ACCURACY / PERFORMANCE / BASELINE / COVERAGE / RESOURCE / INCONCLUSIVE
 **Evidence:** SPECULATION / REPORTED / REPRODUCED / CERTIFIED
 **Preregistered:** Yes (link/hash), or No (retrospective)
@@ -21,6 +22,9 @@ Mathematical equations, test domain, initial states/parameters, seeds, hardware,
 | Cold end-to-end, median [min,max], n repeats | | |
 | Setup/build/precompute | | |
 | Warm execution | | |
+| Realistic amortized total (if relevant) | | |
+| Absolute wall time saved and full-workload speedup | | |
+| Timing variability / uncertainty / sample count | | |
 | Worst independent state error | | |
 | Wrong event/class counts | | |
 | Coverage / abstentions | | |
@@ -47,4 +51,4 @@ Include raw observed numbers and explicit measurement uncertainty. If unrun, wri
 
 ## Interpretation and next edge
 
-State gate pass/fail, what it **does not prove**, limitations, uncertainties, accuracy certification status, the cheapest decisive next probe, and links to child P-cards or superseding results. A failed experiment remains filed forever.
+State the **frozen gate result** and **any smaller positive effects independently** (including effects <1.10× or <3×), what the test does *not* prove, uncertainty, accuracy/certification, and whether the expected total saved compute justifies a new test. Never discard an accurate effect only for missing an old ambition; also never call a noisy or wrong result a gain. Link child cards, preserve failures and label reported-only evidence.
