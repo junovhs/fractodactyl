@@ -1,0 +1,298 @@
+#version 450
+#extension GL_ARB_gpu_shader_fp64 : require
+
+// Four fused stages: return map, approach, Koenigs/patch, escape finish.
+layout(local_size_x = 64) in;
+layout(std430, binding = 0) readonly buffer Constants { double v[]; } input_data;
+layout(std430, binding = 1) writeonly buffer Columns { double v[]; } output_data;
+
+double value(int i) { return input_data.v[i]; }
+dvec2 cx(int i) { return dvec2(value(i), value(i + 1)); }
+dvec2 mul(dvec2 a, dvec2 b) {
+    return dvec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+double norm2(dvec2 z) { return dot(z, z); }
+dvec2 divc(dvec2 a, dvec2 b) {
+    return dvec2(dot(a,b), a.y*b.x-a.x*b.y) / norm2(b);
+}
+
+const double FP64_LN2 = 0.693147180559945309417232121458lf;
+const double FP64_INV_LN2 = 1.442695040888963407359924681002lf;
+const double FP64_LN2_LO = 2.3190468138462995584e-17lf;
+const double FP64_PI = 3.141592653589793238462643383280lf;
+const double FP64_PI_2 = 1.570796326794896619231321691640lf;
+const double FP64_PI_4 = 0.785398163397448309615660845820lf;
+const double FP64_INV_PI_2 = 0.636619772367581343075535053490lf;
+const double FP64_PI_2_LO = 6.1232339957367660359e-17lf;
+
+// f64-only atanh series: frexp reduces the mantissa to [1/sqrt(2), sqrt(2)].
+// |(m-1)/(m+1)| <= 0.171573, so 12 odd terms suffice at binary64 precision.
+double fp64_log(double x) {
+    int e;
+    double m = 2.0 * frexp(x, e);
+    --e;
+    if (m > 1.4142135623730950488lf) {
+        m *= 0.5;
+        ++e;
+    }
+    double t = (m - 1.0) / (m + 1.0);
+    double t2 = t*t, term = t, sum = t;
+    for (int k=1; k<12; ++k) {
+        term *= t2;
+        sum += term / double(2*k+1);
+    }
+    return double(e)*FP64_LN2 + 2.0*sum;
+}
+
+double fp64_log2(double x) {
+    return fp64_log(x)*FP64_INV_LN2;
+}
+
+// x = k ln(2) + r, |r| <= ln(2)/2. Degree-20 exp Taylor in double.
+double fp64_exp(double x) {
+    int k = int(round(x*FP64_INV_LN2));
+    precise double r = fma(-double(k), FP64_LN2, x);
+    r = fma(-double(k), FP64_LN2_LO, r);
+    double p = 1.0;
+    for (int i=20; i>=1; --i)
+        p = 1.0 + r*p/double(i);
+    return ldexp(p, k);
+}
+
+// atan(y/x) after octant reduction: argument <= sqrt(2)-1. 24 odd terms.
+double fp64_atan_small(double z) {
+    double zz = z*z, p = -1.0/47.0;
+    for (int k=22; k>=0; --k)
+        p = (k%2==0 ? 1.0 : -1.0)/double(2*k+1) + zz*p;
+    return z*p;
+}
+double fp64_atan_unit(double x) {
+    if (x > 0.4142135623730950488lf)
+        return FP64_PI_4 + fp64_atan_small((x-1.0)/(x+1.0));
+    return fp64_atan_small(x);
+}
+double fp64_atan2(double y, double x) {
+    double ax=abs(x), ay=abs(y);
+    if (ax==0.0 && ay==0.0) return 0.0;
+    double a = ay>ax ? FP64_PI_2-fp64_atan_unit(ax/ay) : fp64_atan_unit(ay/ax);
+    if (x<0.0) a=FP64_PI-a;
+    return y<0.0 ? -a : a;
+}
+
+// Double Cody-Waite reduction to [-pi/4, pi/4] using fused hi/lo pi/2.
+// Horner degrees 27 (sin) and 26 (cos), then restore the quadrant.
+void fp64_sincos(double x, out double s, out double c) {
+    int q = int(round(x*FP64_INV_PI_2));
+    precise double r = fma(-double(q), FP64_PI_2, x);
+    r = fma(-double(q), FP64_PI_2_LO, r);
+    double rr = r*r;
+    double sc = -1.0/10888869450418352160768000000.0lf; // -1/27!
+    double cc = -1.0/403291461126605635584000000.0lf;   // -1/26!
+    double sp=sc, cp=cc;
+    for (int k=12; k>=0; --k) {
+        sc *= -double((2*k+2)*(2*k+3));
+        cc *= -double((2*k+1)*(2*k+2));
+        sp = sp*rr+sc;
+        cp = cp*rr+cc;
+    }
+    double sr=r*sp, cr=cp;
+    int quadrant=(q%4+4)%4;
+    if (quadrant==0) { s=sr; c=cr; }
+    else if (quadrant==1) { s=cr; c=-sr; }
+    else if (quadrant==2) { s=-sr; c=-cr; }
+    else { s=-cr; c=sr; }
+}
+void series(int start, int count, dvec2 x, out dvec2 y, out dvec2 dy) {
+    y = dvec2(0.0);
+    dy = dvec2(0.0);
+    for (int i=count-1; i>=0; --i) {
+        dvec2 a = cx(start + 2*i);
+        y = mul(y+a, x);
+        dy = mul(dy,x) + double(i+1)*a;
+    }
+}
+void eval2(dvec2 b[8], int deg, dvec2 x,
+           out dvec2 y, out dvec2 dy, out dvec2 ddy) {
+    y = b[deg];
+    dy = dvec2(0.0);
+    ddy = dvec2(0.0);
+    for (int i=deg-1; i>=0; --i) {
+        ddy = mul(ddy,x) + dy;
+        dy = mul(dy,x) + y;
+        y = mul(y,x) + b[i];
+    }
+    ddy *= 2.0;
+}
+void compose(dvec2 b[8], int deg, dvec2 x, int q,
+             out dvec2 y, out dvec2 d, out dvec2 dd) {
+    y=x; d=dvec2(1.0,0.0); dd=dvec2(0.0);
+    for (int i=0; i<q; ++i) {
+        dvec2 z, dz, ddz;
+        eval2(b,deg,y,z,dz,ddz);
+        dd=mul(ddz,mul(d,d))+mul(dz,dd);
+        d=mul(dz,d);
+        y=z;
+    }
+}
+bool attracted(dvec2 b[8], int deg, dvec2 u) {
+    for (int q=1; q<=4; ++q) {
+        dvec2 x=u;
+        for (int i=0; i<16; ++i) {
+            dvec2 f,d,dd;
+            compose(b,deg,x,q,f,d,dd);
+            dvec2 st=divc(f-x,d-dvec2(1.0,0.0));
+            x-=st;
+            if (isnan(x.x)||isnan(x.y)||isinf(x.x)||isinf(x.y)) break;
+            if (norm2(st)<=1e-28lf*norm2(x)) {
+                compose(b,deg,x,q,f,d,dd);
+                double l=length(d);
+                if (l<1.0 && length(u-x)*length(dd)<=0.5*(1.0-l))
+                    return true;
+                break;
+            }
+        }
+    }
+    return false;
+}
+bool horner_patch(double re, double im, double j, int root,
+           int node_base, int leaf_base, int nodes, int leaves,
+           out dvec2 z, out dvec2 dz, out int m) {
+    if (nodes==0 || j<0.0) return false;
+    const double tau=6.283185307179586476925286766559lf;
+    re += j*value(15);
+    im += j*value(16);
+    im -= floor(im/tau)*tau;
+    int node=min(int(im/(tau/double(root))),root-1);
+    for (int k=0; k<nodes; ++k) {
+        if (node<0 || node>=nodes) return false;
+        int at=node_base+4*node;
+        int kid=int(value(at+2));
+        if (kid<0) {
+            int leaf=int(value(at+3));
+            if (leaf<0 || leaf>=leaves) return false;
+            at=leaf_base+36*leaf;
+            m=int(value(at+3));
+            if (m<0) return false;
+            double r=value(at+2);
+            dvec2 t=dvec2((re-value(at))/r,(im-value(at+1))/r);
+            z=dvec2(0.0); dz=dvec2(0.0);
+            for (int a=15; a>=0; --a) {
+                dz=mul(dz,t)+z;
+                z=mul(z,t)+cx(at+4+2*a);
+            }
+            dz/=r;
+            return true;
+        }
+        node=kid+2*int(re>=value(at))+int(im>=value(at+1));
+    }
+    return false;
+}
+void output_sample(int gid, double cls, double nu, double de, double angle) {
+    int i=4*gid;
+    output_data.v[i]=nu;
+    output_data.v[i+1]=de;
+    output_data.v[i+2]=angle;
+    output_data.v[i+3]=cls;
+}
+void main() {
+    int gid=int(gl_GlobalInvocationID.x);
+    int nx=int(value(6)), ny=int(value(7));
+    if (gid>=nx*ny) return;
+    int deg=int(value(4)), period=int(value(3)), maxit=int(value(5));
+    int nphi=int(value(24)), npsi=int(value(25));
+    int nn=int(value(26)), nl=int(value(27));
+    int phi_base=206, psi_base=phi_base+2*nphi;
+    int node_base=psi_base+2*npsi, leaf_base=node_base+4*nn;
+    int col=gid%nx, row=gid/nx;
+    double x=double(col)+0.5-double(nx)*0.5;
+    double y=double(row)+0.5-double(ny)*0.5;
+    double cs=value(28), sn=value(29);
+    dvec2 uv=dvec2(cs*x+sn*y,sn*x-cs*y);
+    dvec2 v=cx(8)+uv*value(10);
+    dvec2 b[8], bv[8];
+    for (int i=0; i<=deg; ++i) {
+        dvec2 s=dvec2(0.0), ds=dvec2(0.0);
+        for (int j=deg-i; j>=0; --j) {
+            ds=mul(ds,v)+s;
+            s=mul(s,v)+cx(32+2*(8*i+j));
+        }
+        b[i]=s; bv[i]=ds;
+    }
+    b[0]+=cx(19);
+    dvec2 u=v, du=dvec2(1.0,0.0);
+    int n=1, work=0;
+    double scale=value(0), guard=value(1);
+    while (length(u)*scale<=guard) {
+        if (n+period>maxit) {
+            output_sample(gid,2.0,0.0,0.0,0.0); return;
+        }
+        dvec2 s=b[deg], su=dvec2(0.0), sv=bv[deg];
+        for (int i=deg-1; i>=0; --i) {
+            su=mul(su,u)+s;
+            s=mul(s,u)+b[i];
+            sv=mul(sv,u)+bv[i];
+        }
+        dvec2 step=s-u;
+        du=mul(su,du)+sv;
+        if ((norm2(su)<1.0 && norm2(step)<=1e-24lf*norm2(u))
+            || (work>=16 && (work & (work-1))==0 && attracted(b,deg,u))) {
+            output_sample(gid,1.0,0.0,0.0,0.0); return;
+        }
+        u=s; n+=period; ++work;
+    }
+
+    // 23 approach iterates, with dz/dc in unscaled parameter coordinates.
+    dvec2 d=u*scale;
+    for (int i=0; i<23; ++i) {
+        dvec2 z=cx(160+2*i);
+        du=2.0*mul(z+d,du)+dvec2(1.0,0.0);
+        d=2.0*mul(z,d)+mul(d,d);
+    }
+    n+=23;
+
+    // Koenigs jump; Horner in the tail atlas is the final landing.
+    dvec2 h0=cx(17)+d, alpha=cx(13), z=alpha+h0;
+    if (length(h0)<value(2)) {
+        dvec2 w0,dphi;
+        series(phi_base,nphi,h0,w0,dphi);
+        double lnrho=value(15);
+        double j=floor(fp64_log(value(2)/length(w0))/lnrho);
+        dvec2 zp,dzs;
+        int m=0;
+        if (horner_patch(fp64_log(length(w0)),fp64_atan2(w0.y,w0.x),j,int(value(23)),
+                  node_base,leaf_base,nn,nl,zp,dzs,m)) {
+            du=mul(mul(mul(dzs,dphi),du),divc(dvec2(1.0,0.0),w0));
+            z=zp; n+=2*int(j)+m;
+        } else if (j>0.0) {
+            double t=j*value(16), mag=fp64_exp(j*lnrho);
+            double st, ct;
+            fp64_sincos(t, st, ct);
+            dvec2 rj=mag*dvec2(ct,st);
+            dvec2 hw,dpsi;
+            series(psi_base,npsi,mul(w0,rj),hw,dpsi);
+            du=mul(mul(mul(dpsi,rj),dphi),du);
+            z=alpha+hw; n+=2*int(j);
+        }
+    }
+
+    // Finish at the fixed nucleus and encode nu, pixel DE and screen normal.
+    dvec2 c=cx(11);
+    for (; n<maxit; ) {
+        du=2.0*mul(z,du)+dvec2(1.0,0.0);
+        z=mul(z,z)+c;
+        ++n;
+        double a=norm2(z);
+        if (a>value(21)) {
+            double log2z=0.5*fp64_log2(a);
+            double nu=double(n)+1.0-fp64_log2(log2z);
+            double de=2.0*sqrt(a)*(log2z*0.693147180559945309417232121458lf)
+                      /length(du)/value(30);
+            double re=z.x*du.x+z.y*du.y;
+            double im=z.y*du.x-z.x*du.y;
+            double sx=cs*re+sn*im, sy=sn*re-cs*im;
+            output_sample(gid,0.0,nu,de,fp64_atan2(sy,sx));
+            return;
+        }
+    }
+    output_sample(gid,2.0,0.0,0.0,0.0);
+}

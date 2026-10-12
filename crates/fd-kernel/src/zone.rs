@@ -515,6 +515,114 @@ impl Zone {
     }
 }
 
+impl Zone {
+    /// FP64 Vulkan constants, with camera offsets obtained from exact decimal arithmetic.
+    ///
+    /// The shader takes scaled offsets, never a rounded deep centre or width (DEC-21).
+    /// It declines mid/deep-range operators and retains the CPU fallback (DEC-10).
+    pub fn gpu_f64_input(&self, view: &View, p: &Params) -> Result<(Header, Vec<f64>), String> {
+        let (plane, tier) = setup(view, p)?;
+        let off = centre_offset(view, self, &plane)?;
+        if !deep_covers(&plane, p, self, off) || self.deep.is_some() {
+            return Err("FP64 Vulkan zone needs a covered, f64-range deep frame".into());
+        }
+        if p.columns.has(Column::Bound) {
+            return Err("FP64 Vulkan zone has no certified bounds".into());
+        }
+        if p.max_iter > i32::MAX as u64 || self.period > i32::MAX as u64 {
+            return Err("FP64 Vulkan zone iteration count exceeds i32".into());
+        }
+        let scale = self.scale.to_f64();
+        let guard = self.guard.to_f64();
+        let h = ZoneSize {
+            mant: plane.h_m,
+            exp2: plane.h_e,
+        }
+        .over(self.scale);
+        let px = plane.h();
+        if !(scale > 0.0
+            && guard > 0.0
+            && h > 0.0
+            && px > 0.0
+            && self.rho.abs() > 1.0
+            && self.deg < 8
+            && self.phi.len() <= i32::MAX as usize
+            && self.psi.len() <= i32::MAX as usize
+            && self.nodes.len() <= i32::MAX as usize
+            && self.leaves.len() <= i32::MAX as usize)
+        {
+            return Err("FP64 Vulkan zone constants outside supported range".into());
+        }
+        let mut v = vec![
+            scale,
+            guard,
+            self.r0,
+            self.period as f64,
+            self.deg as f64,
+            p.max_iter as f64,
+            p.nx as f64,
+            p.ny as f64,
+            off.scaled.0,
+            off.scaled.1,
+            h,
+            self.c.0,
+            self.c.1,
+            self.alpha.0,
+            self.alpha.1,
+            self.rho.abs().ln(),
+            self.rho.1.atan2(self.rho.0),
+            self.z24ma.0,
+            self.z24ma.1,
+            self.bias.0,
+            self.bias.1,
+            p.escape_radius * p.escape_radius,
+            p.ss as f64,
+            self.patch_nx as f64,
+            self.phi.len() as f64,
+            self.psi.len() as f64,
+            self.nodes.len() as f64,
+            self.leaves.len() as f64,
+            view.rotation.cos(),
+            view.rotation.sin(),
+            px * p.ss as f64,
+            0.0,
+        ];
+        // A fixed 8x8 complex biseries and the 23 orbit points precede the variable data.
+        for i in 0..8 {
+            for j in 0..8 {
+                let a = if i <= self.deg && j <= self.deg {
+                    self.bis[i][j]
+                } else {
+                    Cx::default()
+                };
+                v.extend([a.0, a.1]);
+            }
+        }
+        for a in &self.orbit {
+            v.extend([a.0, a.1]);
+        }
+        for a in self.phi.iter().chain(&self.psi) {
+            v.extend([a.0, a.1]);
+        }
+        for &(centre, kid, leaf) in &self.nodes {
+            v.extend([centre.0, centre.1, kid as f64, leaf as f64]);
+        }
+        for leaf in &self.leaves {
+            v.extend([leaf.centre.0, leaf.centre.1, leaf.r, leaf.m as f64]);
+            for a in &leaf.coef {
+                v.extend([a.0, a.1]);
+            }
+        }
+        if !v.iter().all(|x| x.is_finite()) {
+            return Err("FP64 Vulkan zone constants are non-finite".into());
+        }
+        let cols = p.columns.with(Column::Class);
+        let mut hd = header(view, p, cols, &plane, tier);
+        hd.kernel = format!("zone-vulkan-f64/1 P={}", self.period);
+        Ok((hd, v))
+    }
+}
+
 /// Work counters of one zone render.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ZoneStats {
@@ -1233,6 +1341,27 @@ fn patch(k: &Zone, ln_w0: f64, arg_w0: f64, j: f64) -> Option<(Cx, Cx, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gpu_f64_constants_use_scaled_decimal_offsets() {
+        let z = v0();
+        let p = params(&[Column::Nu, Column::De, Column::Normal]);
+        let view = view("1e-40");
+        let (header, packed) = z.gpu_f64_input(&view, &p).unwrap();
+        assert!(!header.kernel.is_empty());
+        assert_eq!(packed[0], 1e-25);
+        assert!(packed[8].is_finite() && packed[9].is_finite());
+        assert!(packed[10] > 0.0 && packed[10] < 1e-10);
+        assert_eq!(packed[160], z.orbit[0].0);
+        assert_eq!(packed[161], z.orbit[0].1);
+        assert_eq!(
+            packed.len(),
+            206 + 2 * (z.phi.len() + z.psi.len()) + 4 * z.nodes.len() + 36 * z.leaves.len()
+        );
+        let mut outside = view;
+        outside.width = "1e-12".into();
+        assert!(z.gpu_f64_input(&outside, &p).is_err());
+    }
 
     #[test]
     fn series_derivative_matches_finite_difference() {

@@ -8,7 +8,7 @@ fn main() {
         shaderc::TargetEnv::Vulkan,
         shaderc::EnvVersion::Vulkan1_2 as u32,
     );
-    for name in ["film_prepare", "film_shade", "film_resample"] {
+    for name in ["film_prepare", "film_shade", "film_resample", "zone_f64"] {
         let input = format!("shaders/{name}.comp");
         println!("cargo:rerun-if-changed={input}");
         let source = fs::read_to_string(&input).expect("shader source");
