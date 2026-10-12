@@ -14,7 +14,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-030](PROMPTS/P-030.md) | UNTESTED · PRIORITY 1 | Parameter-dependent switching maps | Follows R-004 |
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
 | [P-081](PROMPTS/P-081.md) | KILL | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): accuracy PASS, cold only 1.020× (gate ≥3×) |
-| [P-082](PROMPTS/P-082.md) | IN PROGRESS · PRIORITY 1 | Amortized PWM transfer kick | [R-007](RESULTS/R-007.md) warm signal; result pending |
+| [P-082](PROMPTS/P-082.md) | KEEP · scoped synthetic benchmark | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold, accurate on new holdout |
 | [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
@@ -31,6 +31,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-004](RESULTS/R-004.md) | REPORTED | Empirical sampled comparison | Direct composition ~5.27× faster cold than Koenigs | **KILL Koenigs preference** |
 | [R-005](RESULTS/R-005.md) | REPORTED | Global Newton diverges | Full-width scan too costly at high precision | **KILL global scan** |
 | [R-006](RESULTS/R-006.md) | REPORTED · new run | **1.056531374e-7 > 1e-7** | NOT RUN — accuracy failed | **KILL q=4** |
-| [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL preregistered >=3x gate; retain CONDITIONAL warm signal** |
+| [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL original >=3x gate; [R-008](RESULTS/R-008.md) confirms amortized follow-up** |
+| [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
 
 Original experimental gates stay frozen. Robust sub-3x gains are not automatically worthless; record, then rank by expected cumulative compute savings. No demonstrated industrial gain or certified speedup; scripts remain outside this documentation-only Git branch.

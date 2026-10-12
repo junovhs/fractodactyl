@@ -61,3 +61,5 @@ Experiments run in a temporary compute sandbox; research notes are committed her
 **Navigation:** [Goal](GOAL.md) · [Frontier](FRONTIER.md) · [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Proof of done](PROOF_OF_DONE.md) · [Lean](LEAN.md) · [Source boundaries](SOURCES.md)
 
 **Small-gain follow-up:** [P-082](PROMPTS/P-082.md) preregisters 2,048 repeated-use PWM batches and a >=1.10x total-cost threshold, without revising R-007's historical 3x failure.
+
+**New incremental win (2026-10-12):** A separately preregistered reuse workload, [P-082](PROMPTS/P-082.md), passes its >=1.10x cold-total gate: [R-008](RESULTS/R-008.md) measures **1.209x acceleration** (17.3% less wall time) over the compiled exact map across 2,048 synthetic batches, with independent empirical accuracy passing. This preserves rather than rewrites P-081's original failed >=3x single-cold gate. **Not an industrial or certified result.**
