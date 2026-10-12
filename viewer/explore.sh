@@ -48,6 +48,8 @@ Categories=Graphics;"
   --stop)
     pkill -f "/fd explore --port $PORT\$" && echo "stopped" || echo "not running"
     exit 0 ;;
+  --v2)
+    URL="http://127.0.0.1:$PORT/v2/" ;;
 esac
 
 cd "$ROOT" || fail "cannot cd to $ROOT"

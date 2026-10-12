@@ -29,6 +29,102 @@ use std::time::Instant;
 
 const PAGE: &str = include_str!("explore.html");
 
+const MOCKUP: &str = include_str!("../../../viewer/mockup/index.html");
+const V2_LIVE: &str = include_str!("../../../viewer/mockup/live.js");
+const V2_BRIDGE: &str = include_str!("../../../viewer/mockup/embed.js");
+
+/// The classic / page stays byte-for-byte the same. Only embedded requests get
+/// the small, same-origin control bridge (and hide the classic HUD).
+fn embedded_page() -> String {
+    let page = PAGE.replace(
+        "</head>",
+        r#"<style>
+          html.embedded #hud, html.embedded #presets, html.embedded #help,
+          html.embedded #look { display: none !important; }
+          html.embedded #studio { right: 8px; top: 8px; bottom: 8px; }
+        </style></head>"#,
+    );
+    page.replace(
+        "</body>",
+        r#"<script src="/v2/embed.js"></script></body>"#,
+    )
+}
+
+/// Derive the real Linux UI directly from the finalised HTML mockup. Its
+/// fake desktop/taskbar, static fractal image and timer demo are removed;
+/// the viewport contains the actual fd explorer canvas in a same-origin frame.
+fn v2_page() -> String {
+    let mut page = MOCKUP.replace("<head>", "<head><base href=\"/v2/\">");
+    page = page.replace(
+        r#"<div class="canvas"><img id="frame" src="img/seahorse.jpg" alt="Seahorse Valley rendered by fd in the master-ice look"></div>"#,
+        r#"<div class="canvas"><iframe id="live-view" src="/?embed=1" title="Live Mandelbrot explorer" allow="fullscreen"></iframe></div>"#,
+    );
+    // Keep the banner layout and procedural stone painter, not the fake
+    // status/progress timer, image scaling and cosmetic preset handlers.
+    if let Some(start) = page.find("/* ===== Small behaviours ===== */") {
+        if let Some(end) = page[start..].find("</script>") {
+            page.replace_range(start..start + end, "");
+        }
+    }
+    page = page.replace(
+        "</head>",
+        r#"<style>
+          body { background: #23276d; }
+          .desktop { inset: 0; background: #23276d; }
+          .confetti, .icons, .taskbar { display: none !important; }
+          .window { position: absolute; inset: 6px; min-width: 0; box-shadow: none; }
+          .sidebar { overflow: auto; }
+          .sidebar.closed { display: none; }
+          .canvas iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; }
+          .presets li, .menubar span, .navthumb { cursor: pointer; }
+          .presets li:focus-visible, .menubar span:focus-visible { outline: 2px solid #1936cc; }
+          #live-menu { position: fixed; z-index: 100; display: flex; flex-direction: column;
+            min-width: 180px; max-width: min(400px, 90vw); max-height: 65vh; overflow-y: auto;
+            padding: 4px; background: #f7ecd8; border: 2px solid #313981;
+            box-shadow: 3px 4px 0 #241d47; }
+          #live-menu button { text-align: left; padding: 8px 12px; cursor: pointer; }
+          #live-menu button:hover, #live-menu button:focus { background: #0a2fd6; color: white; }
+          @media (max-width: 1080px) {
+            .toolbar { gap: 3px; padding: 5px; }
+            .tool { min-width: 0; gap: 4px; font-size: 13px; }
+            .tool .ico { width: 28px; height: 28px; }
+            .sidebar { width: 195px; padding: 5px; }
+            .statusbar .cell:last-child { display: none; }
+          }
+          @media (max-width: 700px) {
+            .sidebar { width: 148px; }
+            .tool { font-size: 0; }
+            .tool .caret { font-size: 12px; }
+            .statusbar .cell:nth-child(3) { display: none; }
+          }
+        </style></head>"#,
+    );
+    page.replace("</body>", r#"<script src="/v2/live.js"></script></body>"#)
+}
+
+/// Whitelisted, compile-time bundled mockup art. V2 works from any cwd, and
+/// cannot serve arbitrary local files. All resources stay on loopback.
+fn v2_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
+    match path {
+        "/v2/img/banner-band.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-band.png")[..])),
+        "/v2/img/banner-left.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-left.png")[..])),
+        "/v2/img/banner-right.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/banner-right.png")[..])),
+        "/v2/img/icon-explore.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-explore.png")[..])),
+        "/v2/img/icon-fossils.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-fossils.png")[..])),
+        "/v2/img/icon-map.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-map.png")[..])),
+        "/v2/img/icon-nest.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-nest.png")[..])),
+        "/v2/img/icon-pan.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-pan.png")[..])),
+        "/v2/img/icon-snapshot.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-snapshot.png")[..])),
+        "/v2/img/icon-zoom.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/icon-zoom.png")[..])),
+        "/v2/img/mascot-icon.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/mascot-icon.png")[..])),
+        "/v2/img/mascot.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/mascot.png")[..])),
+        "/v2/img/nav.png" => Some(("image/png", &include_bytes!("../../../viewer/mockup/img/nav.png")[..])),
+        "/v2/img/seahorse.jpg" => Some(("image/jpeg", &include_bytes!("../../../viewer/mockup/img/seahorse.jpg")[..])),
+        _ => None,
+    }
+}
+
+
 /// Shared between connection threads: one render runs at a time, and a request older
 /// than the newest generation the page has sent is skipped instead of rendered.
 struct Server {
@@ -125,7 +221,16 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
             ),
         };
     }
+    if let Some((kind, bytes)) = v2_asset(path) {
+        return respond(&mut stream, "200 OK", kind, &[], bytes);
+    }
     match path {
+        "/v2" | "/v2/" => {
+            let page = v2_page();
+            respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], page.as_bytes())
+        }
+        "/v2/live.js" => respond(&mut stream, "200 OK", "application/javascript; charset=utf-8", &[], V2_LIVE.as_bytes()),
+        "/v2/embed.js" => respond(&mut stream, "200 OK", "application/javascript; charset=utf-8", &[], V2_BRIDGE.as_bytes()),
         "/looks" => respond(
             &mut stream,
             "200 OK",
@@ -162,13 +267,14 @@ fn serve(mut stream: TcpStream, server: &Server) -> std::io::Result<()> {
                 rows.join("\n").as_bytes(),
             )
         }
-        "/" => respond(
-            &mut stream,
-            "200 OK",
-            "text/html; charset=utf-8",
-            &[],
-            PAGE.as_bytes(),
-        ),
+        "/" => {
+            if query.split('&').any(|arg| arg == "embed=1") {
+                let page = embedded_page();
+                respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], page.as_bytes())
+            } else {
+                respond(&mut stream, "200 OK", "text/html; charset=utf-8", &[], PAGE.as_bytes())
+            }
+        },
         "/render" => match render(query, server) {
             Ok(Some((w, h, info, rgb))) => {
                 let headers = [
@@ -507,6 +613,18 @@ fn raw_pixels(h: &Header, s: &Samples) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn v2_is_real_viewer_not_fake_mockup_timer() {
+        let page = v2_page();
+        assert!(page.contains(r#"id="live-view" src="/?embed=1""#));
+        assert!(!page.contains("/* ===== Small behaviours ===== */"));
+        assert!(!page.contains(r#"id="frame""#));
+        assert!(embedded_page().contains(r#"/v2/embed.js"#));
+        assert!(v2_asset("/v2/img/banner-band.png").is_some());
+        assert!(v2_asset("/v2/img/../../Cargo.toml").is_none());
+    }
 
     #[test]
     fn preset_names_are_file_names_not_paths() {
