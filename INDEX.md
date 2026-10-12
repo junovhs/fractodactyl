@@ -12,7 +12,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-021](PROMPTS/P-021.md) | CONDITIONAL | Shrink chart and amortize | [R-003](RESULTS/R-003.md), overturned by [R-004](RESULTS/R-004.md) |
 | [P-022](PROMPTS/P-022.md) | CLOSED | Same-math direct polynomial competition | [R-004](RESULTS/R-004.md) |
 | [P-030](PROMPTS/P-030.md) | UNTESTED · PRIORITY 1 | Parameter-dependent switching maps | Follows R-004 |
-| [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
+| [P-080](PROMPTS/P-080.md) | IN PROGRESS · PRIORITY 1 | Guarded PWM Taylor map vs exact return | [P-030](PROMPTS/P-030.md); preregistered, result pending |\n| [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
 | [P-060](PROMPTS/P-060.md) | UNTESTED | Direct composition at repelling Mandelbrot cycle | Follows R-004 |
