@@ -15,12 +15,14 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
 | [P-081](PROMPTS/P-081.md) | KILL only original ≥3× cold claim | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): 2.027× warm; [R-008](RESULTS/R-008.md): smaller **1.209×** amortized gain |
 | [P-082](PROMPTS/P-082.md) | KEEP · **known-method synthetic benchmark** | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold; [posttest prior art](PRIOR_ART/PA-PWM-RETRO.md) identifies earlier polynomial converter work |
-| [P-040](PROMPTS/P-040.md) | UNTESTED · legacy ≥3× gate | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
+| [P-040](PROMPTS/P-040.md) | UNTESTED · discovery PIVOT after literature triage; legacy gate retained | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
-| [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
-| [P-060](PROMPTS/P-060.md) | UNTESTED · legacy ≥3× gate | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
+| [P-051](PROMPTS/P-051.md) | UNTESTED · discovery PIVOT after literature triage | Certified segmented time-parallel solve | Follows R-005 |
+| [P-060](PROMPTS/P-060.md) | UNTESTED · discovery PIVOT after literature triage; legacy gate retained | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
 | [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
 | [P-083](PROMPTS/P-083.md) | **CLOSED/PIVOT** · known-method discovery | Quadratic event-time predictor vs compiled exact-flow roots | [R-009](RESULTS/R-009.md): 1.277× warm historically, cold loses; no routine follow-up |
+
+**Search-only triage, 2026-10-12:** [FRONTIER.md](FRONTIER.md) now records primary cited overlaps with P-040 (Petzold 1983; Schupp–Ábrahám 2018), P-051 (1994 multiple shooting; Chaudhry et al. 2016; van der Hoeven 2025), and P-060 (Brent–Traub 1980). They remain **untested**, with their original numerical gates unaltered; their generic mechanisms are no longer autonomous discovery priorities. A fourth search candidate, computational reuse during hybrid refinement, was immediately pivoted after Schupp–Ábrahám (2018). **No new experiment/P/R card**, and no newly measured performance; next action is targeted literature investigation into whether any new fixed-initial-condition prefix interface mechanism exists. Source details: [SOURCES.md](SOURCES.md).
 
 ## Experiment results
 
