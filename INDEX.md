@@ -21,6 +21,8 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-060](PROMPTS/P-060.md) | UNTESTED · legacy ≥3× gate | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
 | [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
 
+| [P-083](PROMPTS/P-083.md) | IN PROGRESS · **pretest literature reviewed** | Quadratic event-time predictor vs compiled exact-flow roots | [PA-P-083](PRIOR_ART/PA-P-083.md); R-009 pending |
+
 ## Experiment results
 
 | ID | Evidence | Accuracy | Cold-cost conclusion | Latest decision |
