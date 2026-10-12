@@ -4,7 +4,7 @@
 
 The durable mission is in [GOAL.md](GOAL.md); the provisional highest-information leads are in [FRONTIER.md](FRONTIER.md). There is no permanently prescribed problem: agents select among current or new cheap experiments based on actual evidence and anticipated impact, documenting decisions. Findings, including failed and overturned results, are the product.
 
-**Every new R-card must finish with the **ten-step** [binary proof of done](PROOF_OF_DONE.md), including pre-experiment external-literature-search evidence.** A failed hypothesis may be `POD: YES`; a favorable but poorly evidenced result is `POD: NO`. The gate and evidence classifications are separate. [Lean formalization](LEAN.md) is optional and selective, never a default 30-second probe requirement.
+**Every new R-card must satisfy the ten-step [binary proof of done](PROOF_OF_DONE.md), including pre-experiment external-literature-search evidence.** A failed hypothesis may be `POD: YES`; a favorable but poorly evidenced result is `POD: NO`. The gate and evidence classifications are separate. [Lean formalization](LEAN.md) is optional and selective, never a default 30-second probe requirement.
 
 ## Experiment contract
 

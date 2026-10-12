@@ -2,7 +2,7 @@
 
 **This is the project's durable objective, not an assignment to one technique or industry.**
 
-Discover, test, and eventually generalize mathematical methods that make previously expensive **scientific or industrial computation more efficiently**, especially where nonlinear dynamics contain exploitable structure. Fractodactyl supplied the first techniques and research discipline; rendering is **not** the goal.
+Discover, test, and eventually generalize mathematical methods that make **scientific or industrial computation more efficient**, especially where nonlinear dynamics contain exploitable structure. Fractodactyl supplied the first techniques and research discipline; rendering is **not** the goal.
 
 The expected output is **findings**: credible new methods, repeatable incremental improvements, transferable gains, useful failures, limits of known methods, and unexpected connections. A negative test that eliminates a plausible approach is progress. Avoid novelty claims without prior-art review.
 

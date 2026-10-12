@@ -1,6 +1,6 @@
 # Indexed research graph
 
-**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md). **Mandatory novelty audit for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
+**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).**Mandatory novelty audit for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
 
 P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. **A prompt's original numeric GATE is distinct from the ongoing research opportunity.** `KILL` of one frozen ≥3× test does **not** erase a smaller credible observed gain; see [GOAL](GOAL.md) and [R-007 → R-008](RESULTS/R-008.md). There is no default minimum speedup for new work.
 
