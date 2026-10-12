@@ -1,6 +1,6 @@
 # Indexed research graph
 
-**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).
+**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md). **Mandatory novelty audit for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
 
 P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. **A prompt's original numeric GATE is distinct from the ongoing research opportunity.** `KILL` of one frozen ≥3× test does **not** erase a smaller credible observed gain; see [GOAL](GOAL.md) and [R-007 → R-008](RESULTS/R-008.md). There is no default minimum speedup for new work.
 
@@ -14,7 +14,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-030](PROMPTS/P-030.md) | ORIGINAL TEST UNTESTED · legacy ≥3× gate | Parameter-dependent switching maps | Children [P-080](PROMPTS/P-080.md)–[P-082](PROMPTS/P-082.md); new event-time test requires new P-card |
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
 | [P-081](PROMPTS/P-081.md) | KILL only original ≥3× cold claim | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): 2.027× warm; [R-008](RESULTS/R-008.md): smaller **1.209×** amortized gain |
-| [P-082](PROMPTS/P-082.md) | KEEP · scoped synthetic benchmark | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold, accurate on new holdout |
+| [P-082](PROMPTS/P-082.md) | KEEP · **known-method synthetic benchmark** | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold; [posttest prior art](PRIOR_ART/PA-PWM-RETRO.md) identifies earlier polynomial converter work |
 | [P-040](PROMPTS/P-040.md) | UNTESTED · legacy ≥3× gate | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
@@ -34,4 +34,4 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL original >=3x gate; [R-008](RESULTS/R-008.md) confirms amortized follow-up** |
 | [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
 
-Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain or certified speedup; executables remain outside this documentation-only branch.
+Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain, certified speedup or algorithmic novelty. The [PWM prior-art audit](PRIOR_ART/PA-PWM-RETRO.md) was **retrospective**, not the mandatory pretest search; executables remain outside this documentation-only branch.

@@ -6,6 +6,8 @@
 
 **Preserve correct improvements of any magnitude.** Even a repeatable 1% gain can be useful at high call counts. Accuracy and fair comparison determine whether it is credible; estimated **absolute saved compute across actual deployments**, confidence, transfer and research/integration cost determine whether to invest more. **Neither ≥3× nor ≥1.10× is a universal promotion floor.** The original result's frozen gate and the current portfolio opportunity are separate decisions.
 
+**BEFORE ANY NEW TEST:** [PRIOR_ART.md](PRIOR_ART.md) requires an actually executed external literature search and **pretest committed query/results dossier** with a new linked P-card, nearest prior mechanism/specialist rival and a claim class. No search, no experiment. The retrospective PWM audit identified a directly overlapping 1990 polynomial buck-converter simulator: [PA-PWM-RETRO](PRIOR_ART/PA-PWM-RETRO.md). Thus the 1.209× synthetic gain is **engineering evidence for a known mathematical family**, not algorithmic originality. Every listed untested lead requires new pretest search evidence before numerical execution.
+
 Older [P-030](PROMPTS/P-030.md), [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md), and [P-070](PROMPTS/P-070.md) encode historical ≥3× *question-specific* tests. **Do not use those thresholds to discard accurate sub-3× findings** or impose them on newly registered experiments. Keep old gates for the old tests; make a linked new P-card if the workload/economic criterion changes.
 
 ## Verified-in-session findings and evidence limits
