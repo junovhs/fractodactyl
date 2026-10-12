@@ -1,20 +1,21 @@
-# P-NNN · Short research question
+# P-NNN · Short confirmatory research question
 
 **Status:** UNTESTED · **Parent:** P/R-NNN
-**Prior-art dossier:** [PA-P-NNN](../PRIOR_ART/PA-P-NNN.md) · **PRETEST Git commit:** SHA
-**Triage:** PROCEED (substantive unresolved claim) / OWNER-REQUESTED ENGINEERING EXCEPTION
-**Claim class:** OPEN_GAP_HYPOTHESIS / KNOWN_METHOD_NEW_APPLICATION / NOVELTY_UNVERIFIED / KNOWN_METHOD_BENCHMARK (owner exception only)
+**Prior-art dossier:** [PA-P-NNN](../PRIOR_ART/PA-P-NNN.md) · **PRETEST confirmatory Git commit:** SHA
+**Triage:** EXTEND / PROCEED / EVALUATE
+**Claim class:** KNOWN_INGREDIENT_NEW_CONSTRUCTION / OPEN_GAP_HYPOTHESIS / KNOWN_METHOD_NEW_APPLICATION / KNOWN_METHOD_BENCHMARK / NOVELTY_UNVERIFIED
 
-**Closest published predecessor:** Authors/year/link; overlapping mechanism and application.
-**Specific unresolved delta:** What this idea answers that the nearest publication does not; if no substantive gap, PIVOT, no P-card.
+**Published ingredient:** Source, exact available result/assumptions.
+**New step beyond it:** Specific extension, theorem, algorithm, combination, certificate or unanswered applied property, not merely a timing race.
+**Exploration already performed:** Link exploratory R/note, or NONE; disclose actual runs.
 
 **Question:** Can ...?
-**Mechanism:** ...
-**Value:** Real workload, absolute savings or scientific uncertainty.
-**Fair opponent:** Strongest published specialist/same-math rival.
-**Probe:** Seed, inputs, N, precision and <=30-second first test.
-**Gate:** Independent accuracy/classes; declared lifecycle and workload-specific economic/stop criterion (no universal speed floor).
-**Next:** Cheapest decisive pass/fail follow-up.
+**Construction / equation:** ...
+**Prediction / falsifier:** ...
+**Value:** Scientific or industrial use and transfer.
+**Fair rival or oracle:** Strongest specialist if germane; for pure mathematics, say what independent test is meaningful.
+**Confirmatory test:** Seed, exact inputs, precision, N, run and validation.
+**Gate:** Independent accuracy/classes, hypothesis-specific capability and economic criterion if needed; no universal speed floor.
 **Results:** None.
 
-<!-- FIRST search primary prior art. If the same mathematics/application is known, cite it in FRONTIER/SOURCES, PIVOT to another hypothesis, and do not make this P-card or run a speed contest. Only an actual unresolved gap or explicitly owner-requested engineering exception belongs here. Actual P-card <=150 words; commit with completed searched PA dossier before numerical testing. See PRIOR_ART.md. -->
+<!-- At most 150 words in the completed P-card. Track A discovery probes need not create P/PA beforehand. Track B must commit P+PA together before its distinct confirmatory run; previous exploration is not preregistered. Known mathematics may be an ingredient of a substantive new construction. -->

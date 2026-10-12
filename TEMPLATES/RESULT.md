@@ -1,63 +1,45 @@
-# R-NNN · Precise experiment title
+# R-NNN · Precise mathematical test
 
-**Date:** YYYY-MM-DD · **Question:** [P-NNN](../PROMPTS/P-NNN.md)
-**Original gate verdict:** PASS / FAIL / NOT TESTED
-**Observed gain and current opportunity:** KEEP / CONDITIONAL / STOP / SUPERSEDED / BLOCKED (separate from gate)
-**Failure category:** MATHEMATICS / ACCURACY / PERFORMANCE / BASELINE / COVERAGE / RESOURCE / INCONCLUSIVE
-**Evidence:** SPECULATION / REPORTED / REPRODUCED / CERTIFIED
-**Preregistered:** Yes (link/hash), or No (retrospective)
-**PRIOR ART:** PRETEST VERIFIED / BLOCKED / RETROSPECTIVE
-**Search evidence:** [PA-P-NNN](../PRIOR_ART/PA-P-NNN.md) · pretest commit SHA
-**Claim class:** KNOWN_METHOD_BENCHMARK / KNOWN_METHOD_NEW_APPLICATION / OPEN_GAP_HYPOTHESIS / NOVELTY_UNVERIFIED
-**Pretest triage:** PROCEED (distinct unresolved claim) / OWNER-REQUESTED ENGINEERING EXCEPTION
-
-## Question and frozen gate
-
-Quote the exact hypothesis, test and numerical pass/kill thresholds as preregistered. Record changes explicitly, never quietly move a goalpost.
-
-## Prior-art findings (must precede new experiments)
-
-Exact executed queries, dated search provider and source/result links are in the linked committed PA file. Name closest known paper/method, specialist rival, overlapping mechanism/application, and *specific* unresolved gap. An established method with no distinct gap should already have been cited and **PIVOTED before experiment**. Say **KNOWN METHOD / ENGINEERING BENCHMARK** only for explicitly owner-requested replication or honest historical results. If missing pretest evidence: **POD: NO**, not a new discovery.
-
-## Setup and opponent
-
-Mathematical equations, test domain, initial states/parameters, seeds, hardware, language, package/compiler versions, precision, input count, iterations/horizons. State the strongest accurate specialized or same-math competitor and its permitted preprocessing. Provide command/inline minimal reproduction or mark unarchived.
-
-## Measurements
-
-| Metric (with units) | Candidate | Best accurate rival |
-|---|---:|---:|
-| Cold end-to-end, median [min,max], n repeats | | |
-| Setup/build/precompute | | |
-| Warm execution | | |
-| Realistic amortized total (if relevant) | | |
-| Absolute wall time saved and full-workload speedup | | |
-| Timing variability / uncertainty / sample count | | |
-| Worst independent state error | | |
-| Wrong event/class counts | | |
-| Coverage / abstentions | | |
-
-Include raw observed numbers and explicit measurement uncertainty. If unrun, write **NOT MEASURED** (never guess).
-
-## Binary proof of done
-
-**POD: NO** (change to YES only after every box is checked, including committed read-back)
-**GATE:** PASS / FAIL / NOT TESTED
+**Date:** YYYY-MM-DD · **Question:** [P-NNN](../PROMPTS/P-NNN.md) or exploratory hypothesis stated below
+**Track:** EXPLORATORY / CONFIRMATORY
+**POD:** NO (until formal 10/10 verified; exploratory results are useful with POD: NO)
+**GATE:** PASS / FAIL / NOT TESTED (frozen confirmatory gate only)
+**Opportunity:** KEEP / CONDITIONAL / STOP / SUPERSEDED / INCONCLUSIVE
+**Evidence:** REPORTED / REPRODUCED / CERTIFIED
 **PROOF:** NONE / INTERVAL / LEAN / OTHER
+**Preregistered confirmatory claim:** YES (Git link) / NO
+**Prior-art status:** PRETEST VERIFIED (for confirmation) / FOCUSED CHECK / NOVELTY UNVERIFIED / RETROSPECTIVE
+**Claim class:** KNOWN_INGREDIENT_NEW_CONSTRUCTION / KNOWN_METHOD_NEW_APPLICATION / OPEN_GAP_HYPOTHESIS / KNOWN_METHOD_BENCHMARK / NOVELTY_UNVERIFIED
 
-- [ ] P-ID, threshold, and honest preregistration status recorded
-- [ ] **Pretest external PRIOR-ART SEARCH:** executed queries + date/provider + real results, nearest primary source, class/delta, dossier and P-card pretest Git commit read back
-- [ ] Exact equations, tested parameters, inputs, count and seed recorded
-- [ ] Strongest fair opponent recorded, or first-gate skip justified
-- [ ] Actually executed observation linked/archived (no invented data)
-- [ ] Independent accuracy results/classes or transparent failure documented
-- [ ] Cold and warm costs/repetitions, or `NOT RUN — accuracy failed`
-- [ ] Binary gate outcome and honest decision with measured units
-- [ ] Limits, environment, **prior-art novelty class**, evidence level and next cheapest step recorded
-- [ ] Parent/INDEX/MAP/frontier consistency + branch commit/read-back verified
+## Mathematical construction beyond known work
 
-**Only 10/10 = POD: YES for new R-cards.** See [proof policy](../PROOF_OF_DONE.md). POD is process completion, **not** a correctness theorem.
+Known source/ingredient and its actual claim; derived equation, extension, combination, potential theorem or distinct use being tested. If no literature was available, say NOVELTY UNVERIFIED. Specify counterexample or prediction that would discriminate the new idea, rather than only whether a known algorithm is faster.
 
-## Interpretation and next edge
+## Exact test and outputs
 
-State the **frozen gate result** and **any smaller positive effects independently** (including effects <1.10× or <3×), what the test does *not* prove, uncertainty, accuracy/certification, and whether the expected total saved compute justifies a new test. Never discard an accurate effect only for missing an old ambition; also never call a noisy or wrong result a gain. Link child cards only when a distinct unresolved question motivates them; a literature collision calls for **PIVOT**, not a new tuning benchmark. Preserve failures and label reported-only evidence.
+Initial conditions, equations, parameters, seed, input count, precision and environment. Provide actual commands or reconstruction steps and **observed** values, independent oracle/error, adverse cases and raw counts. For performance claims, give fair specialist comparator, setup+cold, warm, realistic reuse, paired repeats/ranges and absolute saved time. If not done, state NOT MEASURED.
+
+## What the mathematics taught us
+
+What survived, failed or remains unknown? Which assumption or interface broke? What alternative construction follows from the observations? Separate an established published fact from genuinely new evidence. Do not claim proof, novelty, industrial deployment or performance without sufficient evidence.
+
+## Formal 10/10 proof-of-done (only for confirmation)
+
+**POD: NO** until [all ten formal checks](../PROOF_OF_DONE.md) are fulfilled.
+
+- [ ] Pretest P-ID/frozen claim, previous exploration disclosed
+- [ ] Executed and read-back PRETEST P/PA with three source searches and precise extension
+- [ ] Exact model, parameters, seeds and cases
+- [ ] Fair relevant comparator or defensible not-applicable explanation
+- [ ] Actual outputs/data archived or reconstructable
+- [ ] Independent accuracy, failures and class checks
+- [ ] Cold/warm/amortized costs where claimed or justified NOT RUN
+- [ ] Frozen gate vs separately measured effect and opportunity
+- [ ] Limits, known ingredients, novelty/evidence/proof honesty
+- [ ] Index/map/parent/frontier and Git branch read-back verified
+
+An exploratory result can be complete as an **observation** while `POD: NO`; do not retroactively describe it as preregistered.
+
+## Next falsifiable step
+
+State a concrete modified hypothesis, proof obligation or counterexample calculation, not only another literature search.

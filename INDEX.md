@@ -1,6 +1,6 @@
 # Indexed research graph
 
-**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md). **Prior-art STOP/PIVOT gate for new work:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). New P-cards need same-commit search query/result dossiers; missing dossier blocks experiment. Historical P/R cards predate the new rule.
+**Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md). **Prior-art-as-ingredient protocol:** [PRIOR_ART](PRIOR_ART.md) · [PWM retrospective](PRIOR_ART/PA-PWM-RETRO.md). Cheap exploratory calculations need no pretest P/PA; a **new confirmatory** P-card needs a same-commit searched dossier and read-back before its confirmatory run. Historical P/R cards predate the new rule.
 
 P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. **A prompt's original numeric GATE is distinct from the ongoing research opportunity.** `KILL` of one frozen ≥3× test does **not** erase a smaller credible observed gain; see [GOAL](GOAL.md) and [R-007 → R-008](RESULTS/R-008.md). There is no default minimum speedup for new work.
 
@@ -15,14 +15,14 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
 | [P-081](PROMPTS/P-081.md) | KILL only original ≥3× cold claim | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): 2.027× warm; [R-008](RESULTS/R-008.md): smaller **1.209×** amortized gain |
 | [P-082](PROMPTS/P-082.md) | KEEP · **known-method synthetic benchmark** | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold; [posttest prior art](PRIOR_ART/PA-PWM-RETRO.md) identifies earlier polynomial converter work |
-| [P-040](PROMPTS/P-040.md) | UNTESTED · discovery PIVOT after literature triage; legacy gate retained | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
+| [P-040](PROMPTS/P-040.md) | UNTESTED · reopened for constructive extensions; legacy gate retained | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
-| [P-051](PROMPTS/P-051.md) | UNTESTED · discovery PIVOT after literature triage | Certified segmented time-parallel solve | Follows R-005 |
+| [P-051](PROMPTS/P-051.md) | UNTESTED · reopened for constructive extensions | Certified segmented time-parallel solve | Follows R-005 |
 | [P-060](PROMPTS/P-060.md) | UNTESTED · discovery PIVOT after literature triage; legacy gate retained | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
 | [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
 | [P-083](PROMPTS/P-083.md) | **CLOSED/PIVOT** · known-method discovery | Quadratic event-time predictor vs compiled exact-flow roots | [R-009](RESULTS/R-009.md): 1.277× warm historically, cold loses; no routine follow-up |
 
-**Search-only triage, 2026-10-12:** [FRONTIER.md](FRONTIER.md) now records primary cited overlaps with P-040 (Petzold 1983; Schupp–Ábrahám 2018), P-051 (1994 multiple shooting; Chaudhry et al. 2016; van der Hoeven 2025), and P-060 (Brent–Traub 1980). They remain **untested**, with their original numerical gates unaltered; their generic mechanisms are no longer autonomous discovery priorities. A fourth search candidate, computational reuse during hybrid refinement, was immediately pivoted after Schupp–Ábrahám (2018). **No new experiment/P/R card**, and no newly measured performance; next action is targeted literature investigation into whether any new fixed-initial-condition prefix interface mechanism exists. Source details: [SOURCES.md](SOURCES.md).
+**Research-policy correction, 2026-10-12:** [FRONTIER.md](FRONTIER.md) retains the earlier search-only overlap records (Petzold/Schupp–Ábrahám, multiple shooting/van der Hoeven, Brent–Traub) **as useful prior-art ingredients, not conclusive vetoes on derived experiments**. P-040/P-051/P-060 are untested and reopened for genuinely farther-reaching constructions, without claiming originality of their known mechanisms. The next work item is an **actually executed small mathematical probe** of a proposed nonsequential interface/seeding extension for P-051, with measured error and obstruction analysis—not another standalone bibliography. No new computation is claimed from this policy change. Source details: [SOURCES.md](SOURCES.md).
 
 ## Experiment results
 
@@ -38,6 +38,6 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
 | [R-009](RESULTS/R-009.md) | REPORTED · new run · pretest prior art | **9.619e-14 state, 0 wrong event classes** | **1.277× warm; 0.965× cold** vs compiled midpoint Newton | **CONDITIONAL measurement; STOP known-method research** |
 
-**New selection rule:** when prior art already contains the method and similar application, cite-and-**PIVOT** instead of registering a numerical speed race. Search-only eliminations need no P/R cards. Previously measured R-008/R-009 effects remain intact, but continuing a known-method benchmark requires explicit owner direction.
+**New selection rule:** first ask what published mathematics can **enable beyond its present result**, derive an explicit prediction and test it. PIVOT only when the *complete proposed claim* is settled or no useful extension remains; do not default to trying to beat the published implementation. R-008/R-009 observations remain historic; a new constructive or scientifically informative evaluation question can be explored without owner-specific benchmarking permission. Confirmatory claims still need their own P/PA preregistration.
 
 Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain, certified speedup or algorithmic novelty. The [PWM prior-art audit](PRIOR_ART/PA-PWM-RETRO.md) was **retrospective**, not the mandatory pretest search; executables remain outside this documentation-only branch.
