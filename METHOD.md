@@ -14,15 +14,17 @@ The durable mission is in [GOAL.md](GOAL.md); the provisional highest-informatio
 4. **Probe fast.** Target under 30 seconds in Python, then under five minutes for promotion; no long experiments without a first-gate win.
 5. **Correctness first.** State error must be measured against an independently accurate reference. Empirical holdout errors are not error certificates. For switched systems compare **event sequence and branch**, parameter derivatives, and state.
 6. **Reproduce.** Log exact equations, parameters, seeds, sample counts, hardware, numerical precision, packages/versions, compiler warm-up, timing ranges, costs, precision failures and provenance of executable/raw data. Missing items must be marked missing.
-7. **Decision.** KEEP for a valid, competitive, well-scoped result; KILL on the registered gate; CONDITIONAL for a partial win; SUPERSEDED if a better rival overturns it; UNTESTED for questions without experiments.
+7. **Decision.** Keep the original preregistered numerical GATE immutable. Separately record current research opportunity: KEEP for a trustworthy end-to-end improvement on a relevant workload; CONDITIONAL for a useful partial/warm-only signal with a cheap next falsifier; KILL when the tested claim fails or further investigation has poor economics; SUPERSEDED if a stronger rival overturns it. Never relabel an older frozen 3x failure as a PASS.
 8. **Fork, don't erase.** Create follow-up P-cards linked from the previous R-card, update MAP and INDEX. Retain dead ends and corrections.
 
 ## Default gates (unless overridden in a P-card)
 
 - Error: max absolute state error ≤ 1e-7 on the stated holdout; **zero wrong switching branches or event itineraries**.
-- Speed: at least 3× **cold** time reduction against the **fastest accurate same-math rival** at the specified workload.
+- Speed: **no universal >=3x hurdle**. Predeclare the relevant lifecycle and minimum useful improvement. For incremental optimization, test **>=1.10x end-to-end** versus the fastest accurate same-math/specialist rival when the timing effect is robust to noise; smaller gains may justify pursuit if absolute compute savings are material. Keep >=3x for major breakthroughs and any old P-card that explicitly froze it.
 - Error certification: empirical agreement alone is not a certificate; report `PROOF: NONE` until an auditable enclosure or a formal checked theorem proves the relevant claim. No pixel displacement claims from state error alone.
 - Automatic operator admission: may decline. Domain selection cost and failures count in cold time.
+- **Economic accounting:** distinguish one-shot cold, warm kernel, and **realistically amortized total including build/JIT**, with explicit repeat counts, absolute saved seconds, error/coverage and implementation cost. A warm speedup is not by itself an application win. For multiple changes use a combined benchmark; separate-stage speedups follow Amdahl's law and do not automatically multiply.
+- **Distraction control:** record every reliable improvement, but only run the next small probe when its expected information and deployment savings outweigh research time. Before investing more, demand representative workloads, strong specialist opponents and noise-resolvable timing.
 
 ## Provenance tags
 

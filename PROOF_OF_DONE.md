@@ -29,6 +29,8 @@ The 9th box may be checked only after committing and reading back the record. Fi
 
 **No proof of novelty or industrial impact is conferred by any of these labels.** Performance is empirical, never a theorem merely because the underlying operator is correct.
 
+**Original gate versus follow-up opportunity:** An old >=3x preregistered cold gate remains FAIL even if the run measured an accurate 2x warm improvement. A separately registered P-card may test whether real reuse converts it into a 1.1x or greater end-to-end gain. Do not erase failures, upgrade reported performance to reproduced, or dismiss sub-3x gains automatically. The completion checklist audits process, not the value of a discovery.
+
 ## Formal proof is selective
 
 Use [formal verification policy](LEAN.md). Lean is most useful after a promising reusable mathematical identity survives cheap tests; it is **not** required to complete or kill every <30-second experiment. A Lean theorem alone does not certify floating-point implementation error, branch/domain admission, or wall-clock speed.
