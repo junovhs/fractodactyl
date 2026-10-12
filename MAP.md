@@ -1,6 +1,6 @@
 # Research lineage map
 
-Arrows mean **motivated or tested**, not proof of mathematical implication. Reducing a domain or changing a baseline forks a question: it never silently rewrites the original result.
+Arrows mean **motivated or tested**, not proof of mathematical implication. A failed *preregistered gate* is not a verdict that all measured gains are worthless: R-007 failed its 3× single-cold target but R-008 retained a separately tested 1.209× amortized improvement. New workload/competitor/gates require linked questions, never silent rewriting.
 
 ```mermaid
 flowchart TD
@@ -18,14 +18,18 @@ flowchart TD
   P000 --> P050["P-050 · Whole-orbit Newton scan"]
   P050 --> R005["R-005 · Global scan FAILED"]
   R005 --> P051["P-051 · Certified segmented solve"]
-  P030 --> P080["P-080 · q4 guarded PWM"]\n  P080 --> R006["R-006 · 2/128 failed gate"]\n  R006 --> P081["P-081 · q5 same model"]\n  P081 --> R007["R-007 · >=3x gate failed; warm signal"]
+  P030 --> P080["P-080 · q4 guarded PWM"]
+  P080 --> R006["R-006 · 2/128 failed gate"]
+  R006 --> P081["P-081 · q5 same model"]
+  P081 --> R007["R-007 · >=3x gate failed; warm signal"]
   R007 --> P082["P-082 · amortized-use test"]
-  P082 --> R008["R-008 · 1.209x cold; toy pass"]\n  P030 --> P070["P-070 · Multistate event-domain generalization"]
+  P082 --> R008["R-008 · 1.209x cold; toy pass"]
+  P030 --> P070["P-070 · Multistate event-domain generalization"]
   classDef fail fill:#ffefef,stroke:#b94a48,color:#74211f
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
-  class R002,R004,R005,R006,R007 fail
-  class R001,R003,R008 maybe
+  class R002,R004,R005,R006 fail
+  class R001,R003,R007,R008 maybe
   class P030,P040,P051,P060,P070 untested
 ```
 
@@ -35,6 +39,6 @@ flowchart TD
 
 Parallel track: [P-050](PROMPTS/P-050.md) → [R-005](RESULTS/R-005.md) → [P-051](PROMPTS/P-051.md).
 
-Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md). Measured negative branch: [P-080](PROMPTS/P-080.md) → [R-006](RESULTS/R-006.md) → [P-081](PROMPTS/P-081.md) → [R-007](RESULTS/R-007.md) (accuracy repaired, >=3x cold gate failed) → [P-082](PROMPTS/P-082.md) → [R-008](RESULTS/R-008.md) (1.209x cold synthetic workload gain). Future multi-state extension: [P-070](PROMPTS/P-070.md).
+Questions branching from the composition result: [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md). Measured negative branch: [P-080](PROMPTS/P-080.md) → [R-006](RESULTS/R-006.md) → [P-081](PROMPTS/P-081.md) → [R-007](RESULTS/R-007.md) (accuracy repaired; old ≥3× gate failed, 2.027× warm signal retained) → [P-082](PROMPTS/P-082.md) → [R-008](RESULTS/R-008.md) (1.209x cold synthetic workload gain). Future multi-state extension: [P-070](PROMPTS/P-070.md).
 
 [All statuses and one-line decisions](INDEX.md).
