@@ -12,7 +12,7 @@
 
 **Probe:** Inputs, sample size, precision, hardware and ≤30-second test.
 
-**Gate:** Accuracy first (numeric maximum and discrete classes); then a preregistered worthwhile **end-to-end** gain (e.g. >=1.10x for incremental engineering; >=3x for major discovery), with setup and relevant reuse charged. Explicitly state what kills this idea.
+**Gate:** Freeze independent accuracy and any switching classes first. Specify the actual use lifecycle (cold, warm, repeated), noise-robust economic criterion and strongest fair opponent. **No default numerical speed floor: 1%, 5%, 10% or more may be useful.** If a threshold is chosen, it applies to this experiment alone. State stop criteria and what lower-but-correct findings to retain.
 
 **Next if pass/fail:** What single test or branch follows? No vague “investigate further.”
 

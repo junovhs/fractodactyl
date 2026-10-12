@@ -1,42 +1,33 @@
 # Active research frontier
 
-**State as of 2026-10-12. This is a decision aid, not a command to pursue one domain.** Update it when new evidence changes priorities, and at the end of any substantial research session. [Standing goal](GOAL.md).
+**State as of 2026-10-12.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
 
-## Current evidence-based objective
+## Research policy and decision distinction
 
-**Accumulate trustworthy, materially useful improvements in scientific/industrial computation—small or large—ranked by total realistic compute savings per research effort against a strong same-math baseline.**
+**Preserve correct improvements of any magnitude.** Even a repeatable 1% gain can be useful at high call counts. Accuracy and fair comparison determine whether it is credible; estimated **absolute saved compute across actual deployments**, confidence, transfer and research/integration cost determine whether to invest more. **Neither ≥3× nor ≥1.10× is a universal promotion floor.** The original result's frozen gate and the current portfolio opportunity are separate decisions.
 
-This is an *evidence goal*, not a commitment to circuits, Koenigs, or a particular model. None of the recorded experiments has yet demonstrated a novel, competitive industrial gain; the existing R-001–R-005 observations are retrospective reports without frozen executable evidence.
+Older [P-030](PROMPTS/P-030.md), [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-060.md), and [P-070](PROMPTS/P-070.md) encode historical ≥3× *question-specific* tests. **Do not use those thresholds to discard accurate sub-3× findings** or impose them on newly registered experiments. Keep old gates for the old tests; make a linked new P-card if the workload/economic criterion changes.
 
-## Candidate leads — provisional ranking
+## Verified-in-session findings and evidence limits
 
-| Rank | Candidate | Why it is live | Cheapest decisive next test | What changes the rank |
-|---:|---|---|---|---|
-| 1 | [P-030](PROMPTS/P-030.md): continuously state-triggered switching maps | New event-time mechanism beyond scheduled-duty toy | Guard and event-sensitivity model; compiled specialist and independent event oracle | Advance if accurate, domain-covered and materially useful |
-| 2 | [P-082](PROMPTS/P-082.md): 1.209x synthetic amortized win | [R-008](RESULTS/R-008.md) passes new accuracy and >=1.10x cold total, but replayed synthetic cases | Only test on truly representative use, new systems or cost-critical real workloads | Avoid rabbit hole absent industrial applicability |
-| 3 | [P-060](PROMPTS/P-060.md): polynomial composition at repelling Mandelbrot cycles | Directly tests whether the 5.27× contracting-toy result transfers back to the repelling regime | One already-known cycle, small orbit sample; strong same-math Koenigs rival | Advance only if valid domains and cold economics survive |
-| 4 | [P-040](PROMPTS/P-040.md): cost/certificate-driven operator choice | Could automate deciding which local solver wins | Sweep chart radius/horizon on toy with cached competitors | Kill if selector cost removes gains |
+- [R-006](RESULTS/R-006.md): q=4 sampled-PWM kick failed independent accuracy; no performance claim.
+- [R-007](RESULTS/R-007.md): q=5 corrected accuracy and gave ~2.027× **warm** kernel speed, but ~1.020× first-call cold, failing the frozen ≥3× goal. This was **not a universal KILL**.
+- [R-008](RESULTS/R-008.md): new, preregistered **2,048-batch** synthetic reuse test measured **593.239 vs 717.221 ms** cold total (**1.209×**, ~17.29% wall-time saved), with independent sampled state error 1.176e-9 and zero wrong duty classes. **KEEP** this *scoped incremental positive result*; the older gate remains FAIL.
 
-**These are candidates, not obligations.** An agent may introduce and prioritize a better cross-domain hypothesis whenever it documents *why the new cheap experiment has higher expected information value*. Keep a small active portfolio (typically 1–3 leads), not a sprawling backlog of untested speculative prompts.
+All these measurements are **REPORTED**, not independently REPRODUCED or CERTIFIED: the executable/raw packs are not archived in this documentation-only branch. No industrial converter acceleration, general simulator breakthrough or Fractodactyl renderer improvement has been demonstrated.
 
-## New evidence and active preregistration (2026-10-12)
+## Candidate leads and next discriminating tests
 
-[P-080](PROMPTS/P-080.md) tested a 4th-order guarded PWM input kick against an exact specialist. [R-006](RESULTS/R-006.md) measured **1.056531374e-7** maximum final-state error at 128 × 32 versus the **1e-7** limit, 2 failures and zero duty-class errors: **KILL q=4; no timing attempted.** This is a new sandbox run, but its executable is outside the docs-only tree.
+| Rank | Candidate | Why it matters | Smallest useful next check |
+|---:|---|---|---|
+| 1 | Continuous state-triggered event-time map, child of [P-030](PROMPTS/P-030.md) | Scheduled-duty toy leaves implicit event times untested; may expose a reusable nonlinear shortcut | New P-card with an accuracy/event itinerary gate and **contextual** economic target; benchmark guard and event sensitivity against compiled exact/event solver |
+| 2 | Representative workload for [R-008](RESULTS/R-008.md) | Test whether a measured incremental toy gain survives real input distributions, domain coverage and full lifecycle | One relevant converter workload; match exact specialist baseline, count setup, report saved seconds and fallbacks |
+| 3 | Repelling-cycle direct composition, child of [P-060](PROMPTS/P-060.md) | Compare operator construction with the existing guarded Koenigs accelerator | One known repelling chart, fair composition/Koenigs competitor, independent MPFR holdout and realistic build/reuse lifecycle |
 
-[P-081](PROMPTS/P-081.md) completed the one changed-assumption retest ([R-007](RESULTS/R-007.md)). Degree five passes accuracy (9.367e-10, zero branch errors) but provides **only 1.020× cold speed over the JIT exact analytical operator**, below the frozen ≥3× gate; **KILL the sampled-duty polynomial acceleration claim**. The **2.027x warm ratio is a genuine research signal**, though not evidence of a deployed end-to-end win. Under the revised incremental-gain policy it merits **one cheap predeclared amortization probe** before dismissal; the original >=3x cold gate stays failed. Do not increase q again without a discriminating new premise.
+[P-040](PROMPTS/P-040.md) remains a lower-priority operator-choice candidate. Choose a different lead when a cheaper, more consequential experiment appears; don't confuse a large ratio on an irrelevant workload with valuable science.
 
-**Next selected frontier:** true *continuous state-triggered threshold events*, where the event time is an implicit nonlinear function of state/parameter, unlike the known scheduled switching time tested here. First cheap test: 2-state affine flow with a threshold guard, event root and analytic sensitivity, exact-branch/crossing classification versus a high-accuracy event solve and a compiled specialist baseline. Require a quantitative crossing-transversality guard; record abstentions. No speed prediction. Alternatives P-060 and P-040 remain on the portfolio.
+## Handoff discipline
 
-## Required per-session choice
+Every session should (1) state the uncertainty and its expected information **and real compute savings**; (2) pre-register a P-card with fair opponent and accuracy gate (and a workload-specific cost threshold if appropriate); (3) run a small decisive test; (4) file an R-card even after a negative gate; (5) report **original GATE**, **measured effect**, **current opportunity decision**, provenance and next test separately. Stop wasting effort on trivial or noisy follow-ups, **not** on a correct gain merely because it is smaller than a preferred headline number.
 
-1. State the highest-impact unanswered uncertainty and **why this experiment beats the alternatives**.
-2. Choose or register the P-ID; freeze its accuracy and cost gates before computation.
-3. Run the cheapest valid test with available compute; report measured rather than imagined evidence.
-4. File R-ID; mark [binary proof of done](PROOF_OF_DONE.md), update [INDEX](INDEX.md) and [MAP](MAP.md).
-5. Re-rank this file **only if evidence or clear opportunity-cost reasoning changes the frontier**; always leave one specific next cheap test.
-
-**Do not repeatedly rerun a killed idea** unless a new premise has changed. This page describes what is *currently attractive*, not which industry agents must work on.
-
-**Completed incrementally valuable result:** [P-082](PROMPTS/P-082.md) -> [R-008](RESULTS/R-008.md) passed a frozen new accuracy and >=1.10x cold lifecycle gate: **593.239 ms vs 717.221 ms** on 2,048 batches, **1.209x faster**, **17.29% less wall time**, max independent state error **1.176e-9**, zero wrong branches. Three fresh processes per method, ranges nonoverlapping. This is **synthetic-scope REPORTED evidence**, not industrial/certified/reproduced. R-007's >=3x single-cold gate remains FAIL. Now prioritize a distinct event-time mechanism or representative industrial workload; do not grind tiny synthetic variants.
-
-**Incremental-gain assessment (owner direction, 2026-10-12):** Record and consider repeatable 1.10x gains, or smaller gains with large absolute savings; do not apply a blanket 3x veto. A useful, cheap follow-up on R-007 is 2,048 repeated 128x32 batches with amortized JIT/chart build against compiled exact propagation. This is a changed workload premise, not a post-hoc rewrite of R-007. Stronger scientific candidates remain continuous state-triggered event-time maps and P-060. Prefer the largest expected cumulative end-to-end time saved *per research hour*, and do not multiply separate speedups without a combined measurement.
+[Research index](INDEX.md) · [Lineage map](MAP.md) · [Proof of done](PROOF_OF_DONE.md).

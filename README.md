@@ -30,7 +30,7 @@ We are not trying to make every chaotic future computable, to sell a prettier fr
 
 ## Success definition
 
-**A credible 1.10x improvement is worth considering** if it is accurate, consistently better than a strong same-math rival, and saves meaningful end-to-end compute on a real workload. Even smaller gains can matter at scale. Assess total time saved, amortization, numerical coverage, implementation risk, and research cost. **>=3x is a major-breakthrough tier, not a universal pass/fail gate.** Old preregistered experimental thresholds cannot be retroactively changed.
+**No global speedup threshold applies to new discoveries.** A robust **1% improvement** may be valuable in a frequently run scientific calculation; 10%, 30%, 2× and larger improvements are also worth measuring and preserving. To choose research effort, assess accuracy, fastest fair opponent, timer noise, **absolute compute saved** under realistic one-shot or repeated usage, coverage, transferability and implementation cost. Do **not** substitute ≥3× or ≥1.10× for that assessment: 3× is an ambitious breakthrough label, not a minimum. Old preregistered numerical gates remain unchanged. Report the *original gate verdict* separately from *the smaller effect retained and its follow-up priority*.
 
 A **failed** hypothesis is a valid, permanently retained result. **A conditional win superseded by a stronger baseline is not a win.**
 
@@ -41,14 +41,14 @@ A **failed** hypothesis is a valid, permanently retained result. **A conditional
 - Shrinking the domain made a local jump accurate; large batches showed a win **only against a weaker repeated-map competitor** ([R-003](RESULTS/R-003.md)).
 - A fairer **direct composition of the same polynomial** was about **5.27× faster than Koenigs** in that toy test, killing the preferred Koenigs option ([R-004](RESULTS/R-004.md)).
 - Earlier parallel-in-time Newton-scan work found severe global convergence failure and unfavorable high-precision arithmetic ([R-005](RESULTS/R-005.md)).
-- A newly executed degree-four PWM switched-return test missed its predeclared 1e-7 accuracy gate on 2/128 trajectories, so no speed timing was run ([R-006](RESULTS/R-006.md)). Degree five repaired the accuracy issue but measured **only ~1.020× cold** versus compiled exact propagation, failing the ≥3× gate ([P-081](PROMPTS/P-081.md), [R-007](RESULTS/R-007.md)).
+- The fourth-degree PWM return missed its independent error gate ([R-006](RESULTS/R-006.md)); degree five passed accuracy, showed **2.027× warm**, but failed its **historical ≥3× one-shot cold** gate ([R-007](RESULTS/R-007.md)). A **separately preregistered repeated-use test** found **1.209× end-to-end** savings (17.29% less wall time) on a synthetic workload versus the strong exact operator ([R-008](RESULTS/R-008.md)). **This is a retained scoped incremental win**, not a new industrial theorem or renderer improvement.
 - **No industrial speed-up, no certified industrial simulator, no general-purpose nonlinear compiler has been demonstrated.**
 
 Older results are retrospective conversation records; R-006/R-007 are new reported sandbox runs. Executable files, full raw samples and environment snapshots are **not committed to this documentation-only branch**; do not describe these records as independent reproducibility packs.
 
 ## Current frontier
 
-The [current frontier](FRONTIER.md) has **killed the fixed-schedule PWM Taylor-kick speed claim** ([R-006](RESULTS/R-006.md), [R-007](RESULTS/R-007.md)) and now favors a *new, continuous state-triggered event-time sensitivity* probe under [P-030](PROMPTS/P-030.md). **[P-060: repelling-cycle polynomial composition](PROMPTS/P-060.md)** remains an untested alternative. Neither has a measured result. **These are starting candidates, not an assigned roadmap**—an agent should replace them when a better cheap, discriminating experiment is identified.
+The [current frontier](FRONTIER.md) **retains** [R-008](RESULTS/R-008.md)'s measured ~1.21× synthetic repeated-use gain and prioritizes testing a different mechanism: *continuous state-triggered event times* under [P-030](PROMPTS/P-030.md). [P-060](PROMPTS/P-060.md)'s repelling-cycle case and [P-040](PROMPTS/P-040.md)'s operator selector remain untested. **Their old ≥3× P-card thresholds are historical, not universal policy; changed-scope incremental tests require new linked cards with appropriate gates.** The frontier is re-ranked by expected payoff and test cost, not speedup spectacle.
 
 **Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
 
@@ -60,6 +60,3 @@ Experiments run in a temporary compute sandbox; research notes are committed her
 
 **Navigation:** [Goal](GOAL.md) · [Frontier](FRONTIER.md) · [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Proof of done](PROOF_OF_DONE.md) · [Lean](LEAN.md) · [Source boundaries](SOURCES.md)
 
-**Small-gain follow-up:** [P-082](PROMPTS/P-082.md) preregisters 2,048 repeated-use PWM batches and a >=1.10x total-cost threshold, without revising R-007's historical 3x failure.
-
-**New incremental win (2026-10-12):** A separately preregistered reuse workload, [P-082](PROMPTS/P-082.md), passes its >=1.10x cold-total gate: [R-008](RESULTS/R-008.md) measures **1.209x acceleration** (17.3% less wall time) over the compiled exact map across 2,048 synthetic batches, with independent empirical accuracy passing. This preserves rather than rewrites P-081's original failed >=3x single-cold gate. **Not an industrial or certified result.**

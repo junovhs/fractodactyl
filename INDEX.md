@@ -2,24 +2,24 @@
 
 **Mission:** [GOAL](GOAL.md) · **Self-selected active frontier:** [FRONTIER](FRONTIER.md) · **Binary experiment completion:** [PROOF_OF_DONE](PROOF_OF_DONE.md).
 
-P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. The text under **Status** is the **latest decision**, not necessarily the original hypothesis verdict.
+P = short research-question prompt (≤150 words). R = experiment/result, retained even if negative. **A prompt's original numeric GATE is distinct from the ongoing research opportunity.** `KILL` of one frozen ≥3× test does **not** erase a smaller credible observed gain; see [GOAL](GOAL.md) and [R-007 → R-008](RESULTS/R-008.md). There is no default minimum speedup for new work.
 
 | ID | Status | Question | Result / immediate dependency |
 |---|---|---|---|
-| [P-000](PROMPTS/P-000.md) | ONGOING | Can nonlinear computation be compiled automatically? | Root |
+| [P-000](PROMPTS/P-000.md) | ONGOING · original ≥3× ambition is historical | Can nonlinear computation be compiled automatically? | Root; [GOAL](GOAL.md) welcomes robust smaller gains |
 | [P-010](PROMPTS/P-010.md) | SUPERSEDED | Does a fitted return map beat direct simulation? | [R-001](RESULTS/R-001.md) |
 | [P-020](PROMPTS/P-020.md) | KILLED BROAD | Koenigs on a driven scalar system | [R-002](RESULTS/R-002.md) |
 | [P-021](PROMPTS/P-021.md) | CONDITIONAL | Shrink chart and amortize | [R-003](RESULTS/R-003.md), overturned by [R-004](RESULTS/R-004.md) |
 | [P-022](PROMPTS/P-022.md) | CLOSED | Same-math direct polynomial competition | [R-004](RESULTS/R-004.md) |
-| [P-030](PROMPTS/P-030.md) | UNTESTED · PRIORITY 1 | Parameter-dependent switching maps | Follows R-004 |
+| [P-030](PROMPTS/P-030.md) | ORIGINAL TEST UNTESTED · legacy ≥3× gate | Parameter-dependent switching maps | Children [P-080](PROMPTS/P-080.md)–[P-082](PROMPTS/P-082.md); new event-time test requires new P-card |
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
-| [P-081](PROMPTS/P-081.md) | KILL | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): accuracy PASS, cold only 1.020× (gate ≥3×) |
+| [P-081](PROMPTS/P-081.md) | KILL only original ≥3× cold claim | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): 2.027× warm; [R-008](RESULTS/R-008.md): smaller **1.209×** amortized gain |
 | [P-082](PROMPTS/P-082.md) | KEEP · scoped synthetic benchmark | Amortized PWM transfer kick | [R-008](RESULTS/R-008.md): 1.209x cold, accurate on new holdout |
-| [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
+| [P-040](PROMPTS/P-040.md) | UNTESTED · legacy ≥3× gate | Automatic cost/certificate selector | Follows R-004; new incremental economics require a new P-card |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
-| [P-060](PROMPTS/P-060.md) | UNTESTED | Direct composition at repelling Mandelbrot cycle | Follows R-004 |
-| [P-070](PROMPTS/P-070.md) | UNTESTED · AFTER P-030 | Multistate validity/event extension | Depends on P-030 |
+| [P-060](PROMPTS/P-060.md) | UNTESTED · legacy ≥3× gate | Direct composition at repelling Mandelbrot cycle | Follows R-004; not a blanket threshold |
+| [P-070](PROMPTS/P-070.md) | UNTESTED · legacy ≥3× gate | Multistate validity/event extension | Depends on an accurate state-triggered gate, not an arbitrary ≥3× win |
 
 ## Experiment results
 
@@ -34,4 +34,4 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [R-007](RESULTS/R-007.md) | REPORTED · new run | **9.37e-10, zero event errors** | **1.020x cold; 2.027x warm** | **KILL original >=3x gate; [R-008](RESULTS/R-008.md) confirms amortized follow-up** |
 | [R-008](RESULTS/R-008.md) | REPORTED · new run | **1.176e-9; zero wrong classes** | **1.209x cold total on 2,048 batches** | **KEEP scoped, no industrial claim** |
 
-Original experimental gates stay frozen. Robust sub-3x gains are not automatically worthless; record, then rank by expected cumulative compute savings. No demonstrated industrial gain or certified speedup; scripts remain outside this documentation-only Git branch.
+Original experiment gates remain frozen, but **no universal 3× or 1.10× cutoff applies prospectively**. Record real small gains and allocate follow-up effort by absolute expected savings, significance, coverage and cost. No demonstrated industrial gain or certified speedup; executables remain outside this documentation-only branch.
