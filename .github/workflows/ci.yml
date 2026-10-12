@@ -2,14 +2,16 @@ name: ci
 on:
   push:
     branches: ["**"]
-    # Pushes touching only research probes, docs or the manual bench workflows skip CI:
-    # none of these paths is built or read by the checks below (tools/oracle.py is).
+    # Pushes touching only research probes, docs, web-mode done files or the manual bench
+    # workflows skip CI: none of these paths is built or read by the checks below
+    # (tools/oracle.py is). No pull_request trigger: work lands by push, and a PR would
+    # run the same checks twice on the same commit.
     paths-ignore:
       - "docs/**"
+      - "web-mode/**"
       - "tools/research/**"
       - ".github/workflows/*-bench.yml"
       - "*.md"
-  pull_request:
   workflow_dispatch:
 
 env:
@@ -23,6 +25,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy, rustfmt
+      - name: ffmpeg (fd film tests encode)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: clippy + tests
         run: JOBS=4 bash scripts/check.sh
 

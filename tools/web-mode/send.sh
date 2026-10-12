@@ -15,8 +15,11 @@ open_tab() {  # $1 url
   xdotool type --delay 15 "$1"; xdotool key Return; sleep 8
 }
 paste_send() {  # $1 file
+  # Only ever paste into the Chrome window: abort if focus moved (e.g. to a terminal).
+  [ "$(xdotool getactivewindow)" = "$((W))" ] || { echo "focus is not the Chrome window; nothing pasted"; exit 1; }
   xclip -selection clipboard < "$1"
   xdotool key --clearmodifiers ctrl+a; xdotool key BackSpace; sleep 0.3   # drop any stale draft
+  [ "$(xdotool getactivewindow)" = "$((W))" ] || { echo "focus left Chrome; not pasting"; exit 1; }
   xdotool key --clearmodifiers ctrl+v; sleep 2; xdotool key Return; sleep 2
 }
 case "$1" in

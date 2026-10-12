@@ -1,8 +1,8 @@
 name: Vulkan film shader parity
+# Manual only: GitHub's lavapipe stopped exposing float64 compute (2026-10-11), so the test
+# skips and this job fails on every push. The desktop runner (real Vulkan, float64) runs
+# `cargo test -p fd-cli --bin fd gpu_phase_transition_matches_prepared_cpu_tent` instead.
 on:
-  push:
-    branches: [main, gpt/GPU-06]
-  pull_request:
   workflow_dispatch:
 jobs:
   film-shader-parity:
