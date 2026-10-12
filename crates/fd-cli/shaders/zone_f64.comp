@@ -1,10 +1,19 @@
 #version 450
 #extension GL_ARB_gpu_shader_fp64 : require
+#extension GL_KHR_shader_subgroup_vote : enable
 
 // Four fused stages: return map, approach, Koenigs/patch, escape finish.
 layout(local_size_x = 64) in;
+// Zone shape fixed for a whole film: specialised at pipeline creation so the
+// biseries and Koenigs loops unroll and their arrays stay in registers.
+layout(constant_id = 0) const int DEG = 7;
+layout(constant_id = 1) const int NPHI = 1;
+layout(constant_id = 2) const int NPSI = 1;
 layout(std430, binding = 0) readonly buffer Constants { double v[]; } input_data;
-layout(std430, binding = 1) writeonly buffer Columns { double v[]; } output_data;
+// Host column formats: nu, f32 DE in output pixels, u16 normal | class << 16.
+layout(std430, binding = 1) writeonly buffer NuColumn { double v[]; } nu_out;
+layout(std430, binding = 2) writeonly buffer DeColumn { float v[]; } de_out;
+layout(std430, binding = 3) writeonly buffer WordColumn { uint v[]; } word_out;
 
 double value(int i) { return input_data.v[i]; }
 dvec2 cx(int i) { return dvec2(value(i), value(i + 1)); }
@@ -12,6 +21,36 @@ dvec2 mul(dvec2 a, dvec2 b) {
     return dvec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
 }
 double norm2(dvec2 z) { return dot(z, z); }
+#if defined(ZONE_F32_FRONT) || defined(ZONE_F32_FINISH)
+const float EPS32 = 5.9604644775390625e-8; // 2^-24, f32 unit roundoff
+// Position error bound, in output pixels, above which an f32 stage restarts in
+// binary64 (DEC-20); the strict 1e-3 px bar of DEC-18 speed claims.
+const double TOL_PX = 1e-3lf;
+const double SWITCH_PX_Z = 4096.0lf*double(EPS32)/TOL_PX;
+vec2 mul32(vec2 a, vec2 b) {
+    return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x);
+}
+// dz/dc grows like 1/width and leaves the f32 range near 1e-38; f32 stages
+// carry it as an f32 mantissa times 2^e, with e kept in binary64.
+int exponent_of(dvec2 a) {
+    int e;
+    frexp(max(abs(a.x), abs(a.y)), e);
+    return clamp(e, -900, 900);
+}
+#endif
+#ifdef ZONE_F32_FRONT
+// f32 series; sa = sum |a_i| |x|^(i+1) bounds its Horner rounding error.
+void series32(int start, int count, vec2 x, out vec2 y, out vec2 dy, out float sa) {
+    y=vec2(0.0); dy=vec2(0.0); sa=0.0;
+    float ax=length(x);
+    for (int i=count-1; i>=0; --i) {
+        vec2 a=vec2(cx(start+2*i));
+        y=mul32(y+a,x);
+        dy=mul32(dy,x)+float(i+1)*a;
+        sa=(sa+length(a))*ax;
+    }
+}
+#endif
 dvec2 divc(dvec2 a, dvec2 b) {
     return dvec2(dot(a,b), a.y*b.x-a.x*b.y) / norm2(b);
 }
@@ -25,6 +64,37 @@ const double FP64_PI_4 = 0.785398163397448309615660845820lf;
 const double FP64_INV_PI_2 = 0.636619772367581343075535053490lf;
 const double FP64_PI_2_LO = 6.1232339957367660359e-17lf;
 
+// Series coefficients are compile-time tables: no sample divides by or
+// rebuilds a constant (DEC-10 math unchanged, one rounding per coefficient).
+const double LOG_INV_ODD[12] = double[](
+    1.0lf, 0.3333333333333333lf, 0.2lf, 0.14285714285714285lf,
+    0.1111111111111111lf, 0.09090909090909091lf, 0.07692307692307693lf, 0.06666666666666667lf,
+    0.058823529411764705lf, 0.05263157894736842lf, 0.047619047619047616lf, 0.043478260869565216lf);
+const double EXP_INV_FACT[21] = double[](
+    1.0lf, 1.0lf, 0.5lf, 0.16666666666666666lf,
+    0.041666666666666664lf, 0.008333333333333333lf, 0.001388888888888889lf, 0.0001984126984126984lf,
+    2.48015873015873e-05lf, 2.7557319223985893e-06lf, 2.755731922398589e-07lf, 2.505210838544172e-08lf,
+    2.08767569878681e-09lf, 1.6059043836821613e-10lf, 1.1470745597729725e-11lf, 7.647163731819816e-13lf,
+    4.779477332387385e-14lf, 2.8114572543455206e-15lf, 1.5619206968586225e-16lf, 8.22063524662433e-18lf,
+    4.110317623312165e-19lf);
+const double ATAN_C[24] = double[](
+    1.0lf, -0.3333333333333333lf, 0.2lf, -0.14285714285714285lf,
+    0.1111111111111111lf, -0.09090909090909091lf, 0.07692307692307693lf, -0.06666666666666667lf,
+    0.058823529411764705lf, -0.05263157894736842lf, 0.047619047619047616lf, -0.043478260869565216lf,
+    0.04lf, -0.037037037037037035lf, 0.034482758620689655lf, -0.03225806451612903lf,
+    0.030303030303030304lf, -0.02857142857142857lf, 0.02702702702702703lf, -0.02564102564102564lf,
+    0.024390243902439025lf, -0.023255813953488372lf, 0.022222222222222223lf, -0.02127659574468085lf);
+const double SIN_C[14] = double[](
+    1.0lf, -0.16666666666666666lf, 0.008333333333333333lf, -0.0001984126984126984lf,
+    2.7557319223985893e-06lf, -2.505210838544172e-08lf, 1.6059043836821613e-10lf, -7.647163731819816e-13lf,
+    2.8114572543455206e-15lf, -8.22063524662433e-18lf, 1.9572941063391263e-20lf, -3.868170170630684e-23lf,
+    6.446950284384474e-26lf, -9.183689863795546e-29lf);
+const double COS_C[14] = double[](
+    1.0lf, -0.5lf, 0.041666666666666664lf, -0.001388888888888889lf,
+    2.48015873015873e-05lf, -2.755731922398589e-07lf, 2.08767569878681e-09lf, -1.1470745597729725e-11lf,
+    4.779477332387385e-14lf, -1.5619206968586225e-16lf, 4.110317623312165e-19lf, -8.896791392450574e-22lf,
+    1.6117375710961184e-24lf, -2.4795962632247976e-27lf);
+
 // f64-only atanh series: frexp reduces the mantissa to [1/sqrt(2), sqrt(2)].
 // |(m-1)/(m+1)| <= 0.171573, so 12 odd terms suffice at binary64 precision.
 double fp64_log(double x) {
@@ -36,12 +106,10 @@ double fp64_log(double x) {
         ++e;
     }
     double t = (m - 1.0) / (m + 1.0);
-    double t2 = t*t, term = t, sum = t;
-    for (int k=1; k<12; ++k) {
-        term *= t2;
-        sum += term / double(2*k+1);
-    }
-    return double(e)*FP64_LN2 + 2.0*sum;
+    double t2 = t*t, sum = LOG_INV_ODD[11];
+    for (int k=10; k>=0; --k)
+        sum = fma(sum, t2, LOG_INV_ODD[k]);
+    return double(e)*FP64_LN2 + 2.0*t*sum;
 }
 
 double fp64_log2(double x) {
@@ -53,17 +121,17 @@ double fp64_exp(double x) {
     int k = int(round(x*FP64_INV_LN2));
     precise double r = fma(-double(k), FP64_LN2, x);
     r = fma(-double(k), FP64_LN2_LO, r);
-    double p = 1.0;
-    for (int i=20; i>=1; --i)
-        p = 1.0 + r*p/double(i);
+    double p = EXP_INV_FACT[20];
+    for (int i=19; i>=0; --i)
+        p = fma(p, r, EXP_INV_FACT[i]);
     return ldexp(p, k);
 }
 
 // atan(y/x) after octant reduction: argument <= sqrt(2)-1. 24 odd terms.
 double fp64_atan_small(double z) {
-    double zz = z*z, p = -1.0/47.0;
+    double zz = z*z, p = ATAN_C[23];
     for (int k=22; k>=0; --k)
-        p = (k%2==0 ? 1.0 : -1.0)/double(2*k+1) + zz*p;
+        p = fma(zz, p, ATAN_C[k]);
     return z*p;
 }
 double fp64_atan_unit(double x) {
@@ -86,14 +154,10 @@ void fp64_sincos(double x, out double s, out double c) {
     precise double r = fma(-double(q), FP64_PI_2, x);
     r = fma(-double(q), FP64_PI_2_LO, r);
     double rr = r*r;
-    double sc = -1.0/10888869450418352160768000000.0lf; // -1/27!
-    double cc = -1.0/403291461126605635584000000.0lf;   // -1/26!
-    double sp=sc, cp=cc;
+    double sp=SIN_C[13], cp=COS_C[13];
     for (int k=12; k>=0; --k) {
-        sc *= -double((2*k+2)*(2*k+3));
-        cc *= -double((2*k+1)*(2*k+2));
-        sp = sp*rr+sc;
-        cp = cp*rr+cc;
+        sp = fma(sp, rr, SIN_C[k]);
+        cp = fma(cp, rr, COS_C[k]);
     }
     double sr=r*sp, cr=cp;
     int quadrant=(q%4+4)%4;
@@ -188,21 +252,206 @@ bool horner_patch(double re, double im, double j, int root,
     return false;
 }
 void output_sample(int gid, double cls, double nu, double de, double angle) {
-    int i=4*gid;
-    output_data.v[i]=nu;
-    output_data.v[i+1]=de;
-    output_data.v[i+2]=angle;
-    output_data.v[i+3]=cls;
+    // The normal is the angle in 1/65536 turns, wrapped; a non-finite angle
+    // marks the sample invalid (class 3) so the host rejects the frame.
+    uint word=uint(cls)<<16;
+    if (isnan(angle) || isinf(angle)) word=3u<<16;
+    else word|=uint(int(round(angle*10430.378350470452724949566316381lf)))&0xFFFFu;
+    nu_out.v[gid]=nu;
+    de_out.v[gid]=float(de);
+    word_out.v[gid]=word;
 }
+int g_phi_base, g_psi_base, g_node_base, g_leaf_base;
+
+// Approach, Koenigs jump and tail patch from the binary64 return-map
+// checkpoint. lo runs the approach and both Koenigs series in f32 and sets
+// err to a first-order bound on the absolute error of the landing z.
+void front(bool lo, dvec2 u, inout dvec2 du, inout int n, out dvec2 z, out double err) {
+    // 23 approach iterates, with dz/dc in unscaled parameter coordinates.
+    dvec2 d=u*value(0);
+    double ed=0.0;
+#ifdef ZONE_F32_FRONT
+    if (lo) {
+        int e=exponent_of(du);
+        vec2 d32=vec2(d), du32=vec2(ldexp(du,ivec2(-e)));
+        vec2 one32=vec2(float(ldexp(1.0lf,-e)),0.0);
+        ed=double(EPS32)*length(d);
+        for (int i=0; i<23; ++i) {
+            vec2 zz=vec2(cx(160+2*i));
+            double lz=length(cx(160+2*i)), ld=double(length(d32));
+            ed=double(2.0*length(zz+d32))*ed+4.0*double(EPS32)*(2.0*lz*ld+ld*ld);
+            du32=2.0*mul32(zz+d32,du32)+one32;
+            d32=2.0*mul32(zz,d32)+mul32(d32,d32);
+        }
+        d=dvec2(d32); du=ldexp(dvec2(du32),ivec2(e));
+    } else
+#endif
+    {
+        for (int i=0; i<23; ++i) {
+            dvec2 zc=cx(160+2*i);
+            du=2.0*mul(zc+d,du)+dvec2(1.0,0.0);
+            d=2.0*mul(zc,d)+mul(d,d);
+        }
+    }
+    n+=23;
+
+    // Koenigs jump; Horner in the tail atlas is the final landing.
+    dvec2 h0=cx(17)+d, alpha=cx(13);
+    z=alpha+h0;
+    err=ed;
+    if (!(length(h0)<value(2))) return;
+    dvec2 w0,dphi;
+    double ew=0.0;
+#ifdef ZONE_F32_FRONT
+    if (lo) {
+        vec2 w32,phi32;
+        float sa;
+        series32(g_phi_base,NPHI,vec2(h0),w32,phi32,sa);
+        w0=dvec2(w32); dphi=dvec2(phi32);
+        ew=length(dphi)*ed+double((2.0*float(NPHI)+2.0)*EPS32*sa);
+    } else
+#endif
+    series(g_phi_base,NPHI,h0,w0,dphi);
+    // One log|w0| serves the jump count and the patch; slots 22 and 31 hold
+    // log(r0)/log|rho| and 1/log|rho| so j costs no division.
+    double lnrho=value(15), lnw=fp64_log(length(w0));
+    double j=floor(fma(-lnw,value(31),value(22)));
+    dvec2 zp,dzs;
+    int m=0;
+    if (horner_patch(lnw,fp64_atan2(w0.y,w0.x),j,int(value(23)),
+              g_node_base,g_leaf_base,int(value(26)),int(value(27)),zp,dzs,m)) {
+        du=mul(mul(mul(dzs,dphi),du),divc(dvec2(1.0,0.0),w0));
+        z=zp; n+=2*int(j)+m;
+        // dz/dw0 = dzs/w0 through t = (log w0 + j log rho - centre)/r.
+        err=length(dzs)/length(w0)*ew;
+    } else if (j>0.0) {
+        double t=j*value(16), mag=fp64_exp(j*lnrho);
+        double st, ct;
+        fp64_sincos(t, st, ct);
+        dvec2 rj=mag*dvec2(ct,st);
+        // w0 is tiny and rho^j huge: their product is O(r0) only in binary64.
+        dvec2 x=mul(w0,rj), hw, dpsi;
+#ifdef ZONE_F32_FRONT
+        if (lo) {
+            vec2 hw32,dpsi32;
+            float sb;
+            series32(g_psi_base,NPSI,vec2(x),hw32,dpsi32,sb);
+            hw=dvec2(hw32); dpsi=dvec2(dpsi32);
+            err=length(dpsi)*(length(rj)*ew+double(EPS32)*length(x))
+                +double((2.0*float(NPSI)+2.0)*EPS32*sb);
+        } else
+#endif
+        series(g_psi_base,NPSI,x,hw,dpsi);
+        du=mul(mul(mul(dpsi,rj),dphi),du);
+        z=alpha+hw; n+=2*int(j);
+    }
+}
+
+#ifdef ZONE_F32_FINISH
+// f32 finish with a running first-order error bound (DEC-10/20). ep is the
+// absolute error of z in units of the pixel spacing s = |dz/dc| * pixel at the
+// landing; dv is dz/dc over 2^e, renormalised by 2^-80 so neither leaves the
+// f32 range (one step multiplies by 2|z| <= 2e10). |z|^2 can reach 1e40, so
+// the escape test squares in binary64 once a component nears the radius. At escape ep/|dv| is the position error in pixels; above the
+// tolerance value(31) the sample returns false and restarts from the binary64
+// landing checkpoint.
+bool finish32(int gid, dvec2 z, dvec2 du, int n, double errpx) {
+    int maxit=int(value(5));
+    int e=max(exponent_of(du),0);
+    double s=ldexp(value(30),e);
+    if (!(s>1e-30lf)) return false;
+    vec2 z32=vec2(z), dv=vec2(ldexp(du,ivec2(-e))), c32=vec2(cx(11));
+    float one=float(ldexp(1.0lf,-e)), inv=float(1.0/s);
+    float ep=float(errpx*length(ldexp(du,ivec2(-e)))+double(EPS32)*length(z)/s);
+    float cabs=length(c32), tol=float(TOL_PX);
+    float near=float(sqrt(0.5*value(21)))*(1.0-1e-6);
+    const float K=8.0*EPS32, DOWN=8.271806125530277e-25; // 2^-80
+    for (; n<maxit; ) {
+        float lz=length(z32);
+        dv=2.0*mul32(z32,dv)+vec2(one,0.0);
+        z32=mul32(z32,z32)+c32;
+        ++n;
+        ep=2.0*lz*ep+K*(lz*lz+cabs)*inv;
+        if (max(abs(dv.x),abs(dv.y))>1e24) {
+            dv*=DOWN; one*=DOWN; inv*=DOWN; ep*=DOWN;
+        }
+        // Once ep/|dv| exceeds the tolerance it cannot recover (ep grows at
+        // least as fast as dv); bail out early to the binary64 restart.
+        if (!(ep<1e30)) return false;
+        if (max(abs(z32.x),abs(z32.y))<near) continue;
+        dvec2 zd=dvec2(z32);
+        double a=norm2(zd);
+        if (a>value(21)) {
+            // Squares of dv overflow f32; the one-off escape arithmetic is binary64.
+            dvec2 dd=dvec2(dv);
+            double dl=length(dd);
+            if (!(double(ep)<=double(tol)*dl)) return false;
+            double l2=0.5*fp64_log2(a);
+            double nu=double(n)+1.0-fp64_log2(l2);
+            double de=2.0*sqrt(a)*(l2*0.693147180559945309417232121458lf)*double(inv)/dl;
+            double re=zd.x*dd.x+zd.y*dd.y;
+            double im=zd.y*dd.x-zd.x*dd.y;
+            double cs=value(28), sn=value(29);
+            double sx=cs*re+sn*im, sy=sn*re-cs*im;
+            output_sample(gid,0.0,nu,de,fp64_atan2(sy,sx));
+            return true;
+        }
+    }
+    if (!(double(ep)<=double(tol)*length(dvec2(dv)))) return false;
+    output_sample(gid,2.0,0.0,0.0,0.0);
+    return true;
+}
+#endif
+
+// Finish at the fixed nucleus and encode nu, pixel DE and screen normal.
+// errpx bounds the landing position error in output pixels (0 for binary64
+// fronts). With f32 finishing, the binary64 loop hands over once the pixel
+// spacing |dz/dc| * pixel exceeds SWITCH_PX_Z * max(|z|, 1): from there f32
+// rounding stays far below the tolerance. A failed f32 tail resumes here.
+void finish(int gid, dvec2 z, dvec2 du, int n, double errpx) {
+    dvec2 c=cx(11);
+    double cs=value(28), sn=value(29);
+    int maxit=int(value(5));
+#ifdef ZONE_F32_FINISH
+    bool try32=true;
+    double pw2=value(30)*value(30);
+#endif
+    for (; n<maxit; ) {
+#ifdef ZONE_F32_FINISH
+        if (try32 && (n&3)==0 && subgroupAll(norm2(du)*pw2>=SWITCH_PX_Z*SWITCH_PX_Z*max(norm2(z),1.0))) {
+            if (finish32(gid,z,du,n,errpx)) return;
+            try32=false;
+        }
+#endif
+        du=2.0*mul(z,du)+dvec2(1.0,0.0);
+        z=mul(z,z)+c;
+        ++n;
+        double a=norm2(z);
+        if (a>value(21)) {
+            double log2z=0.5*fp64_log2(a);
+            double nu=double(n)+1.0-fp64_log2(log2z);
+            double de=2.0*sqrt(a)*(log2z*0.693147180559945309417232121458lf)
+                      /length(du)/value(30);
+            double re=z.x*du.x+z.y*du.y;
+            double im=z.y*du.x-z.x*du.y;
+            double sx=cs*re+sn*im, sy=sn*re-cs*im;
+            output_sample(gid,0.0,nu,de,fp64_atan2(sy,sx));
+            return;
+        }
+    }
+    output_sample(gid,2.0,0.0,0.0,0.0);
+}
+
 void main() {
-    int gid=int(gl_GlobalInvocationID.x);
+    int gid=int(gl_GlobalInvocationID.x + gl_GlobalInvocationID.y *
+                (gl_NumWorkGroups.x * gl_WorkGroupSize.x));
     int nx=int(value(6)), ny=int(value(7));
     if (gid>=nx*ny) return;
-    int deg=int(value(4)), period=int(value(3)), maxit=int(value(5));
-    int nphi=int(value(24)), npsi=int(value(25));
+    const int deg=DEG, nphi=NPHI, npsi=NPSI;
+    int period=int(value(3)), maxit=int(value(5));
     int nn=int(value(26)), nl=int(value(27));
-    int phi_base=206, psi_base=phi_base+2*nphi;
-    int node_base=psi_base+2*npsi, leaf_base=node_base+4*nn;
+    g_phi_base=206; g_psi_base=g_phi_base+2*nphi;
+    g_node_base=g_psi_base+2*npsi; g_leaf_base=g_node_base+4*nn;
     int col=gid%nx, row=gid/nx;
     double x=double(col)+0.5-double(nx)*0.5;
     double y=double(row)+0.5-double(ny)*0.5;
@@ -241,58 +490,19 @@ void main() {
         u=s; n+=period; ++work;
     }
 
-    // 23 approach iterates, with dz/dc in unscaled parameter coordinates.
-    dvec2 d=u*scale;
-    for (int i=0; i<23; ++i) {
-        dvec2 z=cx(160+2*i);
-        du=2.0*mul(z+d,du)+dvec2(1.0,0.0);
-        d=2.0*mul(z,d)+mul(d,d);
+    dvec2 z, du0=du;
+    double err;
+    int n0=n;
+#ifdef ZONE_F32_FRONT
+    // DEC-20: a front whose f32 error bound exceeds a quarter of the tolerance
+    // restarts from the binary64 return-map checkpoint (u, du, n).
+    front(true,u,du,n,z,err);
+    if (!(err<=0.25*TOL_PX*length(du)*value(30))) {
+        du=du0; n=n0;
+        front(false,u,du,n,z,err);
     }
-    n+=23;
-
-    // Koenigs jump; Horner in the tail atlas is the final landing.
-    dvec2 h0=cx(17)+d, alpha=cx(13), z=alpha+h0;
-    if (length(h0)<value(2)) {
-        dvec2 w0,dphi;
-        series(phi_base,nphi,h0,w0,dphi);
-        double lnrho=value(15);
-        double j=floor(fp64_log(value(2)/length(w0))/lnrho);
-        dvec2 zp,dzs;
-        int m=0;
-        if (horner_patch(fp64_log(length(w0)),fp64_atan2(w0.y,w0.x),j,int(value(23)),
-                  node_base,leaf_base,nn,nl,zp,dzs,m)) {
-            du=mul(mul(mul(dzs,dphi),du),divc(dvec2(1.0,0.0),w0));
-            z=zp; n+=2*int(j)+m;
-        } else if (j>0.0) {
-            double t=j*value(16), mag=fp64_exp(j*lnrho);
-            double st, ct;
-            fp64_sincos(t, st, ct);
-            dvec2 rj=mag*dvec2(ct,st);
-            dvec2 hw,dpsi;
-            series(psi_base,npsi,mul(w0,rj),hw,dpsi);
-            du=mul(mul(mul(dpsi,rj),dphi),du);
-            z=alpha+hw; n+=2*int(j);
-        }
-    }
-
-    // Finish at the fixed nucleus and encode nu, pixel DE and screen normal.
-    dvec2 c=cx(11);
-    for (; n<maxit; ) {
-        du=2.0*mul(z,du)+dvec2(1.0,0.0);
-        z=mul(z,z)+c;
-        ++n;
-        double a=norm2(z);
-        if (a>value(21)) {
-            double log2z=0.5*fp64_log2(a);
-            double nu=double(n)+1.0-fp64_log2(log2z);
-            double de=2.0*sqrt(a)*(log2z*0.693147180559945309417232121458lf)
-                      /length(du)/value(30);
-            double re=z.x*du.x+z.y*du.y;
-            double im=z.y*du.x-z.x*du.y;
-            double sx=cs*re+sn*im, sy=sn*re-cs*im;
-            output_sample(gid,0.0,nu,de,fp64_atan2(sy,sx));
-            return;
-        }
-    }
-    output_sample(gid,2.0,0.0,0.0,0.0);
+#else
+    front(false,u,du,n,z,err);
+#endif
+    finish(gid,z,du,n,err==0.0 ? 0.0 : err/(length(du)*value(30)));
 }

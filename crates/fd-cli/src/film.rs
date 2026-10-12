@@ -75,14 +75,19 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
-    let zone_f64 = match a.str("gpu-kernel") {
-        None => false,
-        Some("f64") => true,
-        Some(value) => return Err(format!("--gpu-kernel: expected f64, got {value:?}")),
-    };
-    if zone_f64 && a.str("zone").is_none() {
-        return Err("--gpu-kernel f64 requires --zone".into());
+    let zone_kernel = a
+        .str("gpu-kernel")
+        .map(crate::zone_gpu::Kernel::parse)
+        .transpose()?;
+    if zone_kernel.is_some() && a.str("zone").is_none() {
+        return Err("--gpu-kernel requires --zone".into());
     }
+    if zone_kernel.is_some_and(|k| k != crate::zone_gpu::Kernel::F64)
+        && a.str("keyframes").is_none()
+    {
+        return Err("--gpu-kernel f32|mixed requires --keyframes".into());
+    }
+    let zone_f64 = zone_kernel == Some(crate::zone_gpu::Kernel::F64);
     let gpu_on = match a.str("gpu").unwrap_or("off") {
         "off" => false,
         "on" => true,
@@ -349,10 +354,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             Some(keys)
         }
     };
-    if zone_f64 {
-        if let Some(k) = keys.as_mut() {
-            k.enable_zone_f64();
-        }
+    if let (Some(mode), Some(k)) = (zone_kernel, keys.as_mut()) {
+        k.enable_zone_kernel(mode);
     }
     if gpu_on {
         if keys.is_some() && views.iter().any(|v| v.rotation != 0.0) {
