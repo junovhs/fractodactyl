@@ -3,8 +3,7 @@
 //! column slices in place: no merge copy. Output is independent of the thread count.
 use crate::bla::Bla;
 use crate::reference::Reference;
-use crate::sample::{perturb, Outcome, Skip};
-use crate::scaled::scaled;
+use crate::sample::{iterate, perturb, Binary64Exponent, Outcome, Skip};
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
 use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
@@ -362,8 +361,12 @@ impl<'a> Job<'a> {
                 self.max_iter,
                 self.r2,
             ),
-            Tier::Scaled => scaled::<D>(
+            Tier::Scaled => iterate::<Binary64Exponent, D, false, false>(
                 self.r,
+                &[],
+                None,
+                skip,
+                None,
                 ux * pl.h_m,
                 uy * pl.h_m,
                 pl.h_e,
