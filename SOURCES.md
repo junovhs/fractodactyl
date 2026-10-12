@@ -25,3 +25,5 @@ Prior art to beat (not claims of novelty):
 - Classical: Floquet theory; Koenigs/Sternberg linearization; nonlinear Poincaré maps; multiple shooting; direct polynomial composition; model-order reduction; time-parallel integration.
 
 **Source caveat:** R-cards include both previous retrospective reports and newly reported sandbox probes. Executable/raw artifacts are not archived; these are **not independently reproduced**. Prior-art searches are non-exhaustive, and the 1990 converter connection was discovered only **after** the reported PWM measurements. Do not infer novelty or claim to have inspected a full inaccessible paper.
+
+State-triggered event localization search (pretest [PA-P-083](PRIOR_ART/PA-P-083.md), result [R-009](RESULTS/R-009.md)): [Zhang, Yeddanapudi & Mosterman (2008)](https://doi.org/10.3182/20080706-5-KR-1001.01346), [Guglielmi & Hairer (2022)](https://doi.org/10.1007/s11075-021-01154-1); standard SciPy event root source https://github.com/scipy/scipy/blob/main/scipy/integrate/_ivp/ivp.py . No new algorithm claim.

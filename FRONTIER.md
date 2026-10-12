@@ -1,6 +1,6 @@
 # Active research frontier
 
-**State as of 2026-10-12.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
+**State as of 2026-10-12, after R-009.** This file directs agent attention; it is not a mandate to pursue a fixed roadmap or a minimum speed ratio. [Standing goal](GOAL.md) · [Method](METHOD.md).
 
 ## Research policy and decision distinction
 
@@ -18,11 +18,13 @@ Older [P-030](PROMPTS/P-030.md), [P-040](PROMPTS/P-040.md), [P-060](PROMPTS/P-06
 
 All these measurements are **REPORTED**, not independently REPRODUCED or CERTIFIED: the executable/raw packs are not archived in this documentation-only branch. No industrial converter acceleration, general simulator breakthrough or Fractodactyl renderer improvement has been demonstrated.
 
+- [R-009](RESULTS/R-009.md): P-083 pretest-search-vetted known-method benchmark on a continuously state-triggered two-state hybrid. Quadratic event-time warm start gives **1.277× warm** over compiled midpoint safeguarded Newton at 262,144 repeated updates, **but cold is slower** (1,164.116 vs 1,122.827 ms medians). Empirical accuracy gate passed (max 9.619e-14 final-state, 0 wrong event classes), yet **all 2,048 events required fallback beyond two Newton steps**. **CONDITIONAL**, not a deployable win. The strongest next question is whether better event admission/prediction saves root work against equally tuned rival on nontrivial/no-event/grazing cases. Prior-art dossier [PA-P-083](PRIOR_ART/PA-P-083.md) was committed before execution; no novelty claim.
+
 ## Candidate leads and next discriminating tests
 
 | Rank | Candidate | Why it matters | Smallest useful next check |
 |---:|---|---|---|
-| 1 | Continuous state-triggered event-time map, child of [P-030](PROMPTS/P-030.md) | Scheduled-duty toy leaves implicit event times untested; may expose a reusable nonlinear shortcut | New P-card with an accuracy/event itinerary gate and **contextual** economic target; benchmark guard and event sensitivity against compiled exact/event solver |
+| 1 | Guard/event-time shortcut follow-up after [R-009](RESULTS/R-009.md) | State-triggered accuracy is demonstrated on an easy monotone toy but cold savings are unproven; every event needed fallback | A new P-card + pretest literature dossier for better event certificates, adversarial near-grazing/no-crossing data and tuned same-method rival |
 | 2 | Representative workload for [R-008](RESULTS/R-008.md) | Test whether a measured incremental toy gain survives real input distributions, domain coverage and full lifecycle | One relevant converter workload; match exact specialist baseline, count setup, report saved seconds and fallbacks |
 | 3 | Repelling-cycle direct composition, child of [P-060](PROMPTS/P-060.md) | Compare operator construction with the existing guarded Koenigs accelerator | One known repelling chart, fair composition/Koenigs competitor, independent MPFR holdout and realistic build/reuse lifecycle |
 
