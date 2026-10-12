@@ -59,3 +59,5 @@ Every new research question gets a short, stable **P-ID** file and an edge in th
 Experiments run in a temporary compute sandbox; research notes are committed here. The human does not need to run scripts. No executable code or production files are stored here unless explicitly requested.
 
 **Navigation:** [Goal](GOAL.md) · [Frontier](FRONTIER.md) · [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Proof of done](PROOF_OF_DONE.md) · [Lean](LEAN.md) · [Source boundaries](SOURCES.md)
+
+**Small-gain follow-up:** [P-082](PROMPTS/P-082.md) preregisters 2,048 repeated-use PWM batches and a >=1.10x total-cost threshold, without revising R-007's historical 3x failure.

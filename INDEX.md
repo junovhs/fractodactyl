@@ -14,6 +14,7 @@ P = short research-question prompt (≤150 words). R = experiment/result, retain
 | [P-030](PROMPTS/P-030.md) | UNTESTED · PRIORITY 1 | Parameter-dependent switching maps | Follows R-004 |
 | [P-080](PROMPTS/P-080.md) | KILL | Degree-four guarded PWM map | [R-006](RESULTS/R-006.md): 2/128 exceed accuracy gate |
 | [P-081](PROMPTS/P-081.md) | KILL | Degree-five guarded PWM return | [R-007](RESULTS/R-007.md): accuracy PASS, cold only 1.020× (gate ≥3×) |
+| [P-082](PROMPTS/P-082.md) | IN PROGRESS · PRIORITY 1 | Amortized PWM transfer kick | [R-007](RESULTS/R-007.md) warm signal; result pending |
 | [P-040](PROMPTS/P-040.md) | UNTESTED · PRIORITY 2 | Automatic cost/certificate selector | Follows R-004 |
 | [P-050](PROMPTS/P-050.md) | KILLED GLOBAL | Million-step high-precision Newton scan | [R-005](RESULTS/R-005.md) |
 | [P-051](PROMPTS/P-051.md) | UNTESTED | Certified segmented time-parallel solve | Follows R-005 |
