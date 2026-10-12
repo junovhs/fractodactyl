@@ -4,6 +4,12 @@
 
 > **BRANCH-ONLY RESEARCH SNAPSHOT — DO NOT MERGE INTO MAIN.** The visible files on this branch are documentation only. The history still descends from the original repository; its working tree does not contain the renderer. Deleting files from this branch does **not** delete them from `main`.
 
+## Standing objective and current frontier
+
+Our **[standing goal](GOAL.md)** is self-directed discovery of useful mathematical shortcuts for expensive computation; **no particular domain or hypothesis is compulsory**. At the start of each session agents inspect the **[live research frontier](FRONTIER.md)**, challenge its ranking, choose the cheapest decisive experiment, and change direction when the evidence warrants. The owner does not need to invent a technical plan.
+
+Each experiment also has a **[binary proof of done](PROOF_OF_DONE.md)**; formal proof, when warranted, follows the **[Lean policy](LEAN.md)**. A completed failed experiment is valuable. A good-looking benchmark without fair comparison or documentation is not complete.
+
 ## Instructions for research agents
 
 **Start with [AGENTS.md](AGENTS.md) or [CLAUDE.md](CLAUDE.md)**—the two files contain exactly the same operating instructions. They define the mandatory sequence: pre-register a ≤150-word question, freeze fair baseline and kill criteria, run a quick Python probe, file every result, update the lineage graph and index, verify the Git commit. Use [question](TEMPLATES/QUESTION.md) and [result](TEMPLATES/RESULT.md) templates. **Do not add Fractodactyl source code to this branch.**
@@ -41,7 +47,7 @@ These are **retrospective conversation records**. Original executable files, raw
 
 ## Current frontier
 
-The most relevant new question is **[P-030: automatically guarded, parameter-dependent switching maps](PROMPTS/P-030.md)**. An alternate narrowly targeted Fractodactyl comparison is [P-060: polynomial composition near repelling cycles](PROMPTS/P-060.md). Neither has a measured result.
+The [current frontier](FRONTIER.md) tentatively ranks **[P-030: automatically guarded, parameter-dependent switching maps](PROMPTS/P-030.md)** and **[P-060: polynomial composition near repelling cycles](PROMPTS/P-060.md)**. Neither has a measured result. **These are starting candidates, not an assigned roadmap**—an agent should replace them when a better cheap, discriminating experiment is identified.
 
 **Operator choices should be competed against each other.** Koenigs, direct polynomial composition, conventional integration and established domain-specific solvers are all potential winners depending on regime.
 
@@ -51,4 +57,4 @@ Every new research question gets a short, stable **P-ID** file and an edge in th
 
 Experiments run in a temporary compute sandbox; research notes are committed here. The human does not need to run scripts. No executable code or production files are stored here unless explicitly requested.
 
-**Navigation:** [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Source boundaries](SOURCES.md)
+**Navigation:** [Goal](GOAL.md) · [Frontier](FRONTIER.md) · [Map](MAP.md) · [Index](INDEX.md) · [Method](METHOD.md) · [Proof of done](PROOF_OF_DONE.md) · [Lean](LEAN.md) · [Source boundaries](SOURCES.md)

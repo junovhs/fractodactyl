@@ -6,7 +6,7 @@
 
 **Mechanism:** Explain the reusable mathematical structure.
 
-**Value:** Name the industry/science workload that gets cheaper.
+**Value:** Name the industry/science workload that gets cheaper and the wider computational shortcut it could reveal.
 
 **Fair opponent:** Fastest relevant specialized / same-math approach.
 
