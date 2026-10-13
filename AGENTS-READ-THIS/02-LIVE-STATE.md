@@ -1,36 +1,35 @@
 # 02 · LIVE STATE — the only current scientific handoff
 
-**Updated:** 2026-10-13 · **Purpose of update:** consolidate documentation obligations only. **NO NEW NUMERICAL EXPERIMENT** was run for this reorganization.
+**Updated:** 2026-10-13 · **Purpose:** new exploratory numerical/error-enclosure evidence in [R-011](../RESULTS/R-011.md), **not** formal confirmation.
 
 ## Goal and live status
 
-Find trustworthy, transferable mathematical shortcuts for expensive nonlinear/scientific computations by deriving and falsifying new consequences of existing theory. **No industrial simulator, industrial speedup, general nonlinear compiler, certified full time-parallel solver, or proven new algorithm has been demonstrated.**
+Find trustworthy, transferable mathematical shortcuts for expensive nonlinear/scientific computations. **No industrial simulator, industrial speedup, general nonlinear compiler, certified full time-parallel solver, or proven novel algorithm has been demonstrated.** The original frozen [P-051](../PROMPTS/P-051.md) 256–4096-step, 1k–10k-bit MPFR/performance question remains **UNTESTED**.
 
-**Active question:** fixed-initial-condition nonsequential seeding for unstable quadratic dynamics, building on [P-051](../PROMPTS/P-051.md) and the reported exploratory [R-010](../RESULTS/R-010.md). The original P-051 frozen 256–4096-step MPFR/performance experiment remains **UNTESTED**.
+**Active question:** Can the fixed-z0 nonsequential unstable quadratic chart seed be reliably admitted with finite-arithmetic guarantees and deliver a real cost saving rather than just shifting serial work? Historical seed test [R-010](../RESULTS/R-010.md); new outward-dyadic compressed certification probe [R-011](../RESULTS/R-011.md).
 
-**Latest observation (R-010, REPORTED / EXPLORATORY / POD NO):** in one highly special real case c=-2+2^(-256), degree-32 repelling-chart seeding gave ~2.260e-39 absolute error at n=132 against a high-precision serial oracle without generating the intermediate prefix. Naively asking the chart for n=134 failed by ~10.79, while two direct steps from the accepted n=132 seed gave ~3.079e-38 error. A derived **ideal-arithmetic** residual admission budget distinguished the tested safe/unsafe chart evaluations. Floating arithmetic was not interval-enclosed, broad-domain usefulness and mathematical originality are unverified, correction still had serial dependency, and **no runtime savings were measured**. Read R-010 for exact equations, numbers, caveats and related primary literature.
+**Latest observation (R-011, REPORTED / EXPLORATORY / PREREGISTERED NO / POD NO / NOVELTY UNVERIFIED):** For z_0=0, c=-2+2^-256, q32 and 640-bit directed dyadic integer intervals, a strictly bracketed degree-32 chart inversion and new localized defect/error budget admitted nonsequential step n=132 with an upper point error 2.30232965e-39 versus 2.25960777e-39 observed against serial high-precision recurrence. The early bound **collapsed 124 chart/error interfaces** to a weighted positive geometric sum, leaving 6 explicit late chart steps. Direct interval continuation admitted tails through L=102 (width 2.71014109e-8); L=103 failed the 1e-7 width gate. The catastrophically wrong direct chart at n=134 was rejected (~14.58 budget / ~10.79 actual error). At c=-1.99, -1.9, -1.5, -1 and -0.75, admitted chart horizons shrank to n=8,7,6,5,5 respectively. Negative repelling-fixed-point inversion brackets abstained. All computations and exact interval-property checks ran in the Chat scratch environment; executable/raw provenance is **not archived** in the documentation-only branch. No cold/warm/industrial/specialist comparison was run. See R-011 for exact derivation, limits and output tables.
 
 ## Next discriminating research step
 
-**Priority 1:** construct outward-rounded enclosures for the repelling-chart fixed-z0 interface, including alpha/lambda, coefficient recurrence, chart inversion, truncation residual, entry rounding and direct-tail propagation. Compare those acceptance/rejection decisions to independent high-precision serial iteration. Include samples away from c≈-2 and varied repelling cycles/segment lengths; preserve explicit counterexamples. If useful intervals survive, investigate whether admitted independent seeds actually eliminate enough serial work to offset full precision, chart construction and correction costs.
+**Priority 1:** independently reconstruct/audit the dyadic error certificate, especially inversion brackets, local residuals and the compressed J-step geometric upper bound; extend hostile tests to other repelling cycles and parameters away from near-preperiodicity. Then evaluate whether its chart construction, interval preparation, O(q log J) certification and sequential direct tail yield **net cold compute savings** versus optimized same-math high-precision serial calculation at matching accuracy/precision. If the benefit requires extremely special c, state that mathematical boundary. No broader certification or novelty claim until separate pretest prior-art searching, P/PA preregistration and confirmation. The long serial tail and branch/domain failures are central obstacles.
 
-**Alternative if rejected:** [P-040](../PROMPTS/P-040.md) certificate-admitted operator selection or [P-060](../PROMPTS/P-060.md) validated repelling-cycle composition/radius. Derive a *new* observable consequence before implementing a familiar algorithm.
-
-**Important distinction:** a small interface residual, shadowing orbit or fast local warm evaluation cannot alone establish exact fixed-initial-condition certification or cold speedup.
+**Alternatives if this scope proves economically sterile:** [P-040](../PROMPTS/P-040.md) certificate-admitted operator selection or [P-060](../PROMPTS/P-060.md) validated repelling-cycle composition/radius, each with a new mathematical prediction first.
 
 ## Condensed historical orientation (optional detail in records)
 
-- [R-001](../RESULTS/R-001.md)–[R-004](../RESULTS/R-004.md): fitted/Koenigs ideas lost ground to stronger compiled or direct-composition baselines; broad-chart accuracy failed.
-- [R-005](../RESULTS/R-005.md): an unrestricted global Newton scan diverged; motivates P-051's seeded short-segment question.
-- [R-006](../RESULTS/R-006.md)–[R-008](../RESULTS/R-008.md): PWM degree-4 failed accuracy; degree-5 achieved a **reported** scoped 1.209x total synthetic repeated-use result, but related polynomial converter methods pre-existed the study. No claim of novelty or industrial gain.
-- [R-009](../RESULTS/R-009.md): conditional warm-only known event-time-method measurement, no independent new mathematical method.
-- [R-010](../RESULTS/R-010.md): exploratory chart admission/handoff, not certified/benchmarked.
+- [R-001](../RESULTS/R-001.md)–[R-005](../RESULTS/R-005.md): fitted/Koenigs shortcuts lost to stronger baselines or failed broad accuracy; global Newton scan diverged.
+- [R-006](../RESULTS/R-006.md)–[R-008](../RESULTS/R-008.md): PWM q4 failed; q5 had a reported scoped 1.209x synthetic repeated-use gain, but related methods predate the study. No industrial or originality claim.
+- [R-009](../RESULTS/R-009.md): conditional warm-only known-method event-time measurement.
+- [R-010](../RESULTS/R-010.md): high-precision, **non-interval** chart seeding/admission and rejection probe; no measured speed.
+- [R-011](../RESULTS/R-011.md): new finite-dyadic interval chart admission, analytically compressed early bound and direct-tail enclosures; no independently archived reproducibility pack or speed claim.
 
-## Recent handoff decisions (maximum three entries; full history remains in RESULTS)
+## Recent handoff decisions (maximum three entries; full history in RESULTS)
 
-- **2026-10-13 — ORGANIZATION ONLY:** compulsory full-read instructions centralized here with the checklist. New ordinary sessions write only an R-card plus this state document. All root research documents except AGENTS.md and CLAUDE.md are optional historical/reference snapshots and no longer routinely synchronized. **No experiment run, gate changed, or old result overwritten.**
-- **2026-10-12 — R-010:** conditional accurate chart seed followed by an adaptive direct tail; catastrophic chart failure at n=134; next falsifier is arithmetic certification and wider-domain testing.
+- **2026-10-13 — R-011:** outward-rounded interval experiment admitted n132 seed and tails through L102, strongly rejected chart exit and exposed narrow general-domain reach; next falsifier is independent arithmetic audit, other cycles and fair cold-cost economics. R-011 is exploratory and not a confirmed solver.
+- **2026-10-13 — ORGANIZATION ONLY:** compulsory full-read instructions centralized here with two-file routine writeback. No scientific experiment was run for the reorganization.
+- **2026-10-12 — R-010:** chart seed at n132, catastrophic chart failure n134; unrounded ideal-admission bound motivated the interval test.
 
 ## Update rule for future agents
 
-After a meaningful executed session, update **only this file and the new R-card**. Keep this document concise: revise active status, precise latest observation **with R-card link**, next falsifier, and up to three recent handoffs. Never paste full equations, tables, literature dossiers or a growing history here; those belong in RESULTS or on-demand references. Update an R-card's status transparently if evidence is later corrected. Do not silently change frozen old gates.
+After a meaningful exploratory session update **only** this file and a new R-card, in one commit on research/dynamics-transfer-lab. Keep equations/tables and citations in RESULTS; preserve frozen prior results. Never routinely synchronize optional historical root documents. Do not silently change original gates. Read all four AGENTS-READ-THIS files at the start of each session.
