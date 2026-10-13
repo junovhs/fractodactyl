@@ -1,3 +1,5 @@
+> **Historical/reference snapshot (2026-10-13).** This file is retained for optional background and provenance; it is **not** the live agent contract, frontier or routine update target. For every session, read all four files in [AGENTS-READ-THIS/](AGENTS-READ-THIS/00-START-HERE.md) in full. Live status: [02-LIVE-STATE.md](AGENTS-READ-THIS/02-LIVE-STATE.md). Only a new RESULTS/R-card and that live state need routine research writeback. Any legacy instruction below to synchronize README/INDEX/MAP/FRONTIER/SOURCES/etc. is superseded.
+
 # Prior-art protocol: use known mathematics to go farther
 
 **This policy separates discovery exploration from formal confirmatory claims.** Historical PA/P/R records remain intact. Relevant links: [operating contract](AGENTS.md), [method](METHOD.md), [P template](TEMPLATES/QUESTION.md), [R template](TEMPLATES/RESULT.md), [proof of done](PROOF_OF_DONE.md).
