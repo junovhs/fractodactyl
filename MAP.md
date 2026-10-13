@@ -21,6 +21,7 @@ flowchart TD
   P050 --> R005["R-005 · Global scan FAILED"]
   R005 --> P051["P-051 · Certified segmented solve"]
   P051 --> R010["R-010 · Exploratory chart seed and handoff"]
+  P000 --> R013["R-013 · Exploratory space-time query omission"]
   P030 --> P080["P-080 · q4 guarded PWM"]
   P080 --> R006["R-006 · 2/128 failed gate"]
   R006 --> P081["P-081 · q5 same model"]
@@ -34,7 +35,7 @@ flowchart TD
   classDef maybe fill:#fff7e5,stroke:#b98a35,color:#604615
   classDef untested fill:#f2f5f9,stroke:#8090a0,color:#253449
   class R002,R004,R005,R006 fail
-  class R001,R003,R007,R008,R009,R010,P083 maybe
+  class R001,R003,R007,R008,R009,R010,R013,P083 maybe
   class P030,P040,P051,P060,P070 untested
 ```
 
@@ -51,3 +52,5 @@ New pretest branch: [P-030](PROMPTS/P-030.md) → [P-083](PROMPTS/P-083.md) ([PA
 [All statuses and one-line decisions](INDEX.md).
 
 Executed exploratory child: [P-051](PROMPTS/P-051.md) → [R-010](RESULTS/R-010.md), conditional exact-initial-condition chart seeding, nonsequential defect budget, and failed out-of-range chart evaluation. Not a certified time-parallel solver or speedup.
+
+**Distinct exploratory direction (2026-10-13):** [P-000](PROMPTS/P-000.md) → [R-013](RESULTS/R-013.md), input-specific interval certificates for omitting history and exterior sites in sparse terminal queries. Executed on a bounded signed rational lattice, with 170/300 admissions, explicit abstention, and an implemented temporal-only rival. This is a provisional transfer of established coupling/forgetting ingredients, **not** an originality claim, a full-trajectory solver or industrial validation. The map trigger is a genuinely different computation-elimination mechanism and output task, not the addition of an R-number. Next is cross-model transfer rather than tuning this toy; live priorities remain in 02-LIVE-STATE.md.
