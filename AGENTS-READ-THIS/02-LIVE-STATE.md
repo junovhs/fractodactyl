@@ -1,49 +1,43 @@
 # 02 - LIVE STATE - the only current scientific handoff
 
-**Updated:** 2026-10-13. **Purpose:** [R-013](../RESULTS/R-013.md) opens input-specific interval certificates for omitting old history and distant sites. The [linked archive reconstruction](../RESULTS/R-013-archive-rerun.md) contains the final delivered source/raw provenance and fresh timings. No formal confirmation.
+**Updated:** 2026-10-13. **Purpose:** [R-014](../RESULTS/R-014.md) tests R-013's omission mechanism on a correlated-drive Allen-Cahn time-stepper, identifies an exact phase-memory obstruction, and distinguishes discrete enclosures from continuous-model accuracy. Exploratory, not formal confirmation.
 
-## Goal, priority decision and live status
+## Goal and priority discipline
 
-Find trustworthy, transferable mathematical shortcuts for expensive nonlinear/scientific computations. **No industrial simulator, industrial speedup, general nonlinear compiler, certified full time-parallel solver, or proven novel algorithm has been demonstrated.** The original frozen [P-051](../PROMPTS/P-051.md) MPFR/performance question remains **UNTESTED**.
-
-**Owner-directed priority change:** do not keep P-051 as the default or polish a restricted chart indefinitely. Preserve R-010 through R-012 as scoped evidence. R-011's independent arithmetic audit remains an integrity backlog, not a requirement that all exploration stay in that domain. A small measured effect can still be valuable; no universal speed threshold is imposed.
-
-**Active question:** can a finite-arithmetic, input-specific certificate remove irrelevant space-time work for sparse terminal queries in genuinely different scientific models, rather than just this synthetic example?
+Find trustworthy, transferable mathematical shortcuts for expensive scientific computation. **No industrial speedup, general nonlinear compiler, certified continuous PDE solver or proven novel algorithm has been demonstrated.** P-051's original frozen MPFR/performance question remains UNTESTED. The owner's anti-tunnel-vision direction remains active: transfer or resolve a substantive obstruction, rather than indefinitely tune a narrow favorable example. Small credible gains remain valid findings; no universal speed threshold is imposed.
 
 ## Latest executed evidence
 
-**R-013 - REPORTED / EXPLORATORY / PREREGISTERED NO / POD NO / NOVELTY UNVERIFIED.** A bounded driven rational nonlinear ring was enclosed using signed affine extrema and exact directed dyadic integer arithmetic. Unknown history begins as the full invariant box; every omitted exterior neighbor remains fully unknown at every step. Report a selected terminal component only when its interval width is <=10^-9. This is not full-trajectory reconstruction or a nearby shadowing solution.
+**R-014: REPORTED / EXPLORATORY / PREREGISTERED NO / POD NO / NOVELTY UNVERIFIED.** A standard cubic Allen-Cahn finite-difference Euler recurrence with heterogeneous dyadic initial conditions and piecewise-bilinear correlated forcing was enclosed using its monotone combined stencil and exact directed 40-bit dyadic integer arithmetic. The target is one exact DISCRETE terminal component, not the continuous PDE.
 
-At D=128,N=4096, a 300-case sweep over six gains, five amplitudes, two coupling signs and five seeds admitted **170** cases and abstained on **130**. Maximum accepted width was 9.9507e-10. Every full reference enclosure lay inside its local enclosure. Three million-step cases used the last 128 steps on a 33-site patch, totaling **5,704 attempted interval cell updates**, versus 128 million for full replay. Checks included 30,000 exact-rational scalar bounds, 32 independent Python full-box replays, 24 independent spatial replays and eight separate 100-digit full-trajectory oracles.
+A 48-case transfer grid at D=512,N=16557 admitted **23** and abstained on **25**, with the same admissions for the temporal-only rival. Every full-reference interval lay inside both shortcut intervals. At amplitudes 0.25,0.5,1,2 the admissions were 0/12,0/12,11/12,12/12. Largest admitted width: 6.6848e-10; largest observed lower-endpoint error versus full binary64 replay: 3.3931e-10. The 32-case pilot overlaps the final grid and is disclosed; this is not preregistered validation.
 
-**Final archived reconstruction:** the first scratch bundle was unavailable for delivery, so the source was rebuilt and all checks, sweep cases and benchmarks were genuinely rerun. The 300-case raw JSON and the R-012 numerical recheck match their earlier reported SHA-256 values byte-for-byte. The final bundle has new source hashes and new timing samples; it does NOT contain invented versions of missing old samples. Use [R-013-archive-rerun](../RESULTS/R-013-archive-rerun.md) for exact hashes, reconstruction and current observations. This is same-session reconstruction, not external independent validation.
+Three fully replayed million-step cases at D=256 used 8192,2048,4096 recent steps. The first needed the whole ring on its final pass; the other two used 65 and 129 sites. Including failed attempts, local work was 2803456,177920,706304 interval cell updates versus 256044288 full-replay updates. Fresh-query local medians were 122.867,8.26266,32.2700 ms; the same-arithmetic temporal-only rival took 185.123,45.1155,96.0986 ms: **1.51x,5.46x,2.98x**, not a gain over a literature-wide best solver. Shortcut medians use seven batches of three calls; full-replay sampling is limited and explicitly disclosed. Startup/import/compilation are excluded.
 
-**Cost interpretation:** final local fresh-query medians were 0.153-0.161 ms; full compiled binary64 replay was 0.778-0.888 s and full directed replay 3.315-3.399 s. The stronger **temporal-only directed shortcut** took 0.180-0.358 ms: incremental spatial advantage was **1.12-2.33x**, not thousands-fold over the strongest rival. Timings exclude process startup/import/compilation. No industrial or state-of-the-art superiority claim.
+Checks: 10,000 exact-Fraction endpoint tuples, 5,000 independent input calculations, 20 independent full/patch replays including wrapped boundaries, 1,000 interval inclusion samples and four 90-digit full trajectories. Source, all completed raw samples and reconstruction instructions are delivered separately; no external reproduction or formal program verification is claimed.
 
-**Strong failure:** zero-input bistability has exact states -1/2,0,+1/2. Two positive probes virtually coincide while being wrong by 0.5 for zero initialization; the all-state certificate correctly abstains. Other abstentions can reflect memory, interval overestimation or the resource cap. Random-access prescribed forcing, bounded state, locality and sparse output are essential limits.
+## Two decisive boundaries
 
-**Prior art:** coupling from the past, bounding histories and input-specific forgetting are established. R-013 tests a finite-arithmetic deterministic space-time assembly, not originality of those principles. References and actual search provenance are in R-013.
+**Persistent phase:** for any input with |b|<=3/8, the disjoint boxes [1/2,2]^D and [-2,-1/2]^D are invariant. An all-state omitted-history initialization cannot shrink a queried range below width one, regardless of horizon or precision. A weak-drive numerical enclosure retained separation >1.99315 after 16557 steps. This is an obstruction to this all-state forgetting assumption, not to the well-posed fixed-IVP problem or every phase-aware solver. Amplitude 0.5 failures lie outside that sufficient theorem.
+
+**Discrete versus continuous accuracy:** the 1e-9 certificate bounds omission/finite arithmetic for the exact Euler recurrence. Two independent DOP853 diagnostics found about 1.00e-4 and 1.07e-4 time-discretization differences. No continuous-time or spatial-discretization certificate exists. Do not sell these measurements as a PDE solution accurate to 1e-9.
 
 ## Next discriminating research step
 
-**Priority 1: transfer, not tuning.** Test one genuinely different bounded nonlinear model under correlated driving with a correct short-memory/local comparator. The next result should establish a new application capability or a meaningful obstruction, not another radius/gain sweep of the rational lattice. If usefulness requires deliberately strong synthetic forcing and does not transfer, preserve the result and redirect. Full-trajectory output, long-range coupling, conserved modes and unavailable state-dependent inputs are useful hostile conditions. A broader confirmatory claim requires the separate P/PA workflow.
+**Priority 1: end-to-end continuous-model admission, not amplitude/radius tuning.** Test whether local omission can be combined with a validated time-integration error budget using established adaptive/high-order machinery and a matched specialist query solver. Include a phase-persistent case; do not assume the initial phase is disposable. The next result should provide a new correctness capability or show that obtaining it restores too much global/time work. If it does, preserve the obstruction and redirect. Any formal confirmation requires its own pretest P/PA workflow.
 
-**Parked, not erased:** P-051/R-011's certificate needs independent audit; its narrow domain and sequential tails remain limits. P-040/P-060 are optional ingredients, not compulsory fallback contests.
+R-014 reuses the existing R-013 lineage; no new MAP edge or routine root-document synchronization. Prior art includes maximum-principle schemes, comparison/forgetting and goal-oriented error control; novelty is unverified. Full equations, source inspection, search provenance, raw observations and hash anchors are in R-014 and its companion.
 
-## Condensed historical orientation
+## Preserved history and parked work
 
-- R-001 through R-005: fitted/Koenigs shortcuts lost to stronger baselines or failed accuracy; global Newton scan diverged.
-- R-006 through R-008: scoped PWM repeated-use gain; related methods predate the study. No industrial or originality claim.
-- R-009: conditional warm-only known-method event-time measurement.
-- R-010/R-011: fixed-z0 repelling-chart seed and interval-admission refinement; no independently reproduced performance advantage.
-- **R-012 provenance correction:** the earlier claimed container execution lacked a recorded execution call. A genuinely executed current reconstruction matched all 14 horizon results and shown failure values. This does not validate the earlier execution claim. The original record is preserved with the linked correction in R-013 and its archive reconstruction.
+R-001 through R-009 retain their negative, scoped or known-method results; no historical gates are rewritten. R-010/R-011's restricted chart construction and outstanding independent interval audit remain parked rather than compulsory next tasks. R-012's unsupported earlier execution claim and genuinely executed later cross-check remain documented in R-013 and its archive correction. R-013 established the rational-lattice omission prototype; its corrected archive remains intact. P-040/P-060 are optional ingredients, not mandatory fallback contests.
 
 ## Recent handoff decisions (maximum three)
 
-- **2026-10-13 - R-013 ARCHIVE RECONSTRUCTION:** rebuilt missing scratch bundle; reran checks, complete sweep and benchmarks. Same 170/300 result, new archived timings and hashes. Added a linked correction and updated live state; no second MAP trigger.
-- **2026-10-13 - R-013:** distinct space-time terminal-query omission line, three checked million-step cases, explicit memory counterexample and temporal-only rival. MAP.md has one provisional new-direction branch. Next: cross-model transfer, not toy tuning.
-- **2026-10-13 - OWNER DIRECTION:** avoid narrow-benefit tunnel vision; P-051 is no longer the automatic next experiment. Prior findings and outstanding audit remain preserved; no frozen gates rewritten.
+- **2026-10-13 - R-014:** partial transfer to correlated-drive Allen-Cahn discrete queries; 23/48 admissions, three million-step references, matched rival, invariant-phase obstruction and measured discretization gap. Next: total continuous-model error, not toy tuning. No MAP trigger.
+- **2026-10-13 - R-013:** space-time terminal-query omission with archived reconstruction, a persistent-memory counterexample and temporal-only rival. One provisional direction remains in MAP.md.
+- **2026-10-13 - OWNER DIRECTION:** avoid narrow-benefit tunnel vision; P-051 is not the default. Preserve historical evidence and audits without letting them monopolize exploration.
 
 ## Update rule
 
-An ordinary meaningful exploratory session updates this file and one new R-card or explicitly linked correction in one commit on research/dynamics-transfer-lab. Update MAP.md only on an evidence-backed structural trigger; an archive rerun alone is not one. Keep mathematics, tables, searches and reconstruction in RESULTS. Preserve historical evidence and frozen gates. Read all four AGENTS-READ-THIS files each session and follow [03-WRITEBACK-CHECKLIST.md](03-WRITEBACK-CHECKLIST.md). Do not routinely synchronize other historical root documents.
+An ordinary meaningful exploratory session updates this file and one new R-card or linked correction in one commit on research/dynamics-transfer-lab. MAP.md changes only for an evidence-backed structural trigger. Keep mathematics, tables, searches and reconstruction in RESULTS. Read all four AGENTS-READ-THIS files each session and follow [03-WRITEBACK-CHECKLIST.md](03-WRITEBACK-CHECKLIST.md). Never routinely synchronize other historical root documents.
