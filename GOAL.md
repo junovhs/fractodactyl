@@ -1,3 +1,5 @@
+> **Historical/reference snapshot (2026-10-13).** This file is retained for optional background and provenance; it is **not** the live agent contract, frontier or routine update target. For every session, read all four files in [AGENTS-READ-THIS/](AGENTS-READ-THIS/00-START-HERE.md) in full. Live status: [02-LIVE-STATE.md](AGENTS-READ-THIS/02-LIVE-STATE.md). Only a new RESULTS/R-card and that live state need routine research writeback. Any legacy instruction below to synchronize README/INDEX/MAP/FRONTIER/SOURCES/etc. is superseded.
+
 # Standing goal: discover useful computational shortcuts
 
 **The goal is to create new mathematical/computational solutions**, not merely benchmark existing algorithms or repeatedly identify that related published work exists. Seek transferable reductions in the cost of scientific/industrial calculation where nonlinear or other structure can be exploited. Fractodactyl inspired the tools and discipline; rendering is not the permanent target.
