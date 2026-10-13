@@ -18,7 +18,7 @@ Read [AGENTS.md](AGENTS.md) or identical [CLAUDE.md](CLAUDE.md). **Build on prio
 
 ## Start here
 
-1. **[Research map](MAP.md)** — a branching graph of research questions, tests, overturned conclusions, and new leads.
+1. **[Research map](MAP.md)** — a curated, deliberately non-exhaustive graph of important research dependencies; update only on documented structural changes, not for each experiment (see [mandatory checklist](AGENTS-READ-THIS/03-WRITEBACK-CHECKLIST.md)).
 2. **[Question and experiment index](INDEX.md)** — stable IDs, status, connections, and next action.
 3. **[Prompts](PROMPTS/)** — individual research questions of **150 words or fewer**, each stating mechanism, fair opponent, test and kill gate.
 4. **[Results](RESULTS/)** — what was measured, what failed, and what remains unknown.

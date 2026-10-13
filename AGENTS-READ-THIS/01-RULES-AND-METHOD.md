@@ -22,6 +22,10 @@ Use TRIAGE EXTEND / PROCEED / EVALUATE / PIVOT / BLOCKED truthfully; an establis
 
 For an executed confirmatory result, audit **all ten** items in 03-WRITEBACK-CHECKLIST.md in the R-card. POD: YES only if every check is genuinely satisfied, including pretest provenance and post-commit read-back. Mark absent artifacts unchecked. Relevant rigorous interval/ball proof can support CERTIFIED only when the bound and its relation to actual finite-precision output are auditable; an unrun Lean snippet is not a proof. Lean is optional, not a discovery prerequisite.
 
+## Research-lineage stewardship
+
+Maintain MAP.md as an **intentionally incomplete, evidence-backed graph of important research dependencies**, not as a chronological log. At the end of a session ask whether a new direction, decisive overturn/closure, enabling milestone, or connection between previously separate lines has materially changed that graph. Only then follow the MAP.md exception in 03-WRITEBACK-CHECKLIST.md. A well-supported exploratory finding may qualify but must retain its provisional evidence/novelty labels; formal confirmation is not automatically necessary. Do not add an edge just because a P/R card was created or an existing method was incrementally tightened. Current scientific status always lives in 02-LIVE-STATE.md.
+
 ## Mathematical, numerical and performance discipline
 
 - Report exact problem, inputs, precision, seed, oracle, max errors/failed classes and uncertainties. A small residual or empirical fit alone is **not** a certificate. Unsupported domains should decline.
