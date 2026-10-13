@@ -15,19 +15,21 @@ Read **each** file below completely, **in this order**, at the beginning of ever
 
 - These four files are **authoritative** for operations and the live scientific state. The root AGENTS.md and CLAUDE.md are identical entrypoint pointers, not alternative policy sources.
 - Other root Markdown files (including README.md, GOAL.md, FRONTIER.md, METHOD.md, INDEX.md, SOURCES.md, PRIOR_ART.md, PROOF_OF_DONE.md and LEAN.md) are **optional, preserved historical/reference snapshots**. **MAP.md is the one event-curated exception:** a selective lineage graph, not the current frontier or an exhaustive P/R index; it changes only on the evidence-backed structural triggers in 03-WRITEBACK-CHECKLIST.md. None of these documents requires routine synchronization. If old process guidance conflicts, follow this folder.
-- PROMPTS/, RESULTS/, PRIOR_ART/ and TEMPLATES/ are on-demand evidence, frozen experimental questions, preregistrations and samples. Historic gates, measurements and prior-art provenance cannot be altered merely to fit a new narrative.
+- PROMPTS/, RESULTS/, PRIOR_ART/ and TEMPLATES/ are on-demand records, frozen questions, preregistrations and samples. Historic gates, measurements and provenance cannot be rewritten.
+- EVIDENCE/R-NNN/ may contain small, text-based experiment sources, configuration, execution manifests, tests and compact raw records; scripts/ may contain shared research-only validation helpers. This is the owner's 2026-10-13 exception to the earlier documentation-only convention. No renderer, compiled binaries, build outputs, dependencies or changes to any other branch are allowed. The lab remains research-only.
 - The full mathematical details and source links for a new experiment go **in its R-card**, not in this compulsory folder. Keep 02-LIVE-STATE.md concise with pointers to those records.
 
 ## Normal change surface
 
-A normal executed exploratory session changes **exactly two files**:
+A normal executed exploratory session updates **two narrative files**, plus a minimal source-bound evidence package when there was execution:
 - a **new immutable-style report** in RESULTS/R-NNN.md (or a linked correction to an existing report, clearly marked); and
-- [02-LIVE-STATE.md](02-LIVE-STATE.md) for the latest finding, active direction, and next falsifier.
+- [02-LIVE-STATE.md](02-LIVE-STATE.md) for the latest finding, active direction, and next falsifier;
+- **EVIDENCE/R-NNN/** (or a genuinely durable externally retrievable archive whose URI and hash are verified) for sources/configuration/manifest and relevant raw output. Evidence files are NOT a license for general product code or housekeeping.
 
-No other existing file should be updated for routine session housekeeping. **Exception when lineage materially changes:** update MAP.md together with the new R-card and live state in the same commit, or with live state alone if a documented reassessment of existing evidence changes the graph without a new experiment. A P/R ID, small incremental improvement or routine status change is not itself a trigger. Formal preregistration is a separate exception detailed in the checklist. A session that produces no new evidence or structural decision may have **no Git changes**; never invent work to fill the form.
+No other existing file should be updated for routine session housekeeping. Never invent an R-card or evidence run when no calculation was executed. **Exception when lineage materially changes:** update MAP.md together with the new R-card and live state in the same commit, or with live state alone if a documented reassessment of existing evidence changes the graph without a new experiment. A P/R ID, small incremental improvement or routine status change is not itself a trigger. Formal preregistration is a separate exception detailed in the checklist. A session that produces no new evidence or structural decision may have **no Git changes**; never invent work to fill the form.
 
 ## Non-negotiable scope
 
-Only branch **research/dynamics-transfer-lab** in **junovhs/fractodactyl**. Documentation-only. Never touch, merge, rewrite or force-push other branches, and never add renderer code, executables, dependencies or generated binaries without a new explicit owner instruction. Computations may run in the normal Chat sandbox. If a mandatory document cannot be read in full, report the limitation rather than proceeding on a truncated view.
+Only branch **research/dynamics-transfer-lab** in **junovhs/fractodactyl**. Research documentation plus the narrow, owner-approved source/evidence exception above. Never touch, merge, rewrite or force-push other branches. Do not restore Fractodactyl renderer code or add compiled executables, third-party dependencies or generated binaries. Compute in a scratch environment and commit only small, reviewable research text/source/configuration/raw evidence. Computations may run in the normal Chat sandbox. If a mandatory document cannot be read in full, report the limitation rather than proceeding on a truncated view.
 
 This organization was installed **2026-10-13** as a documentation-workflow change, not a scientific discovery.

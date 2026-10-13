@@ -1,6 +1,6 @@
 # 02 - LIVE STATE - the only current scientific handoff
 
-**Updated:** 2026-10-13. **Purpose:** [R-014](../RESULTS/R-014.md) tests R-013's omission mechanism on a correlated-drive Allen-Cahn time-stepper, identifies an exact phase-memory obstruction, and distinguishes discrete enclosures from continuous-model accuracy. Exploratory, not formal confirmation.
+**Updated:** 2026-10-13. **Purpose:** scientific state remains [R-014](../RESULTS/R-014.md); owner-approved **workflow integrity update** adds reproducible research evidence, decision gates and independent challenge expectations. No new scientific experiment or confirmation was performed by this policy change.
 
 ## Goal and priority discipline
 
@@ -24,7 +24,7 @@ Checks: 10,000 exact-Fraction endpoint tuples, 5,000 independent input calculati
 
 ## Next discriminating research step
 
-**Priority 1: end-to-end continuous-model admission, not amplitude/radius tuning.** Test whether local omission can be combined with a validated time-integration error budget using established adaptive/high-order machinery and a matched specialist query solver. Include a phase-persistent case; do not assume the initial phase is disposable. The next result should provide a new correctness capability or show that obtaining it restores too much global/time work. If it does, preserve the obstruction and redirect. Any formal confirmation requires its own pretest P/PA workflow.
+**Priority 1: a decision gate, not automatic solver development.** First define the intended computational output (exact discrete terminal component versus continuous physical-model state), accuracy budget, representative query/fallback workload, available forcing, and strongest specialist comparator. Explicitly compare two next directions: (a) continuous-model omission admission via validated/adaptive high-order time integration, including the phase-persistent obstruction; (b) a different transferable computation-elimination mechanism with a clearer economic/scientific task. Choose the cheapest experiment that would *change that priority decision*, not another radius or amplitude tuning pass. Preserve a CONTINUE/CHALLENGE/PARK/CLOSE decision and competitor rationale with the next R-card. Formal confirmation still requires prospective P/PA and challenge review.
 
 R-014 reuses the existing R-013 lineage; no new MAP edge or routine root-document synchronization. Prior art includes maximum-principle schemes, comparison/forgetting and goal-oriented error control; novelty is unverified. Full equations, source inspection, search provenance, raw observations and hash anchors are in R-014 and its companion.
 
@@ -36,8 +36,8 @@ R-001 through R-009 retain their negative, scoped or known-method results; no hi
 
 - **2026-10-13 - R-014:** partial transfer to correlated-drive Allen-Cahn discrete queries; 23/48 admissions, three million-step references, matched rival, invariant-phase obstruction and measured discretization gap. Next: total continuous-model error, not toy tuning. No MAP trigger.
 - **2026-10-13 - R-013:** space-time terminal-query omission with archived reconstruction, a persistent-memory counterexample and temporal-only rival. One provisional direction remains in MAP.md.
-- **2026-10-13 - OWNER DIRECTION:** avoid narrow-benefit tunnel vision; P-051 is not the default. Preserve historical evidence and audits without letting them monopolize exploration.
+- **2026-10-13 - WORKFLOW ONLY:** owner approved durable source-bound evidence, run/checkpoint fingerprints, challenger review, decision-changing gates, and a narrowly scoped research-source branch exception. No scientific R-card or performance improvement implied.
 
 ## Update rule
 
-An ordinary meaningful exploratory session updates this file and one new R-card or linked correction in one commit on research/dynamics-transfer-lab. MAP.md changes only for an evidence-backed structural trigger. Keep mathematics, tables, searches and reconstruction in RESULTS. Read all four AGENTS-READ-THIS files each session and follow [03-WRITEBACK-CHECKLIST.md](03-WRITEBACK-CHECKLIST.md). Never routinely synchronize other historical root documents.
+An ordinary meaningful exploratory session updates this file and one new R-card or linked correction, plus source-bound EVIDENCE/R-NNN/ when calculations were executed, in one commit on research/dynamics-transfer-lab. MAP.md changes only for an evidence-backed structural trigger. Keep mathematics, tables, searches and reconstruction in RESULTS. Read all four AGENTS-READ-THIS files each session and follow [03-WRITEBACK-CHECKLIST.md](03-WRITEBACK-CHECKLIST.md). Never routinely synchronize other historical root documents.
