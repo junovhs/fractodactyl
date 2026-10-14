@@ -68,6 +68,26 @@ These hosted checks establish build and CPU-capture portability. GPU-12 still
 requires hardware parity and timing on the RX 5700 XT and RTX 3050 Ti. The
 workflow never dispatches a GPU kernel or scores a software adapter.
 
+## RX 5700 XT check on the self-hosted runner
+
+`gpu-route-rx5700xt` runs on the owner's `homebox-linux` runner (labels
+`self-hosted, gpu, rx5700xt`). It is manual only, because the repository is
+public and the runner is a home desktop: no push or pull-request trigger.
+
+```text
+gh workflow run gpu-route-rx5700xt.yml --ref main
+```
+
+It builds the dev profile with one Cargo worker. Build and capture files stay
+under `~/.cache/fractodactyl-gpu-route-ci`, and each probe command runs in a
+`systemd-run --user` scope (4 GiB, no swap, one CPU), or under `nice -n 19` when
+there is no user systemd bus. It runs `capabilities`, `zone-smoke`, and then
+`capture-frame` plus `frame <width> wgsl f64` at all six depths. The run fails
+unless every row reports `parity=PASS`. `glslc` comes from the optional `glslc`
+dispatch input, then PATH, then the product shaderc build under the runner's
+home. Logs are uploaded as an artifact. Timings in these logs are informational;
+METHOD.md tables are not replaced by them.
+
 ## GLSL baseline compiler
 
 `zone-smoke` needs `glslc` on PATH or `FD_GPU_ROUTE_GLSLC` pointing to an existing
