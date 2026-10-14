@@ -12,9 +12,9 @@
 //! margin at its edge, so switching to the next keyframe pair is continuous.
 //! Keyframe shading is dithered per sample, so the filtered result keeps sub-level
 //! precision and the output needs no second dither.
-use crate::film::{render_frame_kernel, Used};
+use crate::film::{BuildTimings, Used, render_frame_profiled};
 use crate::path::sig6;
-use fd_kernel::{zone_covers, Params, Zone};
+use fd_kernel::{Params, Zone, zone_covers};
 use fd_samples::{Header, Samples, View};
 use fd_shade::{Appearance, Look, Pass, PreparedStudio, Rgb8};
 
@@ -45,6 +45,9 @@ pub(crate) struct Keyframes<'a> {
     output: Rgb8,
     lut: [f32; 256],
     /// Stage timings for the film JSON report.
+    pub builds: BuildTimings,
+    /// Route of the outer keyframe contributing to the current output frame.
+    pub frame_route: Used,
     pub prepare_seconds: f64,
     pub sample_shade_seconds: f64,
     pub resample_seconds: f64,
@@ -97,6 +100,8 @@ impl<'a> Keyframes<'a> {
             },
             lut: std::array::from_fn(|v| (v as f32 / 255.0).powf(2.2)),
             rendered: Vec::new(),
+            builds: BuildTimings::default(),
+            frame_route: Used::Plain,
             prepare_seconds: 0.0,
             sample_shade_seconds: 0.0,
             resample_seconds: 0.0,
@@ -169,13 +174,13 @@ impl<'a> Keyframes<'a> {
             _ => None,
         };
         let (h, s, used) = match gpu_result {
-            Some(Ok((h, s))) => (h, s, Used::Zone),
+            Some(Ok((h, s))) => (h, s, Used::ZoneGpu),
             Some(Err(e)) => {
                 eprintln!("fd film: Vulkan zone unavailable ({e}); using CPU zone");
                 self.zone_renderer = None;
-                render_frame_kernel(&view, &self.p, self.zone, false)?
+                render_frame_profiled(&view, &self.p, self.zone, false, &mut self.builds)?
             }
-            None => render_frame_kernel(&view, &self.p, self.zone, false)?,
+            None => render_frame_profiled(&view, &self.p, self.zone, false, &mut self.builds)?,
         };
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         let t_prepare = std::time::Instant::now();
@@ -225,6 +230,12 @@ impl<'a> Keyframes<'a> {
         });
         self.ensure(k, k, a)?;
         self.ensure(k + 1, k, a)?;
+        self.frame_route = self
+            .rendered
+            .iter()
+            .find(|r| r.0 == k)
+            .expect("rendered outer keyframe")
+            .2;
         let cache = &self.cache;
         let get = |j: usize| cache.iter().find(|c| c.0 == j).expect("ensured");
         let (outer, inner) = (get(k), get(k + 1));

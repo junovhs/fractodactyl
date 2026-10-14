@@ -148,3 +148,137 @@ fn film_spin_keyframes() {
     );
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// Read a numeric member from the small report objects (same convention as bench.rs).
+fn report_number(json: &str, key: &str) -> f64 {
+    let prefix = format!("\"{key}\":");
+    let rest = json
+        .split_once(&prefix)
+        .unwrap_or_else(|| panic!("missing {key}: {json}"))
+        .1;
+    rest.split([',', '}']).next().unwrap().parse().unwrap()
+}
+
+fn report_object<'a>(json: &'a str, key: &str) -> &'a str {
+    let prefix = format!("\"{key}\":{{");
+    let rest = json
+        .split_once(&prefix)
+        .unwrap_or_else(|| panic!("missing {key}: {json}"))
+        .1;
+    rest.split_once('}').unwrap().0
+}
+
+#[test]
+fn film_report_kernel_breakdown() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("fd-prob28-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let zone = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/zones/v0-core.zone");
+    let re = "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502";
+    let im = "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922";
+    for keys in [false, true] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+        cmd.args([
+            "film",
+            re,
+            im,
+            "--from",
+            "1e-26",
+            "--to",
+            "1e-29",
+            "--seconds",
+            "0.2",
+            "--fps",
+            "30",
+            "--size",
+            "32x18",
+            "--iter",
+            "20000",
+            "--threads",
+            "1",
+            "--x264",
+            "ultrafast",
+        ])
+        .arg("--zone")
+        .arg(&zone)
+        .arg("--mp4")
+        .arg(dir.join(format!("boundary-{keys}.mp4")));
+        if keys {
+            cmd.args(["--keyframes", "1"]);
+        } else {
+            cmd.args(["--ss", "1"]);
+        }
+        let out = checked(cmd.output().unwrap(), "film breakdown");
+        let json = String::from_utf8(out.stdout).unwrap();
+        assert!(json.starts_with("{\"schema\":\"fd-film/1\""));
+        let routes = json.split_once("\"routes\":{").unwrap().1;
+        let mut seconds = 0.0;
+        let mut frames = 0.0;
+        for route in ["zone", "zone-gpu", "mid", "bla", "perturbation", "scaled"] {
+            let object = report_object(routes, route);
+            seconds += report_number(object, "seconds");
+            frames += report_number(object, "frames");
+        }
+        assert_eq!(frames, 6.0);
+        let render = report_number(&json, "total_seconds");
+        assert!((seconds - render).abs() <= render * 0.05, "{json}");
+        assert!(
+            report_number(report_object(routes, "zone"), "kernel_frames") > 0.0,
+            "{json}"
+        );
+        assert!(
+            report_number(report_object(routes, "bla"), "kernel_frames") > 0.0,
+            "{json}"
+        );
+        for counter in ["reference_builds", "bla_builds"] {
+            let object = report_object(&json, counter);
+            assert!(report_number(object, "total") > 0.0);
+            assert!(report_number(object, "repeated") <= report_number(object, "total"));
+        }
+        assert!(report_number(&json, "reference_seconds") > 0.0);
+        assert!(report_number(&json, "bla_build_seconds") > 0.0);
+    }
+    // Identical inputs across direct output frames must be counted as repeated,
+    // rather than cached; every frame still builds both mathematical products.
+    let out = checked(
+        Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args([
+                "film",
+                "-0.75",
+                "0.1",
+                "--from",
+                "0.01",
+                "--to",
+                "0.01",
+                "--seconds",
+                "0.2",
+                "--fps",
+                "30",
+                "--size",
+                "16x10",
+                "--ss",
+                "1",
+                "--iter",
+                "128",
+                "--threads",
+                "1",
+                "--x264",
+                "ultrafast",
+            ])
+            .arg("--mp4")
+            .arg(dir.join("repeated.mp4"))
+            .output()
+            .unwrap(),
+        "repeated builds",
+    );
+    let json = String::from_utf8(out.stdout).unwrap();
+    for counter in ["reference_builds", "bla_builds"] {
+        let object = report_object(&json, counter);
+        assert_eq!(report_number(object, "total"), 6.0, "{json}");
+        assert_eq!(report_number(object, "repeated"), 5.0, "{json}");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}

@@ -15,8 +15,8 @@ use crate::args::Args;
 use crate::orbit::EPS;
 use crate::path::sig6;
 use crate::render::{columns, size};
-use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
-use fd_kernel::{bla_dc_max, render_bla, render_with, render_zone, zone_covers, Bla, Params, Zone};
+use crate::shade::{APPEARANCE_FLAGS, LOOK_FLAGS, appearance, passes};
+use fd_kernel::{Bla, Params, Zone, bla_dc_max, render_bla, render_with, render_zone, zone_covers};
 use fd_samples::{Header, Samples, View};
 use fd_shade::Appearance;
 use std::io::Write as _;
@@ -36,6 +36,79 @@ pub(crate) enum Used {
     Zone,
     Bla,
     Plain,
+    ZoneGpu,
+    Mid,
+    Scaled,
+}
+
+impl Used {
+    const ALL: [Self; 6] = [
+        Self::Zone,
+        Self::Bla,
+        Self::Plain,
+        Self::ZoneGpu,
+        Self::Mid,
+        Self::Scaled,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Zone => "zone",
+            Self::Bla => "bla",
+            Self::Plain => "perturbation",
+            Self::ZoneGpu => "zone-gpu",
+            Self::Mid => "mid",
+            Self::Scaled => "scaled",
+        }
+    }
+
+    fn legacy(self) -> usize {
+        match self {
+            Self::Zone | Self::ZoneGpu | Self::Mid => 0,
+            Self::Bla => 1,
+            Self::Plain | Self::Scaled => 2,
+        }
+    }
+}
+
+/// Observes builds without retaining or reusing mathematical products.
+#[derive(Default)]
+pub(crate) struct BuildTimings {
+    reference_seconds: f64,
+    bla_seconds: f64,
+    reference_builds: usize,
+    repeated_references: usize,
+    bla_builds: usize,
+    repeated_blas: usize,
+    references: std::collections::HashSet<String>,
+    blas: std::collections::HashSet<String>,
+}
+
+impl BuildTimings {
+    fn reference_key(view: &View, p: &Params, bits: u32) -> String {
+        format!(
+            "{}|{}|{bits}|{}|{}",
+            view.center_re,
+            view.center_im,
+            p.max_iter,
+            p.escape_radius.to_bits()
+        )
+    }
+
+    fn reference(&mut self, key: &str, seconds: f64) {
+        self.reference_seconds += seconds;
+        self.reference_builds += 1;
+        self.repeated_references += usize::from(!self.references.insert(key.to_owned()));
+    }
+
+    fn bla(&mut self, key: &str, dc: f64, seconds: f64) {
+        self.bla_seconds += seconds;
+        self.bla_builds += 1;
+        // No rounding/bucketing is used by today's builder: its exact dc_max bits
+        // and EPS are part of the build input, not merely a potential reuse radius.
+        let key = format!("{key}|{}|{}", EPS.to_bits(), dc.to_bits());
+        self.repeated_blas += usize::from(!self.blas.insert(key));
+    }
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
@@ -171,7 +244,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             None if ease_in > 0.0 => {
                 let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
                 if t < ease_in {
-                    return Err(format!("--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"));
+                    return Err(format!(
+                        "--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"
+                    ));
                 }
                 t
             }
@@ -469,6 +544,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 
     let wall = Instant::now();
     let mut r = Report::default();
+    let mut builds = BuildTimings::default();
     for (f, view) in views.iter().enumerate().take(to).skip(from) {
         if let Some(k) = keys.as_mut() {
             let t = Instant::now();
@@ -499,16 +575,23 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 r.add(used, secs);
             }
             r.shade += frame_seconds - kf;
+            r.output_frames[k.frame_route as usize] += 1;
             let done = f + 1 - from;
             if done == 1 || done % 60 == 0 || done == to - from {
                 let el = wall.elapsed().as_secs_f64();
                 let left = el / done as f64 * (to - from - done) as f64;
-                eprintln!("  frame {done}/{} width {} (keyframes {}) {el:.0} s elapsed, ~{left:.0} s left", to - from, view.width, k.rendered.len());
+                eprintln!(
+                    "  frame {done}/{} width {} (keyframes {}) {el:.0} s elapsed, ~{left:.0} s left",
+                    to - from,
+                    view.width,
+                    k.rendered.len()
+                );
             }
             continue;
         }
         let t = Instant::now();
-        let (hd, mut s, used) = render_frame_kernel(view, &p, zone.as_ref(), zone_f64)?;
+        let (hd, mut s, used) =
+            render_frame_profiled(view, &p, zone.as_ref(), zone_f64, &mut builds)?;
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
         if let Some(normal) = s.normal.as_mut().filter(|_| view.rotation != 0.0) {
@@ -517,7 +600,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         let secs = t.elapsed().as_secs_f64();
         r.add(used, secs);
-        if used == Used::Zone && compare_every > 0 && (f - from).is_multiple_of(compare_every) {
+        r.output_frames[used as usize] += 1;
+        if used.legacy() == 0 && compare_every > 0 && (f - from).is_multiple_of(compare_every) {
             let t = Instant::now();
             render_frame(view, &p, None)?;
             r.compared.push((secs, t.elapsed().as_secs_f64()));
@@ -547,11 +631,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 "  frame {done}/{} width {} ({}) {:.0} s elapsed, ~{:.0} s left",
                 to - from,
                 view.width,
-                match used {
-                    Used::Zone => "zone",
-                    Used::Bla => "bla",
-                    Used::Plain => "perturbation",
-                },
+                used.name(),
                 el,
                 el / done as f64 * (to - from - done) as f64
             );
@@ -563,11 +643,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         r.keyframe_resample = k.resample_seconds;
         r.gpu_device = k.gpu_device().map(str::to_owned);
     }
+    r.builds = keys.map_or(builds, |k| k.builds);
     drop(pipe);
+    let encode_finish = Instant::now();
     let status = enc.wait().map_err(|e| format!("ffmpeg: {e}"))?;
     if !status.success() {
         return Err(format!("ffmpeg failed: {status}"));
     }
+    r.encode_wait += encode_finish.elapsed().as_secs_f64();
     println!(
         "{}",
         r.json(mp4, to - from, fps, wall.elapsed().as_secs_f64())
@@ -989,35 +1072,64 @@ pub(crate) fn render_frame_kernel(
     zone: Option<&Zone>,
     gpu_f64: bool,
 ) -> Result<(Header, Samples, Used), String> {
+    render_frame_profiled(view, p, zone, gpu_f64, &mut BuildTimings::default())
+}
+
+pub(crate) fn render_frame_profiled(
+    view: &View,
+    p: &Params,
+    zone: Option<&Zone>,
+    gpu_f64: bool,
+    builds: &mut BuildTimings,
+) -> Result<(Header, Samples, Used), String> {
     if let Some(z) = zone {
         if zone_covers(view, p, z)? {
             if gpu_f64 {
                 match crate::zone_gpu::render(view, p, z) {
-                    Ok((h, s)) => return Ok((h, s, Used::Zone)),
+                    Ok((h, s)) => return Ok((h, s, Used::ZoneGpu)),
                     Err(e) => {
                         eprintln!("fd film: FP64 Vulkan zone unavailable ({e}); using CPU zone")
                     }
                 }
             }
             let (h, s, _, _) = render_zone(view, p, z)?;
-            return Ok((h, s, Used::Zone));
+            let used = if h.kernel.starts_with("zone-mid-") {
+                Used::Mid
+            } else {
+                Used::Zone
+            };
+            return Ok((h, s, used));
         }
     }
+    let t = Instant::now();
     let (orbit, bits) = fd_kernel::reference(view, p)?;
+    let key = BuildTimings::reference_key(view, p, bits);
+    builds.reference(&key, t.elapsed().as_secs_f64());
     if let Ok(dc) = bla_dc_max(view, p) {
+        let t = Instant::now();
         let table = Bla::build(&orbit, EPS, dc)?;
+        builds.bla(&key, dc, t.elapsed().as_secs_f64());
         if !table.levels.is_empty() {
             let (h, s, _, _) = render_bla(view, p, (orbit, bits), &table)?;
             return Ok((h, s, Used::Bla));
         }
     }
     let (h, s, _) = render_with(view, p, Some((orbit, bits)))?;
-    Ok((h, s, Used::Plain))
+    let used = if h.kernel.contains("scaled") {
+        Used::Scaled
+    } else {
+        Used::Plain
+    };
+    Ok((h, s, used))
 }
 
 #[derive(Default)]
 struct Report {
     frames: [usize; 3],
+    route_frames: [usize; 6],
+    output_frames: [usize; 6],
+    route_seconds: [f64; 6],
+    builds: BuildTimings,
     seconds: [f64; 3],
     shade: f64,
     gpu_device: Option<String>,
@@ -1031,7 +1143,9 @@ struct Report {
 
 impl Report {
     fn add(&mut self, used: Used, secs: f64) {
-        let k = used as usize;
+        self.route_frames[used as usize] += 1;
+        self.route_seconds[used as usize] += secs;
+        let k = used.legacy();
         self.frames[k] += 1;
         self.seconds[k] += secs;
     }
@@ -1049,8 +1163,32 @@ impl Report {
             0.0
         };
         let render = self.seconds.iter().sum::<f64>();
+        let routes = Used::ALL
+            .iter()
+            .map(|&route| {
+                let k = route as usize;
+                format!(
+                    "{}:{{\"frames\":{},\"kernel_frames\":{},\"seconds\":{}}}",
+                    crate::bench::q(route.name()),
+                    self.output_frames[k],
+                    self.route_frames[k],
+                    self.route_seconds[k]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let b = &self.builds;
+        let stages = format!(
+            "\"routes\":{{{routes}}},\"route_frame_basis\":\"outer keyframe for keyframe films; actual kernel for direct films\",\"reference_seconds\":{},\"bla_build_seconds\":{},\"reference_builds\":{{\"total\":{},\"repeated\":{}}},\"bla_builds\":{{\"total\":{},\"repeated\":{}}},",
+            b.reference_seconds,
+            b.bla_seconds,
+            b.reference_builds,
+            b.repeated_references,
+            b.bla_builds,
+            b.repeated_blas
+        );
         format!(
-            "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
+            "{{\"schema\":\"fd-film/1\",{stages}\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
              \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
@@ -1064,7 +1202,10 @@ impl Report {
             self.seconds[2],
             self.shade,
             self.shade / n as f64,
-            self.gpu_device.as_deref().map(crate::bench::q).unwrap_or_else(|| "null".into()),
+            self.gpu_device
+                .as_deref()
+                .map(crate::bench::q)
+                .unwrap_or_else(|| "null".into()),
             self.keyframe_prepare,
             self.keyframe_sample_shade,
             self.keyframe_resample,
@@ -1130,8 +1271,10 @@ mod tests {
         };
         assert_eq!(at(0), (0.2, -0.1));
         assert_eq!(at(100), (0.0, 0.0));
-        assert!((1..=100)
-            .all(|i| at(i).0.abs() <= at(i - 1).0.abs() && at(i).1.abs() <= at(i - 1).1.abs()));
+        assert!(
+            (1..=100)
+                .all(|i| at(i).0.abs() <= at(i - 1).0.abs() && at(i).1.abs() <= at(i - 1).1.abs())
+        );
     }
 
     #[test]
