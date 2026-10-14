@@ -12,6 +12,7 @@ publish = false
 cubecl = { version = "=0.11.0", default-features = false, features = ["std", "wgpu-spirv"] }
 wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "wgsl"] }
 naga = { version = "=30.0.0", features = ["wgsl-in"] }
+ash = "=0.38.0"
 
 [dependencies.fd-kernel]
 path = "../../../crates/fd-kernel"
@@ -27,3 +28,11 @@ incremental = false
 [profile.release]
 debug = 0
 codegen-units = 1
+
+# CPU-zone input capture is a production reference, not an unoptimised rival.
+[profile.dev.package.fd-kernel]
+opt-level = 3
+
+# Do not score source routes against debug-mode host transport/gate overhead.
+[profile.dev.package.gpu-route-probe]
+opt-level = 3

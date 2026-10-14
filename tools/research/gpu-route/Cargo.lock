@@ -1845,6 +1845,7 @@ dependencies = [
 name = "gpu-route-probe"
 version = "0.1.0"
 dependencies = [
+ "ash",
  "cubecl",
  "fd-kernel",
  "fd-samples",

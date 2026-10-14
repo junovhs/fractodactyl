@@ -1,5 +1,11 @@
 //! GPU-12 prerequisite checks. No film render or large dispatch is implicit.
 use cubecl::{Device, device::WgpuDeviceKind, prelude::*};
+mod ash_finish;
+mod columns;
+mod encoding;
+mod frame;
+mod mixed;
+mod wgsl;
 
 /// The same scalar recurrence is callable as ordinary Rust and compiled by CubeCL.
 /// This is a bounded synthetic smoke check, not a measured zone-frame result.
@@ -37,8 +43,7 @@ fn smoke_kernel<F: Float>(input: &[F], output: &mut [F]) {
     }
 }
 
-/// Actual plain finish recurrence, shared by CPU and GPU. GPU batches below are
-/// bounded to eight real checkpoints; no full-frame launch is implied.
+/// Actual plain finish recurrence, shared by CPU and GPU.
 #[cube]
 fn finish_loop<F: Float>(
     mut zr: F,
@@ -70,27 +75,51 @@ fn finish_loop<F: Float>(
 }
 
 #[cube(launch_unchecked)]
-fn finish_kernel<F: Float>(input: &[F], iterations: &[u32], output: &mut [F], words: &mut [u32]) {
-    if ABSOLUTE_POS < 8 {
-        let at = ABSOLUTE_POS * 7;
-        let (zr, zi, dr, di, n, escaped) = finish_loop::<F>(
-            input[at],
-            input[at + 1],
-            input[at + 2],
-            input[at + 3],
-            input[at + 4],
-            input[at + 5],
-            iterations[ABSOLUTE_POS],
-            20_000u32,
-            input[at + 6],
-        );
-        let out = ABSOLUTE_POS * 4;
-        output[out] = zr;
-        output[out + 1] = zi;
-        output[out + 2] = dr;
-        output[out + 3] = di;
-        words[ABSOLUTE_POS * 2] = n;
-        words[ABSOLUTE_POS * 2 + 1] = if escaped { 0u32 } else { 2u32 };
+fn finish_kernel(
+    input: &[f64],
+    iterations: &[u32],
+    output: &mut [f64],
+    de_out: &mut [f32],
+    words: &mut [u32],
+    camera: &[f64],
+    #[comptime] mixed: bool,
+) {
+    if ABSOLUTE_POS < iterations.len() {
+        let at = ABSOLUTE_POS * 4;
+        let (zr, zi, dr, di, n, escaped) = if mixed {
+            mixed::finish(
+                input[at],
+                input[at + 1],
+                input[at + 2],
+                input[at + 3],
+                camera[3],
+                camera[4],
+                iterations[ABSOLUTE_POS],
+                camera[5],
+                camera[0],
+                true,
+            )
+        } else {
+            finish_loop::<f64>(
+                input[at],
+                input[at + 1],
+                input[at + 2],
+                input[at + 3],
+                camera[3],
+                camera[4],
+                iterations[ABSOLUTE_POS],
+                20_000u32,
+                camera[5],
+            )
+        };
+        let (nu, de, angle) = if escaped {
+            encoding::encode(zr, zi, dr, di, n, camera[0], camera[1], camera[2])
+        } else {
+            (0.0f64, 0.0f64, 0.0f64)
+        };
+        output[ABSOLUTE_POS] = nu;
+        de_out[ABSOLUTE_POS] = de as f32;
+        words[ABSOLUTE_POS] = encoding::packed_word(angle, escaped);
     }
 }
 
@@ -267,118 +296,6 @@ fn capture() -> Result<(), String> {
     Ok(())
 }
 
-fn zone_smoke() -> Result<(), String> {
-    use fd_samples::{Column, ColumnSet, View};
-    let zone = fd_kernel::Zone::parse(include_str!("../../../../bench/zones/v0-core.zone"))?;
-    let p = fd_kernel::Params {
-        nx: 16,
-        ny: 9,
-        ss: 1,
-        max_iter: 20_000,
-        escape_radius: 1e10,
-        columns: ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-        threads: 1,
-        tier: None,
-    };
-    let view = View {
-        center_re: "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502".into(),
-        center_im: "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922".into(),
-        width: "1e-40".into(), rotation: 0.0,
-    };
-    let (_, samples, states, c) = zone.probe_finish_inputs(&view, &p)?;
-    let picked = states
-        .iter()
-        .enumerate()
-        .filter_map(|(index, state)| state.map(|s| (index, s)))
-        .take(8)
-        .collect::<Vec<_>>();
-    if picked.len() != 8 {
-        return Err("expected eight real landing states".into());
-    }
-    let client = f64_client()?;
-    let mut input = Vec::new();
-    let mut iterations = Vec::new();
-    let mut expected = Vec::new();
-    let mut expected_words = Vec::new();
-    for &(index, state) in &picked {
-        let n = u32::try_from(state.iteration).map_err(|_| "checkpoint iteration overflow")?;
-        let (zr, zi, dr, di, end, escaped) = finish_loop::<f64>(
-            state.z[0],
-            state.z[1],
-            state.derivative[0],
-            state.derivative[1],
-            c[0],
-            c[1],
-            n,
-            20_000u32,
-            1e20,
-        );
-        let class = if escaped { 0u32 } else { 2u32 };
-        let want = samples.class[index].kind();
-        if (escaped && want != Some(fd_samples::Kind::Escaped))
-            || (!escaped && want != Some(fd_samples::Kind::Unresolved))
-        {
-            return Err(format!(
-                "native finish class disagrees with CPU-zone reference at sample {index}"
-            ));
-        }
-        if escaped {
-            let nu = end as f64 + 1.0 - (0.5 * (zr * zr + zi * zi).log2()).log2();
-            if nu.to_bits() != samples.nu.as_ref().unwrap()[index].to_bits() {
-                return Err("native finish changes reference nu".into());
-            }
-        }
-        input.extend([
-            state.z[0],
-            state.z[1],
-            state.derivative[0],
-            state.derivative[1],
-            c[0],
-            c[1],
-            1e20,
-        ]);
-        iterations.push(n);
-        expected.extend([zr, zi, dr, di]);
-        expected_words.extend([end, class]);
-    }
-    let input = client.create_from_slice(f64::as_bytes(&input));
-    let iterations = client.create_from_slice(u32::as_bytes(&iterations));
-    let output = client.empty(32 * size_of::<f64>());
-    let words = client.empty(16 * size_of::<u32>());
-    unsafe {
-        finish_kernel::launch_unchecked::<f64>(
-            &client,
-            CubeCount::Static(1, 1, 1),
-            CubeDim::new_1d(8),
-            BufferArg::from_raw_parts(input, 56),
-            BufferArg::from_raw_parts(iterations, 8),
-            BufferArg::from_raw_parts(output.clone(), 32),
-            BufferArg::from_raw_parts(words.clone(), 16),
-        );
-    }
-    let result = client
-        .read_one(output)
-        .map_err(|e| format!("GPU read: {e:?}"))?;
-    let result = f64::from_bytes(&result);
-    let result_words = client
-        .read_one(words)
-        .map_err(|e| format!("GPU read: {e:?}"))?;
-    let result_words = u32::from_bytes(&result_words);
-    let relative = result
-        .iter()
-        .zip(&expected)
-        .map(|(a, b)| (a - b).abs() / b.abs().max(1.0))
-        .fold(0.0f64, f64::max);
-    if result_words != expected_words || result.iter().any(|x| !x.is_finite()) || relative > 1e-10 {
-        return Err(format!(
-            "real checkpoint smoke failed: relative={relative:e}, words={result_words:?}, expected={expected_words:?}"
-        ));
-    }
-    println!("real_finish_smoke=PASS samples=8 max_relative_terminal_difference={relative:e}");
-    println!("whole_frame_column_parity=UNMEASURED route_verdict=PENDING");
-    Ok(())
-}
-
 fn main() {
     // The runtime smoke is deliberately tiny; cut off even driver setup hangs.
     let (done, finished) = std::sync::mpsc::channel::<()>();
@@ -391,12 +308,26 @@ fn main() {
             std::process::exit(124);
         }
     });
-    let result = match std::env::args().nth(1).as_deref() {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    let result = match args.first().map(String::as_str) {
         Some("capabilities") => capabilities(),
         Some("smoke") => smoke(),
         Some("capture") => capture(),
-        Some("zone-smoke") => zone_smoke(),
-        _ => Err("usage: gpu-route-probe capabilities|smoke|capture|zone-smoke (smoke: 8x8; zone-smoke: 8 samples, <=20000 iterations each)".into()),
+        Some("zone-smoke") => columns::smoke(),
+        Some("capture-frame") | Some("frame") | Some("capture-grid") | Some("grid") => {
+            (|| {
+                let width = args.get(1).ok_or("specify a listed width")?;
+                let small = args[0].ends_with("grid");
+                let nx = if small {args.get(2).ok_or("specify nx")?.parse::<u32>().map_err(|e| e.to_string())?} else {1920};
+                let ny = if small {args.get(3).ok_or("specify ny")?.parse::<u32>().map_err(|e| e.to_string())?} else {1080};
+                if args[0].starts_with("capture") { frame::capture(width, nx, ny) }
+                else {
+                    let at = if small {4} else {2};
+                    frame::run(width, nx, ny, args.get(at).map(String::as_str), args.get(at+1).map(String::as_str))
+                }
+            })()
+        }
+        _ => Err("usage: gpu-route-probe capabilities|smoke|capture|zone-smoke (smoke: 8x8; zone-smoke: six 16x9 grids plus rotation, <=20000 iterations each)".into()),
     };
     let _ = done.send(());
     if let Err(e) = result {
