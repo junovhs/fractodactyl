@@ -30,6 +30,44 @@ jobs:
       - name: clippy + tests
         run: JOBS=4 bash scripts/check.sh
 
+  # DEC-27: Windows and Linux are first-class landing targets. Both check
+  # jobs must pass fmt, check, clippy (warnings denied), and workspace tests.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: 1
+      CMAKE_BUILD_PARALLEL_LEVEL: 1
+      RUST_TEST_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy, rustfmt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: FFmpeg 8.1.2 (fd film tests encode and decode)
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'ffmpeg-8.1.2.zip'
+          $directory = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          Invoke-WebRequest 'https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip' -OutFile $archive
+          $expected = 'db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec'
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+            throw 'FFmpeg archive checksum mismatch'
+          }
+          Expand-Archive $archive -DestinationPath $directory
+          Join-Path $directory 'ffmpeg-8.1.2-essentials_build\bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: cargo check
+        run: cargo check --workspace --all-targets --locked --jobs 1
+      - name: clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets --locked --jobs 1 -- -D warnings
+      - name: workspace tests
+        run: cargo test --workspace --locked --jobs 1 -- --test-threads=1
+
   locations:
     needs: check
     runs-on: ubuntu-latest
