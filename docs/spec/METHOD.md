@@ -2009,3 +2009,155 @@ Film wall time is 182 s against 150 s. The remainder is CPU prepare (~57 s)
 and sample shading (~56 s), which this gate leaves on the CPU (GPU-06 shading
 is `--gpu on`). The smallest repro first was frames 270..310 of the same
 film: PASS on all 40 frames, keyframe seconds 4.25 against 1.17.
+
+### GPU-12: source-route prerequisites (2026-10-13; comparison incomplete)
+
+The Foundation plan remains active. This is preparatory evidence for GPU-12,
+not a SHARED-SOURCE/WGSL verdict. The RTX 3050 Ti work laptop is unavailable
+until the owner returns to it tomorrow; the existing Windows CPU test VM is
+not a substitute for that GPU.
+
+The standalone `tools/research/gpu-route` crate pins Rust 1.95.0, CubeCL 0.11.0,
+wgpu 30.0.1 and Naga 30.0.0. CubeCL's `#[cube]` preserves a scalar Rust function
+callable on the CPU and compiles that same body for its wgpu SPIR-V backend.
+The recurrence copies in this scratch probe are temporary research copies under
+DEC-24 rule 4; no product renderer or shader was ported.
+
+A feature-gated `Zone::probe_finish_inputs` captures actual landing checkpoints
+from the existing production return/approach/jump pipeline and its exact sample
+columns in one single-worker pass. Product builds do not enable this research
+API. The original pixel pipeline retains its arithmetic; the ordinary call
+supplies an inlined no-op capture hook.
+
+| Check on RX 5700 XT / RADV Mesa 25.1.5 | Result |
+| --- | --- |
+| wgpu hardware capabilities, no dispatch | `SHADER_F64=true`, `SUBGROUP=true` |
+| Live native f64 WGSL storage/arithmetic pipeline creation | Accepted by pinned Naga/wgpu/Vulkan, no dispatch |
+| Shared Rust synthetic recurrence, eight samples x eight iterations | Pass; maximum absolute terminal difference 5.55e-16 |
+| Shared Rust finish recurrence, eight real CPU-zone checkpoints at width 1e-40 | Pass; identical terminal iteration/class; maximum relative terminal difference 6.41e-11 |
+| CPU checkpoint capture at 16x9, widths 1e-37, 1e-40, 1e-43, 1e-46, 2e-48, 2e-49 | Class, nu, DE and normal columns byte-identical to ordinary CPU zone at every width; 144,144,144,144,144,125 captured finish inputs |
+| Capture regression including rotation 0.4 at 1e-40 | Pass on three tiny grids |
+| Unmodified product configuration `cargo test --locked -p fd-kernel --lib --jobs 1 -- --test-threads=1` | 44 passed, exit 0 |
+
+Native f64 WGSL eligibility must be checked by actual pipeline creation:
+[wgpu documentation](https://docs.rs/wgpu/30.0.1/wgpu/struct.Features.html#associatedconstant.SHADER_F64)
+describes f64 in SPIR-V, and [CubeCL's matrix](https://github.com/tracel-ai/cubecl/blob/v0.11.0/cubecl-book/src/core-features/features.md)
+marks WGSL f64 unavailable, but this pinned implementation accepts the live
+pipeline on Vulkan. Parser acceptance alone would not establish that. This
+native extension does not establish standard WebGPU/macOS portability.
+
+**Resource limits and evidence:** About 47 GiB host RAM was available with
+zero swap use before work; the GPU reported 1% busy with about 1.52 GiB of its
+7.98 GiB VRAM used before smoke dispatches. Builds/checks ran serially through
+Ishoo, with `MemoryMax=4G`, `MemorySwapMax=0`, `CPUQuota=100%`, Cargo/libtest
+workers=1, `TasksMax=128`, and `RuntimeMaxSec=180`. The scratch commands also
+have a 30-second runtime cutoff. Cold builds hit the time cap twice and resumed
+from completed dependency cache without raising those limits. No film render
+or full-resolution GPU benchmark was launched. Jobs 87/94 (capture regression),
+91 (capabilities), 92 (synthetic smoke), 93 (real checkpoint smoke), 95 (six-depth
+capture) and 96 (product kernel tests) exited 0. The initial default-toolchain
+check failed because Rust 1.91.1 is too old; pinned 1.95.0 is already installed.
+An initial capability check incorrectly treated parser acceptance as an error;
+it was replaced with the live validated pipeline check above.
+
+**Still required:** complete finish output encoding and guarded-f32 variant,
+hand-written WGSL and existing ash/GLSL finish arms fed the same checkpoints,
+whole-frame class/nu/DE/normal gates at the planned depths, dispatch and
+end-to-end medians of three, and the RTX 3050 Ti Windows rows. Terminal-state
+smokes are not the strict pixel-displacement/column gate. No source route has
+been chosen, no performance win claimed, and GPU-12 is not ready to land.
+
+### GPU-12: identical-checkpoint finish/encoding gate (2026-10-14; verdict pending)
+
+`gpu-route-probe zone-smoke` now exercises all three binary64 source routes on
+RX 5700 XT / RADV, plus the original ash guarded-f32 finish. Each arm receives
+the same captured production landing states: all finish inputs on seven 16x9
+views (widths 1e-37, 1e-40, 1e-43, 1e-46, 2e-48, 2e-49, and 1e-40 rotated by
+0.4 radians). There are 989 finish inputs per arm; the other 19 pixels at 2e-49
+resolve before the finish and are outside this stage's comparison.
+
+The shared Rust arm now compiles the recurrence and binary64 output encoder
+(log/atan polynomial reductions) for CPU and CubeCL/wgpu SPIR-V. WGSL implements
+the same finish and encoder by hand. These are temporary research counterparts
+under DEC-24 rule 4. The ash arm compiles the **original** `zone_f64.comp` with
+only `main` replaced by a checkpoint entry point; its finish, guarded-f32 tail
+and output encoding are unchanged. It uses the already-built product `glslc`
+through `FD_GPU_ROUTE_GLSLC`, avoiding a new shaderc build.
+
+| Arm | Maximum displacement vs CPU zone (px) | Class / displacement / gated DE / gated normal failures | Boundary DE / normal over tolerance | Terminal iteration changes |
+| --- | ---: | --- | --- | --- |
+| Shared Rust CPU binary64 recurrence/encoder | 1.17e-16 | 0 / 0 / 0 / 0 | 0 / 0 | 0 |
+| Shared Rust through CubeCL/wgpu SPIR-V, binary64 | 6.07e-10 | 0 / 0 / 0 / 0 | 4 / 3 | 2 |
+| Hand-written WGSL through wgpu, binary64 | 6.37e-10 | 0 / 0 / 0 / 0 | 5 / 5 | 1 |
+| Existing ash/GLSL finish, binary64 | 6.37e-10 | 0 / 0 / 0 / 0 | 5 / 5 | Unavailable from original shader |
+| Existing ash/GLSL guarded-f32 finish | 1.67e-6 | 0 / 0 / 0 / 0 | 58 / 45 | Unavailable from original shader |
+
+No non-finite output was observed. The gate follows `fd compare` (GATE-02):
+class must agree and displacement must be <=1e-3 px for every escaped sample;
+DE relative error must be <=0.2% and normal error <=0.2 degrees where reference
+DE exceeds 1e-3 px. Near-boundary DE/normal differences remain in the printed
+rows and table; escape-count changes are diagnostic. The first expanded check
+incorrectly gated escape count and boundary DE/normal too, failing at 1e-46.
+Reading the actual comparison surface corrected that gate, without a waiver or
+change to the production contract. The four column-gate regression tests cover
+class/displacement/non-finite failures, boundary reporting, negative/zero DE,
+truncated buffers and wrapped normal angles.
+
+**Eligibility finding:** the native f64 encoder needs `SHADER_INT64` in addition
+to `SHADER_F64`. CubeCL extracts a binary64 exponent through its bits. Pinned
+Naga's f64 `frexp` produces an i64 exponent and rejects the pipeline without the
+explicit integer feature. A cross-width f64-to-u32-vector WGSL bitcast was also
+rejected by this frontend; using `frexp` with the required feature passed. This
+remains a native Vulkan experiment, not an f32-only or portable WebGPU claim.
+
+**Evidence and resource limits:** final three-arm-plus-mixed `zone-smoke` job 111
+passed (exit 0; build 2.09 s). Final job 112 passed all six scratch unit tests (four
+column-gate and two log/atan edge/range tests), exit 0; build 1.49 s. Checks remained serial,
+with one CPU, 4 GiB RAM, zero swap, one Cargo/libtest worker, 180-second OS cutoff
+and 30-second probe-runtime cutoff. Before dispatch, about 46 GiB host memory
+was available, swap use was zero, and the RX 5700 XT was 6% busy with 1.50 GB of
+8.57 GB VRAM used. No film or full-resolution benchmark was launched.
+
+**Still required:** shared Rust and WGSL guarded-f32 variants; identical packed
+output layouts (these two arms still return diagnostic terminal state and
+nu/DE/angle with host normal quantisation, while ash writes the original packed
+columns); GPU dispatch and complete-frame medians of three; every-pixel 1080p
+checks at the planned depths; and the RTX 3050 Ti Windows rows. Different output
+layouts have not been timed as equal finished kernels. Verdict: **PENDING**.
+No route is promoted and GPU-12 is not ready to land.
+
+### GPU-15: runnable route harness and Linux 1080p matrix (2026-10-14)
+
+GPU-15 lands the independently runnable infrastructure; GPU-12 retains the two-device verdict. All three GPU source arms now implement binary64 and the existing guarded-f32 tail, preserve the exact binary64 restart checkpoint, use subgroup-uniform hand-over, and emit identical 16-byte packed output columns. Ten targeted tests cover gates, log/atan range and octants, normal packing/invalid signals, grid bounds, and rejected-tail restart. The CPU capture hook remains feature-gated and absent from product builds.
+
+Inputs were captured once per depth from production CPU-zone stages at 1920x1080 and reused from source-tree-bound external caches. All six grids total 12,441,600 pixels per arm; 12,169,808 enter the isolated finish, while 271,792 resolve before it and keep the shared CPU result. This compares the finish stage only. No film was rendered.
+
+After a discarded warm-up, each row uses three GPU timestamp measurements and three separate unprofiled wall-clock measurements. The whole-finish-frame interval includes buffer allocation, upload, dispatch and encoded-column readback; it excludes frozen-input capture, parity comparison, diagnostic decoding and every later film stage. The direct ash scratch host uses coherent mapped storage, whereas wgpu/CubeCL use their own transport; these are complete arm implementations, not a claim that source language alone explains wall-time differences.
+
+Binary64 results (dispatch / whole finish frame, ms; median of three):
+
+| Width | Shared Rust/CubeCL | Hand-written WGSL/wgpu | Original ash/GLSL | Parity |
+| --- | ---: | ---: | ---: | --- |
+| 1e-37 | 35.822 / 188.992 | 36.467 / 56.355 | 54.895 / 209.069 | All PASS |
+| 1e-40 | 22.557 / 180.209 | 20.825 / 37.426 | 34.147 / 191.217 | All PASS |
+| 1e-43 | 34.478 / 190.772 | 32.515 / 48.685 | 48.777 / 232.286 | All PASS |
+| 1e-46 | 38.184 / 196.195 | 34.055 / 58.047 | 51.715 / 253.822 | All PASS |
+| 2e-48 | 39.428 / 194.390 | 36.811 / 54.889 | 61.871 / 240.733 | All PASS |
+| 2e-49 | 37.507 / 172.975 | 33.765 / 51.831 | 62.075 / 215.958 | All PASS |
+
+All binary64 rows have zero class/displacement/gated-DE/gated-normal failures and no non-finite output. Worst displacement across all binary64 rows is 2.42e-5 px, below 1e-3 px. Near-boundary secondary differences remain reported.
+
+Guarded-f32 results are **ineligible** at every depth. Every arm passes displacement but fails DE/normal outside the boundary band; at 2e-49 it also changes six classes. This includes the untouched original ash guard, not just the ports. The old guard controls position error and does not establish all-column parity at this stricter bar.
+
+| Width | Shared DE / normal failures | WGSL and ash DE / normal failures | Class mismatches per arm | Worst mixed displacement (px) |
+| --- | --- | --- | ---: | ---: |
+| 1e-37 | 159 / 18 | 159 / 18 | 0 | 4.170e-4 |
+| 1e-40 | 198 / 32 | 198 / 32 | 0 | 3.037e-4 |
+| 1e-43 | 199 / 35 | 197 / 35 | 0 | 5.101e-4 |
+| 1e-46 | 299 / 46 | 302 / 47 | 0 | 6.040e-4 |
+| 2e-48 | 449 / 53 | 448 / 52 | 0 | 4.563e-4 |
+| 2e-49 | 385 / 76 | 386 / 76 | 6 | 6.480e-4 |
+
+Do not promote mixed precision from this probe. CubeCL's binary64 compute pass is within 1.13x of WGSL here, but its current client/transport makes the whole finish stage 3.3–4.9x slower. That is a Linux finding about this implementation, not a two-device source-route verdict. Investigate shared-source host transport before discarding the compiler route; the Windows laptop rows are still required by GPU-12.
+
+Evidence: source snapshot tree 1390685c41f516d9d53c064ed05e6dc1b9e2c66a, capture/check jobs 127–168 (36 measured rows plus six captures), all experiment commands exit 0. Candidate parity is stated in each row, independently of command completion. The six native source/precision rows at 64x36 first passed in job 122. Serial resource limits stayed at one CPU, one Cargo/libtest worker, 4 GiB RAM, zero swap, 180-second OS/build cap and 30-second runtime cap per invocation; host RAM available about 46 GiB and GPU about 2% busy before 1080p checks. No larger benchmark or tolerance waiver was used. GPU-12 remains pending Windows and final route selection; GPU-15 supplies the runnable harness and this negative/positive Linux evidence.
