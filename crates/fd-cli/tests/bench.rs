@@ -50,12 +50,18 @@ fn reports_baseline_metrics() {
         "\"atlas\":\"none\"",
         "\"kernel\":\"pert-f64/1\"",
         "\"warm_statistic\":\"median\"",
-        "\"peak_rss_scope\":\"run\"",
         "\"deterministic\":true",
         "\"oracle\":null",
         "\"ok\":true",
     ] {
         assert!(json.contains(s), "missing {s} in {json}");
+    }
+    if cfg!(target_os = "linux") {
+        assert!(json.contains("\"peak_rss_scope\":\"run\""), "{json}");
+        assert!(num(json, "peak_rss_bytes") > 0.0);
+    } else {
+        assert!(json.contains("\"peak_rss_scope\":\"process\""), "{json}");
+        assert!(json.contains("\"peak_rss_bytes\":null"), "{json}");
     }
     assert!(num(json, "cold_seconds") > 0.0 && num(json, "warm_seconds") > 0.0);
     assert_eq!(num(json, "pixels"), 32.0 * 18.0);

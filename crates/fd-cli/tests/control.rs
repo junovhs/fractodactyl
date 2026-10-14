@@ -80,7 +80,6 @@ fn renders_every_frame_independently() {
             "\"run\":1,\"state\":\"cold\"",
             "\"run\":2,\"state\":\"repeat\"",
             "\"warm_seconds\":null,\"warm_statistic\":null",
-            "\"peak_rss_scope\":\"run\"",
             "\"atlas\":\"none\",\"cross_frame_reuse\":false",
             "\"atlas_bytes_read\":0",
             "\"tiles_touched\":0",
@@ -91,7 +90,14 @@ fn renders_every_frame_independently() {
             assert!(rec.contains(s), "missing {s} in {rec}");
         }
         assert!(num(rec, "cold_seconds") > 0.0 && num(rec, "precision_bits") >= 53.0);
-        assert!(num(rec, "peak_rss_bytes") > 0.0 && num(rec, "sample_bytes") > 0.0);
+        if cfg!(target_os = "linux") {
+            assert!(rec.contains("\"peak_rss_scope\":\"run\""), "{rec}");
+            assert!(num(rec, "peak_rss_bytes") > 0.0);
+        } else {
+            assert!(rec.contains("\"peak_rss_scope\":\"process\""), "{rec}");
+            assert!(rec.contains("\"peak_rss_bytes\":null"), "{rec}");
+        }
+        assert!(num(rec, "sample_bytes") > 0.0);
         assert_eq!(num(rec, "pixel_fraction"), 1.0);
         let classes = num(rec, "escaped") + num(rec, "interior") + num(rec, "unresolved");
         assert_eq!(classes, 24.0 * 12.0);

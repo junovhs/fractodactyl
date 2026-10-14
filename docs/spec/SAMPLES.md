@@ -250,6 +250,8 @@ run's samples are already freed (only run 1's encoded bytes are kept, for the
 determinism check). `memory.peak_rss_scope` is `run` when the reset worked, else
 `process` (high-water mark since process start). A reset sets the mark to the current
 RSS, so it still includes memory the allocator retained from earlier runs and frames.
+Peak RSS is measured only on Linux; other platforms report `peak_rss_bytes: null`
+and `peak_rss_scope: "process"` because neither measurement nor reset is available.
 
 ## Command surface
 
