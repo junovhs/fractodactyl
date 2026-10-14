@@ -2204,3 +2204,42 @@ All experiments passed the existing parity gate, and every command exited 0
 within its 30-second runtime cap. Three GPU timestamp runs and three separate
 unprofiled wall runs per row, one CPU/Cargo worker, 4 GiB RAM, zero swap and the
 180-second OS cap remained in force. No benchmark film or full path was run.
+
+### GPU-18: corrected six-depth Linux matrix (2026-10-14)
+
+This rescores shared Rust/CubeCL and native WGSL binary64 after GPU-16's typed
+upload fix, on all six 1920x1080 grids. Each depth uses one captured input set
+for both arms. Values are medians of three GPU-timestamp runs and three separate
+unprofiled whole-stage runs; warm-up is excluded. Capture, comparison, shading
+and film encoding are excluded from whole-stage time.
+
+| Width | Shared GPU dispatch (ms) | WGSL GPU dispatch (ms) | Shared whole stage (ms) | WGSL whole stage (ms) | Shared / WGSL whole stage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1e-37 | 35.425 | 33.364 | 104.736 | 55.985 | 1.87x |
+| 1e-40 | 22.188 | 20.633 | 90.639 | 45.329 | 2.00x |
+| 1e-43 | 35.686 | 32.214 | 113.190 | 54.099 | 2.09x |
+| 1e-46 | 36.240 | 34.035 | 117.507 | 57.454 | 2.05x |
+| 2e-48 | 39.331 | 41.234 | 112.848 | 61.277 | 1.84x |
+| 2e-49 | 37.160 | 37.134 | 108.748 | 48.354 | 2.25x |
+
+All twelve rows pass: zero class, displacement, gated DE/normal or non-finite
+failures. Worst displacement is 2.42e-5 px, below the 1e-3 px bar. Each arm checks
+12,441,600 output pixels across the six depths; 12,169,808 are GPU finish inputs
+and 271,792 bypass the finish stage on CPU. DE/normal differences inside the
+reference's 1e-3-pixel boundary band remain reported separately by the established
+gate. This is parity under that gate, not byte-identical output.
+
+The corrected shared GPU dispatch is within 1.11x of WGSL at every depth (and
+slightly faster at 2e-48). Its complete stage still costs 1.84–2.25x WGSL, with
+CPU allocation/upload preparation about 29–33 ms. That replaces the original
+shared-client 3.3–4.9x excess as the current six-depth Linux comparison.
+The ash and mixed rows in GPU-15 retain their original measurement provenance;
+this update does not rescore them or rehabilitate failed mixed precision.
+No final source-route verdict is implied: GPU-12 still requires RTX 3050 Ti
+hardware parity and timings.
+
+Evidence: snapshot 94d8a9d98cc545f667c2dbbacda4bcae2ffd6496, source tree
+536ed33782806882fb6bedc03781d15d9cd20bec, jobs 200–217 (six captures, twelve
+measured rows). All commands exit 0. One CPU/Cargo/test worker, 4 GiB RAM, zero
+swap, a 180-second OS/build cap and a 30-second runtime cap remain unchanged.
+The host had about 47 GiB available RAM and the GPU was 2% busy before checks.
