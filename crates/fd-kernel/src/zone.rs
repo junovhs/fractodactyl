@@ -922,6 +922,20 @@ fn pixel<N: ZoneNumber, const D: bool>(
     r2: f64,
     st: &mut ZoneStats,
 ) -> (Outcome, u64) {
+    pixel_captured::<N, D, _>(k, v, max_iter, r2, st, &mut |_, _, _| {})
+}
+
+/// Research capture observes the production landing state before the finish.
+/// The ordinary renderer supplies an inlined no-op and retains the same arithmetic.
+#[inline]
+fn pixel_captured<N: ZoneNumber, const D: bool, C: FnMut(Cx, N, u64)>(
+    k: &Zone,
+    v: N,
+    max_iter: u64,
+    r2: f64,
+    st: &mut ZoneStats,
+    capture: &mut C,
+) -> (Outcome, u64) {
     let mut b = [N::default(); 8];
     let mut bv = [N::default(); 8];
     let (pv, ve) = powers(v, k.deg);
@@ -1001,6 +1015,7 @@ fn pixel<N: ZoneNumber, const D: bool>(
         work += 1;
     }
     // Stage 4: plain steps at C.
+    capture(z, du, n);
     let mut g = N::Orbit::from_number(du);
     loop {
         if n >= max_iter {
@@ -1751,5 +1766,117 @@ mod tests {
         let z = Zone::parse(&with_exact_lines(&broken)).unwrap();
         assert!(z.deep.is_some());
         assert!(v0().deep.is_none());
+    }
+}
+
+/// Landing checkpoint for the isolated GPU-12 research experiment.
+#[cfg(feature = "gpu-route-probe")]
+#[derive(Clone, Copy, Debug)]
+pub struct FinishCheckpoint {
+    pub z: [f64; 2],
+    pub derivative: [f64; 2],
+    pub iteration: u64,
+}
+
+#[cfg(feature = "gpu-route-probe")]
+impl Zone {
+    /// Capture actual production finish inputs and its reference output in one pass.
+    /// Limited to the ordinary-number deep-zone route used by GPU-02/GPU-12.
+    /// Research only: single worker, ss=1, at most one 1080p grid, never a mid zone.
+    pub fn probe_finish_inputs(
+        &self,
+        view: &View,
+        p: &Params,
+    ) -> Result<(Header, Samples, Vec<Option<FinishCheckpoint>>, [f64; 2]), String> {
+        let count = (p.nx as usize)
+            .checked_mul(p.ny as usize)
+            .ok_or("grid overflow")?;
+        if p.ss != 1 || p.nx == 0 || p.ny == 0 || count > 1920 * 1080 || p.max_iter > 20_000 {
+            return Err("GPU-12 capture needs ss=1, <=1080p and <=20000 iterations".into());
+        }
+        let (plane, tier) = setup(view, p)?;
+        let off = centre_offset(view, self, &plane)?;
+        if self.deep.is_some() || !self.f64_geometry(&plane) || !deep_covers(&plane, p, self, off) {
+            return Err("GPU-12 capture requires a covered ordinary-number deep zone".into());
+        }
+        let cols = p.columns.with(Column::Class);
+        if !cols.needs_derivative() || cols.has(Column::Bound) {
+            return Err("GPU-12 capture requires derivative columns, without bound".into());
+        }
+        let store = Store::new(&plane, 1);
+        let mut samples = Samples::alloc(count, cols);
+        let mut checkpoints = vec![None; count];
+        let mut stats = ZoneStats::default();
+        for mut row in Row::split(&mut samples, p.nx as usize) {
+            for i in 0..p.nx as usize {
+                let (ux, uy) = plane.unit_offset(i, row.j);
+                let v = Cx(
+                    off.absolute.0 + ux * plane.h(),
+                    off.absolute.1 + uy * plane.h(),
+                )
+                .scale(1.0 / self.scale.to_f64());
+                let slot = &mut checkpoints[row.j * p.nx as usize + i];
+                let (outcome, _) = pixel_captured::<Cx, true, _>(
+                    self,
+                    v,
+                    p.max_iter,
+                    p.escape_radius * p.escape_radius,
+                    &mut stats,
+                    &mut |z, derivative, iteration| {
+                        *slot = Some(FinishCheckpoint {
+                            z: [z.0, z.1],
+                            derivative: [derivative.0, derivative.1],
+                            iteration,
+                        });
+                    },
+                );
+                store.put(&mut row, i, outcome);
+            }
+        }
+        let mut h = header(view, p, cols, &plane, tier);
+        h.kernel = format!("zone-koenigs/1 P={}", self.period);
+        Ok((h, samples, checkpoints, [self.c.0, self.c.1]))
+    }
+}
+
+#[cfg(all(test, feature = "gpu-route-probe"))]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    fn captured_finish_inputs_preserve_zone_samples() {
+        let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
+        let p = Params {
+            nx: 16,
+            ny: 9,
+            ss: 1,
+            max_iter: 20_000,
+            escape_radius: 1e10,
+            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
+            threads: 1,
+            tier: None,
+        };
+        for (width, rotation) in [("1e-37", 0.0), ("1e-40", 0.4), ("2e-49", 0.0)] {
+            let view = View {
+                center_re: zone.c_re.clone(),
+                center_im: zone.c_im.clone(),
+                width: width.into(),
+                rotation,
+            };
+            let (header, samples, inputs, _) = zone.probe_finish_inputs(&view, &p).unwrap();
+            let (reference_header, reference, _, _) = render_zone(&view, &p, &zone).unwrap();
+            assert_eq!(header, reference_header);
+            assert_eq!(samples.class, reference.class);
+            assert_eq!(samples.nu, reference.nu);
+            assert_eq!(samples.de, reference.de);
+            assert_eq!(samples.normal, reference.normal);
+            assert_eq!(inputs.len(), samples.class.len());
+            assert!(inputs.iter().any(Option::is_some));
+            assert!(inputs.iter().flatten().all(|v| v
+                .z
+                .iter()
+                .chain(&v.derivative)
+                .all(|x| x.is_finite())));
+        }
     }
 }

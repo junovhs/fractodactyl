@@ -2009,3 +2009,60 @@ Film wall time is 182 s against 150 s. The remainder is CPU prepare (~57 s)
 and sample shading (~56 s), which this gate leaves on the CPU (GPU-06 shading
 is `--gpu on`). The smallest repro first was frames 270..310 of the same
 film: PASS on all 40 frames, keyframe seconds 4.25 against 1.17.
+
+### GPU-12: source-route prerequisites (2026-10-13; comparison incomplete)
+
+The Foundation plan remains active. This is preparatory evidence for GPU-12,
+not a SHARED-SOURCE/WGSL verdict. The RTX 3050 Ti work laptop is unavailable
+until the owner returns to it tomorrow; the existing Windows CPU test VM is
+not a substitute for that GPU.
+
+The standalone `tools/research/gpu-route` crate pins Rust 1.95.0, CubeCL 0.11.0,
+wgpu 30.0.1 and Naga 30.0.0. CubeCL's `#[cube]` preserves a scalar Rust function
+callable on the CPU and compiles that same body for its wgpu SPIR-V backend.
+The recurrence copies in this scratch probe are temporary research copies under
+DEC-24 rule 4; no product renderer or shader was ported.
+
+A feature-gated `Zone::probe_finish_inputs` captures actual landing checkpoints
+from the existing production return/approach/jump pipeline and its exact sample
+columns in one single-worker pass. Product builds do not enable this research
+API. The original pixel pipeline retains its arithmetic; the ordinary call
+supplies an inlined no-op capture hook.
+
+| Check on RX 5700 XT / RADV Mesa 25.1.5 | Result |
+| --- | --- |
+| wgpu hardware capabilities, no dispatch | `SHADER_F64=true`, `SUBGROUP=true` |
+| Live native f64 WGSL storage/arithmetic pipeline creation | Accepted by pinned Naga/wgpu/Vulkan, no dispatch |
+| Shared Rust synthetic recurrence, eight samples x eight iterations | Pass; maximum absolute terminal difference 5.55e-16 |
+| Shared Rust finish recurrence, eight real CPU-zone checkpoints at width 1e-40 | Pass; identical terminal iteration/class; maximum relative terminal difference 6.41e-11 |
+| CPU checkpoint capture at 16x9, widths 1e-37, 1e-40, 1e-43, 1e-46, 2e-48, 2e-49 | Class, nu, DE and normal columns byte-identical to ordinary CPU zone at every width; 144,144,144,144,144,125 captured finish inputs |
+| Capture regression including rotation 0.4 at 1e-40 | Pass on three tiny grids |
+| Unmodified product configuration `cargo test --locked -p fd-kernel --lib --jobs 1 -- --test-threads=1` | 44 passed, exit 0 |
+
+Native f64 WGSL eligibility must be checked by actual pipeline creation:
+[wgpu documentation](https://docs.rs/wgpu/30.0.1/wgpu/struct.Features.html#associatedconstant.SHADER_F64)
+describes f64 in SPIR-V, and [CubeCL's matrix](https://github.com/tracel-ai/cubecl/blob/v0.11.0/cubecl-book/src/core-features/features.md)
+marks WGSL f64 unavailable, but this pinned implementation accepts the live
+pipeline on Vulkan. Parser acceptance alone would not establish that. This
+native extension does not establish standard WebGPU/macOS portability.
+
+**Resource limits and evidence:** About 47 GiB host RAM was available with
+zero swap use before work; the GPU reported 1% busy with about 1.52 GiB of its
+7.98 GiB VRAM used before smoke dispatches. Builds/checks ran serially through
+Ishoo, with `MemoryMax=4G`, `MemorySwapMax=0`, `CPUQuota=100%`, Cargo/libtest
+workers=1, `TasksMax=128`, and `RuntimeMaxSec=180`. The scratch commands also
+have a 30-second runtime cutoff. Cold builds hit the time cap twice and resumed
+from completed dependency cache without raising those limits. No film render
+or full-resolution GPU benchmark was launched. Jobs 87/94 (capture regression),
+91 (capabilities), 92 (synthetic smoke), 93 (real checkpoint smoke), 95 (six-depth
+capture) and 96 (product kernel tests) exited 0. The initial default-toolchain
+check failed because Rust 1.91.1 is too old; pinned 1.95.0 is already installed.
+An initial capability check incorrectly treated parser acceptance as an error;
+it was replaced with the live validated pipeline check above.
+
+**Still required:** complete finish output encoding and guarded-f32 variant,
+hand-written WGSL and existing ash/GLSL finish arms fed the same checkpoints,
+whole-frame class/nu/DE/normal gates at the planned depths, dispatch and
+end-to-end medians of three, and the RTX 3050 Ti Windows rows. Terminal-state
+smokes are not the strict pixel-displacement/column gate. No source route has
+been chosen, no performance win claimed, and GPU-12 is not ready to land.

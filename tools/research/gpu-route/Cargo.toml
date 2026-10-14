@@ -1,0 +1,29 @@
+[package]
+name = "gpu-route-probe"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+# Scratch experiment: do not pull GPU compilation into the product workspace.
+[workspace]
+
+[dependencies]
+cubecl = { version = "=0.11.0", default-features = false, features = ["std", "wgpu-spirv"] }
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "wgsl"] }
+naga = { version = "=30.0.0", features = ["wgsl-in"] }
+
+[dependencies.fd-kernel]
+path = "../../../crates/fd-kernel"
+features = ["gpu-route-probe"]
+
+[dependencies.fd-samples]
+path = "../../../crates/fd-samples"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.release]
+debug = 0
+codegen-units = 1

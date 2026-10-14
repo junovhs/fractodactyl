@@ -36,3 +36,6 @@ pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};
 pub use zone::{render_zone, zone_covers, Zone, ZoneStats};
+
+#[cfg(feature = "gpu-route-probe")]
+pub use zone::FinishCheckpoint;
