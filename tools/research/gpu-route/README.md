@@ -51,6 +51,23 @@ the build cache outside the checkout; a cutoff is reported, not bypassed by
 raising the limits. Once built, run `gpu-route-probe capabilities`, then the
 other tiny commands serially. Check GPU availability before `smoke`.
 
+## Windows/Linux host prerequisite checks
+
+The `gpu-route-build` GitHub Actions workflow builds this standalone crate with
+Rust 1.95.0, runs its CPU tests, and captures a 64x36 checkpoint preview on
+Windows and Linux. It runs the OS jobs serially with one Cargo/test worker;
+build and capture files stay under the runner's temporary directory outside
+the checkout. Pushes changing the probe, its kernel dependencies or this
+workflow trigger it. Once landed, a manual run is available:
+
+```text
+gh workflow run gpu-route-build.yml --ref main
+```
+
+These hosted checks establish build and CPU-capture portability. GPU-12 still
+requires hardware parity and timing on the RX 5700 XT and RTX 3050 Ti. The
+workflow never dispatches a GPU kernel or scores a software adapter.
+
 ## GLSL baseline compiler
 
 `zone-smoke` needs `glslc` on PATH or `FD_GPU_ROUTE_GLSLC` pointing to an existing
