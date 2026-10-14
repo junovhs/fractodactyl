@@ -152,3 +152,26 @@ they are not independent per-component medians. GPU-16 switches this arm to
 `Client::create(Bytes::from_elems(...))` for typed owned inputs, avoiding the
 redundant slice clones and erased-byte alignment reallocation. Kernel maths,
 packed columns, GPU timestamps and parity thresholds are unchanged.
+
+## Corrected six-depth Linux comparison
+
+After the typed upload fix, all six 1080p binary64 shared/WGSL pairs pass the
+existing class/displacement/DE/normal gate (jobs 200–217, source tree
+536ed33782806882fb6bedc03781d15d9cd20bec). Timing uses separate GPU-timestamp
+and unprofiled wall medians of three, with warm-up excluded.
+
+| Width | Shared GPU dispatch (ms) | WGSL GPU dispatch (ms) | Shared whole stage (ms) | WGSL whole stage (ms) | Shared / WGSL whole stage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 1e-37 | 35.425 | 33.364 | 104.736 | 55.985 | 1.87x |
+| 1e-40 | 22.188 | 20.633 | 90.639 | 45.329 | 2.00x |
+| 1e-43 | 35.686 | 32.214 | 113.190 | 54.099 | 2.09x |
+| 1e-46 | 36.240 | 34.035 | 117.507 | 57.454 | 2.05x |
+| 2e-48 | 39.331 | 41.234 | 112.848 | 61.277 | 1.84x |
+| 2e-49 | 37.160 | 37.134 | 108.748 | 48.354 | 2.25x |
+
+The shared compute pass is within 1.11x of WGSL; its complete stage remains
+1.84–2.25x slower. These replace the original shared-client timings as the
+current Linux comparison. Full parity counts, boundary-band caveats and source
+provenance are in METHOD.md under GPU-18. The previous mixed precision failures
+remain disqualifying. The final GPU-12 route decision still needs the real
+RTX 3050 Ti hardware rows.
