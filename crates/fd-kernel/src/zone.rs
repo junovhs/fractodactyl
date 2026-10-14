@@ -1278,13 +1278,22 @@ mod tests {
 
     #[test]
     fn zone_pixel_render_bytes_are_unchanged() {
-        for (deep, zone, expected) in [
-            (false, v0(), [0x30499ad7f43278cd, 0xf17526a7d999103d]),
-            (
-                true,
-                as_deep(v0()),
+        // Frozen from 97c532c on each platform: old and shared kernels emit
+        // identical bytes locally, but Windows and Linux have different hashes.
+        let expected = if cfg!(target_os = "linux") {
+            [
+                [0x850c901dfbe62468, 0x988c23c5fc7ef3e3],
+                [0xb433623f669f6b7b, 0x242f075f9b9f3e99],
+            ]
+        } else {
+            [
+                [0x30499ad7f43278cd, 0xf17526a7d999103d],
                 [0x243149996becf305, 0x23b2b21cf0acb4e7],
-            ),
+            ]
+        };
+        for (deep, zone, expected) in [
+            (false, v0(), expected[0]),
+            (true, as_deep(v0()), expected[1]),
         ] {
             for (i, width) in ["1e-36", "2e-48"].into_iter().enumerate() {
                 let mut p = params(&[Column::Nu, Column::De, Column::Normal]);
