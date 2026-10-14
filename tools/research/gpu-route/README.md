@@ -86,8 +86,12 @@ this packed format; the report labels that diagnostic explicitly.
 
 ## Remaining comparison
 
-The harness is tracked independently as GPU-15. GPU-12 still needs the RTX 3050 Ti
-Windows results and the final source-route verdict. Linux 1080p results at all
+The harness is tracked independently as GPU-15. GPU-12 recorded the RTX 3050 Ti
+Windows rows and the verdict, **WGSL**: shared Rust/CubeCL is within 1.25x of the
+fastest arm on the 3050 Ti but 1.84-2.25x on the RX 5700 XT, because of host
+transport rather than compute. See METHOD.md under "GPU-12: RTX 3050 Ti rows".
+Pinned Naga's f64 `frexp` crashes the NVIDIA Windows pipeline compiler, so both
+WGSL sources extract the exponent from `bitcast<u64>` bits (bit-identical here). Linux 1080p results at all
 six depths are in METHOD.md: all binary64 arms pass; every mixed arm fails
 DE/normal parity, with class mismatches also found at 2e-49. Mixed rows are
 ineligible for a speed claim even when their pixel-displacement test passes. Do not pick SHARED-SOURCE or WGSL from these
@@ -173,5 +177,4 @@ The shared compute pass is within 1.11x of WGSL; its complete stage remains
 1.84–2.25x slower. These replace the original shared-client timings as the
 current Linux comparison. Full parity counts, boundary-band caveats and source
 provenance are in METHOD.md under GPU-18. The previous mixed precision failures
-remain disqualifying. The final GPU-12 route decision still needs the real
-RTX 3050 Ti hardware rows.
+remain disqualifying. GPU-12 combines these with the RTX 3050 Ti rows for the WGSL verdict.

@@ -2243,3 +2243,85 @@ Evidence: snapshot 94d8a9d98cc545f667c2dbbacda4bcae2ffd6496, source tree
 measured rows). All commands exit 0. One CPU/Cargo/test worker, 4 GiB RAM, zero
 swap, a 180-second OS/build cap and a 30-second runtime cap remain unchanged.
 The host had about 47 GiB available RAM and the GPU was 2% busy before checks.
+
+### GPU-12: RTX 3050 Ti rows and source-route verdict (2026-10-14)
+
+**Verdict: WGSL.** The pre-registered bar was SHARED-SOURCE if the shared
+Rust/CubeCL arm builds on pinned toolchains on Windows and Linux and its
+whole-frame time is within 1.25x of the fastest arm at equal parity on both
+devices. It builds on both (Rust 1.95.0), and on the RTX 3050 Ti it is within
+1.25x at five of six depths in the clean run (1e-43: 1.253x) and all six in an earlier run. On the RX 5700 XT (GPU-18) its whole
+stage is 1.84-2.25x WGSL. Its compute pass ties WGSL on both devices; the
+loss is CubeCL host allocation/upload/readback, which the 3050 Ti's slow
+binary64 dispatch hides and the 5700 XT exposes. Hand-written WGSL on wgpu is
+the fastest or tied-fastest eligible arm on both devices.
+
+Windows hardware: NVIDIA GeForce RTX 3050 Ti Laptop GPU, driver 610.60, Vulkan;
+`SHADER_F64`, `SHADER_INT64`, subgroup vote and timestamps available. All arms
+select this adapter (the Intel Iris Xe iGPU also present lacks f64).
+
+**Driver defect found and worked around.** Naga-generated SPIR-V for f64
+`frexp` crashes the NVIDIA Windows driver inside `create_compute_pipeline`
+(access violation 0xC0000005, both WGSL modes); shared/CubeCL and ash were
+unaffected. Bisected by stubbing only `frexp`, after which the pipeline compiled.
+`finish.wgsl` and `mixed.wgsl` now read the binary64 exponent/mantissa from
+`bitcast<u64>` bits, as the CubeCL arm already does. This is bit-identical to
+`frexp` for positive normal inputs (the log polynomial only sees values above
+about 33), and identical after the existing [0, 900] clamp for every finite
+guard input, including zero and subnormals. Every Windows WGSL row matches the
+shared and ash rows' worst displacement and failure counts exactly. Linux
+binary64 parity is re-checked by the registered GPU-15 WGSL rows on this
+candidate. Linux WGSL timings below remain GPU-18's pre-workaround measurements.
+
+Binary64, RTX 3050 Ti, 1920x1080 (GPU dispatch / whole finish stage, ms;
+median of three timestamp runs and three separate unprofiled wall runs):
+
+| Width | Shared Rust/CubeCL | Hand-written WGSL | Original ash/GLSL | Shared / fastest whole stage | Parity |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 1e-37 | 183.041 / 219.523 | 176.878 / 200.762 | 203.130 / 309.696 | 1.09x | All PASS |
+| 1e-40 | 109.773 / 155.418 | 117.808 / 135.723 | 120.328 / 239.634 | 1.15x | All PASS |
+| 1e-43 | 172.949 / 242.432 | 174.438 / 193.440 | 182.153 / 328.738 | 1.25x (1.253) | All PASS |
+| 1e-46 | 209.074 / 235.305 | 182.948 / 215.053 | 187.343 / 310.039 | 1.09x | All PASS |
+| 2e-48 | 225.066 / 267.935 | 203.182 / 219.759 | 199.162 / 319.774 | 1.22x | All PASS |
+| 2e-49 | 181.362 / 232.177 | 180.640 / 201.842 | 177.650 / 281.407 | 1.15x | All PASS |
+
+Combined with GPU-18, shared / fastest whole stage is:
+
+| Width | RTX 3050 Ti (Windows) | RX 5700 XT (Linux) |
+| --- | ---: | ---: |
+| 1e-37 | 1.09x | 1.87x |
+| 1e-40 | 1.15x | 2.00x |
+| 1e-43 | 1.25x | 2.09x |
+| 1e-46 | 1.09x | 2.05x |
+| 2e-48 | 1.22x | 1.84x |
+| 2e-49 | 1.15x | 2.25x |
+
+All 18 binary64 rows have zero class, displacement, gated-DE, gated-normal and
+non-finite failures. Worst displacement is 1.73e-5 px (2e-48), identical in
+all three arms. Finish inputs and CPU bypasses match Linux exactly
+(12,169,808 / 271,792 across six depths). An earlier complete run, made while
+a GPU-using desktop application was open, passed identically and gave shared /
+fastest 1.08-1.17x. The 1e-43 row (1.14x then, 1.253x clean) shows that the
+laptop's run-to-run spread is about 10%. Neither run changes the verdict, which
+fails on the Linux device.
+
+Guarded f32 remains **ineligible** on Windows too. All three arms pass
+displacement at most depths but fail DE/normal outside the boundary band, with
+identical counts per depth (DE/normal: 216/28, 232/32, 246-247/42, 353/55,
+526/81, 514/89). 2e-48 also has one displacement failure (1.26e-3 px), and
+2e-49 has nine class mismatches. The 3050 Ti's 1/64-rate binary64 makes dispatch
+about 5x the 5700 XT's, so a parity-correct f32 scheme (GPU-05, GPU-09) matters
+most on this device class. DEC-25's f32-first rule stands.
+
+Consequences: GPU-13 ports the zone kernel to hand-written WGSL on wgpu.
+DEC-24's single-source rule is met by keeping one WGSL source per stage plus
+the Python oracle; the shared-Rust GPU route is not adopted. Revisit only if
+CubeCL host transport reaches WGSL's whole-stage cost on the RX 5700 XT.
+
+Evidence: source tree 7acbf2c416f0146d69479f44c2b4d0ca134f8964 (inputs) plus
+the two WGSL edits, Rust 1.95.0 MSVC, dev profile as registered on Linux.
+`capabilities`, `smoke`, `zone-smoke` (all arms, 48 rows PASS), six 64x36
+previews, then two complete 1080p runs (six captures plus 36 rows each); every
+command exited 0 within its 30-second cap. Commands ran serially at BelowNormal
+priority, limited to 4 logical CPUs, one Cargo/test worker, build and inputs
+outside the checkout. No tolerance waiver, film, or larger benchmark.
