@@ -93,7 +93,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 match crate::zone_gpu::render(&view, &p, z) {
                     Ok((h, s)) => (h, s, None),
                     Err(e) => {
-                        eprintln!("fd: FP64 Vulkan zone unavailable ({e}); using CPU zone");
+                        eprintln!("fd: FP64 wgpu zone unavailable ({e}); using CPU zone");
                         render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
                     }
                 }

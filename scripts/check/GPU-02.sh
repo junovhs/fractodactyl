@@ -29,8 +29,8 @@ rm -rf "$out/cpu-raw" "$out/gpu-raw"
     --raw-dir "$out/gpu-raw" > "$out/gpu.json" 2> "$out/gpu.log"
 
 # A CPU fallback is correct but does not prove the shortcut.
-if ! grep -q "Vulkan $GPU_KERNEL zone on" "$out/gpu.log"; then
-    echo "GPU-02: no Vulkan $GPU_KERNEL keyframes rendered (see $out/gpu.log)" >&2
+if ! grep -q "wgpu $GPU_KERNEL zone on" "$out/gpu.log"; then
+    echo "GPU-02: no wgpu $GPU_KERNEL keyframes rendered (see $out/gpu.log)" >&2
     exit 1
 fi
 python3 - "$out" <<'PY'

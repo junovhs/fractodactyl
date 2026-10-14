@@ -19,6 +19,11 @@ fd-shade = { path = "../fd-shade" }
 
 ash = "0.38"
 gpu-allocator = { version = "0.28", default-features = false, features = ["std", "vulkan"] }
+pollster = "0.4"
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "wgsl"] }
+
+[dev-dependencies]
+naga = { version = "=30.0.0", features = ["wgsl-in"] }
 
 [build-dependencies]
 shaderc = "0.10"

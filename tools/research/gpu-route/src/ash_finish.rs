@@ -119,7 +119,7 @@ impl Drop for Buffer {
 }
 
 fn compile(mixed: bool) -> Result<Vec<u32>, String> {
-    let original = include_str!("../../../../crates/fd-cli/shaders/zone_f64.comp");
+    let original = include_str!("zone_f64.comp");
     let (body, _) = original
         .split_once("void main() {")
         .ok_or("original GLSL main marker changed")?;

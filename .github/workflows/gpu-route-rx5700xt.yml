@@ -4,6 +4,19 @@ name: gpu-route-rx5700xt
 on:
   workflow_dispatch:
     inputs:
+      check:
+        description: 'route: GPU-12 probe rows; zone: GPU-13 product zone kernel tests and GPU-02 film gate'
+        type: choice
+        options: [route, zone]
+        default: route
+      film_gate:
+        description: 'zone check: also run the GPU-02 film gate (4K keyframes, long CPU film); off = parity tests only'
+        type: boolean
+        default: false
+      baseline_ref:
+        description: 'zone check: commit of the ash zone kernel to time against (GPU film only, alternating runs); empty = skip'
+        required: false
+        default: ''
       glslc:
         description: 'Absolute glslc path on the runner (optional; otherwise PATH, then the product shaderc build)'
         required: false
@@ -18,6 +31,7 @@ jobs:
   # Same limits as the registered Linux checks: one worker, 4 GiB, no swap,
   # one CPU, build and capture files outside the checkout.
   rx5700xt:
+    if: inputs.check != 'zone'
     runs-on: [self-hosted, Linux, gpu, rx5700xt]
     timeout-minutes: 60
     defaults:
@@ -96,4 +110,106 @@ jobs:
         with:
           name: gpu-route-rx5700xt-logs
           path: ${{ env.LOG_DIR }}
+          retention-days: 30
+
+  # GPU-13: the product wgpu zone kernel on the RX 5700 XT. The parity tests
+  # print ms per keyframe; the GPU-02 film gate (mixed, 10 s 1080p60, 4K
+  # keyframes) prints the per-keyframe whole-frame times compared with GPU-02
+  # round 2 and requires fd filmcheck PASS.
+  zone:
+    if: inputs.check == 'zone'
+    runs-on: [self-hosted, Linux, gpu, rx5700xt]
+    timeout-minutes: 240
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: 1
+      CMAKE_BUILD_PARALLEL_LEVEL: 1
+      RUST_TEST_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      # The runner is the owner's home desktop. Every command runs in a user
+      # systemd scope (4 GiB, no swap, one CPU, the limits GPU-20 ran under):
+      # an over-limit build or render is killed inside the scope, never the
+      # host. Without a user systemd bus the job refuses to run at all.
+      - name: Limits and cache directories
+        run: |
+          set -euo pipefail
+          cache="$HOME/.cache/fractodactyl-gpu-zone-ci"
+          mkdir -p "$cache/build" "$RUNNER_TEMP/gpu-zone-logs"
+          echo "CARGO_TARGET_DIR=$cache/build" >> "$GITHUB_ENV"
+          echo "LOG_DIR=$RUNNER_TEMP/gpu-zone-logs" >> "$GITHUB_ENV"
+          if ! systemd-run --user --scope --quiet true 2>/dev/null; then
+            echo "::error::no user systemd bus: refusing to build or render without memory limits"
+            exit 1
+          fi
+          echo "LIMIT=systemd-run --user --scope --quiet -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100% nice -n 19" >> "$GITHUB_ENV"
+          echo "limits: systemd-run user scope (4G, no swap, one CPU, nice 19)"
+          command -v ffmpeg python3
+      - name: Build fd and tests (release, one worker)
+        run: |
+          $LIMIT cargo build --locked --release -p fd-cli --jobs 1
+          $LIMIT cargo test --locked --release -p fd-cli --jobs 1 --no-run
+      - name: gpu_zone parity tests (wgpu)
+        run: |
+          set -o pipefail
+          $LIMIT timeout 1800 cargo test --locked --release -p fd-cli gpu_zone -- --nocapture --test-threads=1 2>&1 | tee "$LOG_DIR/gpu_zone.log"
+          grep -q 'GPU-13 wgpu FP64 device' "$LOG_DIR/gpu_zone.log" || { echo "::error::no wgpu FP64 device (test skipped)"; exit 1; }
+      - name: GPU-02 film gate (mixed, 10 s 1080p60)
+        if: inputs.film_gate
+        run: |
+          set -o pipefail
+          OUT="$LOG_DIR/gpu02" GPU_KERNEL=mixed $LIMIT timeout 9000 bash scripts/check/GPU-02.sh 2>&1 | tee "$LOG_DIR/gpu02.log"
+          grep -h 'wgpu mixed zone on' "$LOG_DIR/gpu02/gpu.log" | tee "$LOG_DIR/keyframes.log"
+      # Same film, same limits, alternating arms: per-keyframe times of the
+      # ash kernel at baseline_ref against this commit's wgpu kernel.
+      - name: ash baseline A/B (GPU film only)
+        if: inputs.baseline_ref != ''
+        env:
+          BASE: ${{ inputs.baseline_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin "$BASE"
+          rm -rf "$RUNNER_TEMP/base"
+          git worktree add --detach "$RUNNER_TEMP/base" FETCH_HEAD
+          base_target="$HOME/.cache/fractodactyl-gpu-zone-ci/base-build"
+          (cd "$RUNNER_TEMP/base" && CARGO_TARGET_DIR="$base_target" $LIMIT timeout 3600 cargo build --locked --release -p fd-cli --jobs 1)
+          re=-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502
+          im=0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922
+          args=("$re" "$im" --from 1e-29 --to 2e-49 --seconds 10 --fps 60 --size 1920x1080 --keyframes 2                 --iter 100000 --zone bench/zones/v0-core.zone --preset master-ice --gpu-kernel mixed)
+          mkdir -p "$LOG_DIR/ab"
+          for round in 1 2; do
+            for arm in ash wgpu; do
+              if [ "$arm" = ash ]; then fd="$base_target/release/fd"; else fd="$CARGO_TARGET_DIR/release/fd"; fi
+              $LIMIT timeout 1800 "$fd" film "${args[@]}" --mp4 "$RUNNER_TEMP/ab-$arm.mp4"                 > /dev/null 2> "$LOG_DIR/ab/$arm-$round.log"
+              grep -h 'mixed zone on' "$LOG_DIR/ab/$arm-$round.log" > "$LOG_DIR/ab/$arm-$round.keyframes"
+              echo "$arm round $round: $(wc -l < "$LOG_DIR/ab/$arm-$round.keyframes") GPU keyframes"
+            done
+          done
+          git worktree remove --force "$RUNNER_TEMP/base"
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## RX 5700 XT wgpu zone kernel (GPU-13)'
+            echo '```'
+            grep -h 'GPU-13\|GPU-03 width\|GPU-02 \|test result' "$LOG_DIR/gpu_zone.log" 2>/dev/null || echo 'no gpu_zone log'
+            tail -n 20 "$LOG_DIR/gpu02.log" 2>/dev/null || echo 'no film gate log'
+            echo '```'
+            echo 'GPU-02 round 2 (ash): f64 whole 170-250 ms, mixed whole 172-255 ms per 4K keyframe; within 1.25x means at most 213-319 ms.'
+            echo '```'
+            cat "$LOG_DIR/keyframes.log" 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-zone-rx5700xt-logs
+          path: |
+            ${{ env.LOG_DIR }}/*.log
+            ${{ env.LOG_DIR }}/gpu02/*.log
+            ${{ env.LOG_DIR }}/gpu02/*.json
+            ${{ env.LOG_DIR }}/ab/*
           retention-days: 30
