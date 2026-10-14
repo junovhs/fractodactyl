@@ -8,3 +8,7 @@ license.workspace = true
 [dependencies]
 fd-samples = { path = "../fd-samples" }
 fd-fixed = { path = "../fd-fixed" }
+
+[features]
+# Isolated research API; not enabled by product builds.
+gpu-route-probe = []
