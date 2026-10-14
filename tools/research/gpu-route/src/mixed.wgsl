@@ -2,8 +2,11 @@
 struct Attempt { z: vec4<f64>, n: u32, escaped: bool, accepted: bool }
 fn declined(n: u32) -> Attempt { return Attempt(vec4<f64>(0.0), n, false, false); }
 fn try_f32(zr: f64, zi: f64, dr: f64, di: f64, cr: f64, ci: f64, start: u32, escape_sq: f64) -> Attempt {
-    let parts = frexp(max(abs(dr), abs(di)));
-    let e = clamp(parts.exp, i64(0), i64(900));
+    // frexp exponent from the IEEE-754 bits; identical after the clamp for
+    // every finite input (zero/subnormal give 0). Avoids the NVIDIA Windows
+    // driver crash on pinned Naga's f64 frexp; see log2_positive.
+    let bits = bitcast<u64>(max(abs(dr), abs(di)));
+    let e = clamp(i64((bits >> 52u) & 2047lu) - i64(1022), i64(0), i64(900));
     var up = ldexp(f64(1.0), i32(e));
     let s = camera[0] * up;
     if !(s > f64(1e-30)) { return declined(start); }

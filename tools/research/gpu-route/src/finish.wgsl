@@ -57,9 +57,12 @@ fn main(@builtin(global_invocation_id) pos: vec3<u32>) {
 // Research copy of the original GLSL binary64 log/atan polynomials. Shader
 // f64 log/atan are not Vulkan intrinsics; no f32 substitution is made here.
 fn log2_positive(x: f64) -> f64 {
-    let parts = frexp(x);
-    var e = parts.exp - 1;
-    var m = f64(2.0) * parts.fract;
+    // Same exponent/mantissa as frexp for positive normal x (every caller
+    // passes x >= ~33), read from the IEEE-754 bits. Pinned Naga's f64 frexp
+    // crashes the NVIDIA Windows driver's pipeline compiler (RTX 3050 Ti).
+    let bits = bitcast<u64>(x);
+    var e = i32((bits >> 52u) & 2047lu) - 1023;
+    var m = bitcast<f64>((bits & 4503599627370495lu) | 4607182418800017408lu);
     if m > f64(1.4142135623730951) { m *= f64(0.5); e += 1; }
     let t = (m - f64(1.0)) / (m + f64(1.0));
     let t2 = t * t;
