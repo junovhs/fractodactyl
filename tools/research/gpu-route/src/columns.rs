@@ -379,12 +379,16 @@ fn shared_measured(
 ) -> Result<Measured, String> {
     let started = std::time::Instant::now();
     let count = iterations.len();
-    let buffer = client.create_from_slice(f64::as_bytes(input));
-    let n = client.create_from_slice(u32::as_bytes(iterations));
+    // DEC-24: keep shared maths unchanged while removing redundant host copies.
+    // create_from_slice clones twice, then realigns erased u8 data; owned
+    // f64/u32 payloads already have the element alignment they need.
+    let buffer = client.create(cubecl::bytes::Bytes::from_elems(input.to_vec()));
+    let n = client.create(cubecl::bytes::Bytes::from_elems(iterations.to_vec()));
     let output = client.empty(count * 8);
     let de = client.empty(count * 4);
     let words = client.empty(count * 4);
-    let camera_buffer = client.create_from_slice(f64::as_bytes(camera));
+    let camera_buffer = client.create(cubecl::bytes::Bytes::from_elems(camera.to_vec()));
+    let upload_end_ms = started.elapsed().as_secs_f64() * 1000.0;
     let window = if timing {
         Some(
             client
@@ -412,6 +416,7 @@ fn shared_measured(
         .map(|w| client.profile_end(w))
         .transpose()
         .map_err(|e| format!("CubeCL profile: {e:?}"))?;
+    let launch_end_ms = started.elapsed().as_secs_f64() * 1000.0;
     let result = client
         .read(vec![output, de, words])
         .map_err(|e| format!("CubeCL batched read: {e:?}"))?;
@@ -438,6 +443,11 @@ fn shared_measured(
         words,
         gpu_ms,
         frame_ms,
+        stages: Some([
+            upload_end_ms,
+            launch_end_ms - upload_end_ms,
+            frame_ms - launch_end_ms,
+        ]),
     })
 }
 
@@ -456,6 +466,7 @@ pub struct Measured {
     pub words: Vec<u32>,
     pub gpu_ms: Option<f64>,
     pub frame_ms: f64,
+    pub stages: Option<[f64; 3]>,
 }
 
 pub fn benchmark(
@@ -524,6 +535,7 @@ pub fn benchmark(
             drop(warm);
             let mut frames = Vec::new();
             let mut kernels = Vec::new();
+            let mut stages = Vec::<(f64, [f64; 3])>::new();
             for timing in [false, true] {
                 for _ in 0..3 {
                     let measured = run(timing)?;
@@ -550,6 +562,12 @@ pub fn benchmark(
                         )?);
                     } else {
                         frames.push(measured.frame_ms);
+                        if let Some(parts) = measured.stages {
+                            if (parts.iter().sum::<f64>() - measured.frame_ms).abs() > 1e-6 {
+                                return Err("stage time accounting mismatch".into());
+                            }
+                            stages.push((measured.frame_ms, parts));
+                        }
                     }
                 }
             }
@@ -561,6 +579,14 @@ pub fn benchmark(
                 .any(|v| !v.is_finite() || *v <= 0.0)
             {
                 return Err("invalid timing sample".into());
+            }
+            if !stages.is_empty() {
+                stages.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let parts = stages[1].1;
+                println!(
+                    "host_stages arm={arm} precision={precision} width={width} grid={nx}x{ny} upload_alloc_ms={:.6} launch_ms={:.6} submit_readback_ms={:.6} finish_frame_ms={:.6} repeats=3 readback_includes_pending_gpu_work=true stage_method=PARTS_OF_MEDIAN_FRAME_RUN",
+                    parts[0], parts[1], parts[2], frames[1]
+                );
             }
             let pass = verdict.class_wrong
                 + verdict.displacement_wrong
