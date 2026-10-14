@@ -1,0 +1,99 @@
+name: gpu-route-rx5700xt
+# Manual only: the repo is public and this runs on the owner's home desktop,
+# so no push or pull_request trigger may ever reach the self-hosted runner.
+on:
+  workflow_dispatch:
+    inputs:
+      glslc:
+        description: 'Absolute glslc path on the runner (optional; otherwise PATH, then the product shaderc build)'
+        required: false
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: gpu-route-rx5700xt
+  cancel-in-progress: false
+jobs:
+  # GPU-12 follow-up: re-check the edited WGSL arm on the RX 5700 XT.
+  # Same limits as the registered Linux checks: one worker, 4 GiB, no swap,
+  # one CPU, build and capture files outside the checkout.
+  rx5700xt:
+    runs-on: [self-hosted, Linux, gpu, rx5700xt]
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+      PROBE_MANIFEST: tools/research/gpu-route/Cargo.toml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Limits, cache directories and glslc
+        env:
+          GLSLC_INPUT: ${{ inputs.glslc }}
+        run: |
+          set -euo pipefail
+          cache="$HOME/.cache/fractodactyl-gpu-route-ci"
+          mkdir -p "$cache/build" "$cache/inputs" "$RUNNER_TEMP/gpu-route-logs"
+          echo "CARGO_TARGET_DIR=$cache/build" >> "$GITHUB_ENV"
+          echo "FD_GPU_ROUTE_CACHE=$cache/inputs" >> "$GITHUB_ENV"
+          echo "LOG_DIR=$RUNNER_TEMP/gpu-route-logs" >> "$GITHUB_ENV"
+          if systemd-run --user --scope --quiet true 2>/dev/null; then
+            echo "LIMIT=systemd-run --user --scope --quiet -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100%" >> "$GITHUB_ENV"
+            echo "limits: systemd-run user scope (4G, no swap, one CPU)"
+          else
+            echo "LIMIT=nice -n 19" >> "$GITHUB_ENV"
+            echo "limits: no user systemd bus; falling back to nice -n 19"
+          fi
+          glslc="$GLSLC_INPUT"
+          if [ -z "$glslc" ]; then glslc="$(command -v glslc || true)"; fi
+          if [ -z "$glslc" ]; then
+            glslc="$(timeout 60 find "$HOME" -xdev -type f -name glslc -path '*shaderc-sys-*/out/bin/*' -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$glslc" ] || [ ! -x "$glslc" ]; then
+            echo "::error::glslc not found; rerun with the glslc input set to its absolute path"
+            exit 1
+          fi
+          echo "FD_GPU_ROUTE_GLSLC=$glslc" >> "$GITHUB_ENV"
+          echo "glslc: $glslc"
+      - name: Build probe (dev profile, one worker)
+        run: $LIMIT cargo build --locked --manifest-path "$PROBE_MANIFEST" --jobs 1
+      - name: Capabilities and zone-smoke
+        run: |
+          set -o pipefail
+          probe="$CARGO_TARGET_DIR/debug/gpu-route-probe"
+          $LIMIT "$probe" capabilities 2>&1 | tee "$LOG_DIR/capabilities.log"
+          $LIMIT "$probe" zone-smoke 2>&1 | tee "$LOG_DIR/zone-smoke.log"
+      - name: Six 1080p WGSL binary64 rows
+        run: |
+          set -o pipefail
+          probe="$CARGO_TARGET_DIR/debug/gpu-route-probe"
+          for w in 1e-37 1e-40 1e-43 1e-46 2e-48 2e-49; do
+            $LIMIT "$probe" capture-frame "$w" 2>&1 | tee "$LOG_DIR/capture-$w.log"
+            $LIMIT "$probe" frame "$w" wgsl f64 2>&1 | tee "$LOG_DIR/frame-$w.log"
+          done
+          # A completed experiment exits zero even when parity fails; gate on it here.
+          failed=0
+          for w in 1e-37 1e-40 1e-43 1e-46 2e-48 2e-49; do
+            grep -q '^frame_result .*parity=PASS' "$LOG_DIR/frame-$w.log" || { echo "::error::$w wgsl f64 did not pass parity"; failed=1; }
+          done
+          exit $failed
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## RX 5700 XT WGSL re-check'
+            echo '```'
+            grep -h '^adapter=\|wgsl_f64_pipeline=' "$LOG_DIR/capabilities.log" 2>/dev/null || true
+            grep -h 'hand-written-wgsl\|^tiny_grid' "$LOG_DIR/zone-smoke.log" 2>/dev/null || true
+            grep -h 'frame_result' "$LOG_DIR"/frame-*.log 2>/dev/null || echo 'no frame_result lines'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpu-route-rx5700xt-logs
+          path: ${{ env.LOG_DIR }}
+          retention-days: 30
