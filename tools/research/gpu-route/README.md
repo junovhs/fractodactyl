@@ -94,7 +94,9 @@ METHOD.md tables are not replaced by them.
 executable (on Windows, `glslc.exe`). The registered Linux check uses the compiler
 already built by the product's shaderc dependency; it does not rebuild shaderc.
 The probe compiles the original `zone_f64.comp` source with only `main` replaced
-by an identical-checkpoint entry point. Finish/guard/encoding math stays in the
+by an identical-checkpoint entry point. GPU-13 ported the product kernel to WGSL
+and deleted the GLSL from `crates/fd-cli`; `src/zone_f64.comp` is a frozen copy
+of it (main at 3df7fd0), kept only as this research arm's baseline (DEC-24 rule 4). Finish/guard/encoding math stays in the
 original shader. The source is piped to the compiler and SPIR-V read from stdout,
 with no generated source or binaries inside the checkout.
 

@@ -136,7 +136,7 @@ impl<'a> Keyframes<'a> {
         self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
-    /// Select Vulkan samples; unsupported frames retain the CPU zone.
+    /// Select wgpu zone samples; unsupported frames retain the CPU zone.
     pub(crate) fn enable_zone_kernel(&mut self, mode: crate::zone_gpu::Kernel) {
         self.zone_renderer = Some(crate::zone_gpu::Renderer::new(mode));
     }
@@ -171,7 +171,7 @@ impl<'a> Keyframes<'a> {
         let (h, s, used) = match gpu_result {
             Some(Ok((h, s))) => (h, s, Used::Zone),
             Some(Err(e)) => {
-                eprintln!("fd film: Vulkan zone unavailable ({e}); using CPU zone");
+                eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone");
                 self.zone_renderer = None;
                 render_frame_kernel(&view, &self.p, self.zone, false)?
             }

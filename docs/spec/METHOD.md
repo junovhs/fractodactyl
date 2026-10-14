@@ -2329,3 +2329,81 @@ previews, then two complete 1080p runs (six captures plus 36 rows each); every
 command exited 0 within its 30-second cap. Commands ran serially at BelowNormal
 priority, limited to 4 logical CPUs, one Cargo/test worker, build and inputs
 outside the checkout. No tolerance waiver, film, or larger benchmark.
+
+### GPU-13: zone keyframe kernel on wgpu (2026-10-14)
+
+**Change.** `crates/fd-cli/shaders/zone.wgsl` is a line-for-line WGSL port of
+`zone_f64.comp` (return map, approach, Koenigs jump and series, Horner patch,
+finish, 16 B/sample host columns). `zone_finish32.wgsl` holds the guarded f32
+finish with its subgroup-uniform hand-over and is appended for mixed and f32;
+the f64 kernel appends a stub, so it needs no subgroup support. GLSL
+specialisation constants became WGSL `override`s (DEG, NPHI, NPSI, F32_FRONT).
+`zone_gpu.rs` hosts it on wgpu 30.0.1 (Vulkan backend, discrete GPU preferred,
+`SHADER_F64` + `SHADER_INT64`, plus `SUBGROUP` for f32/mixed); the device,
+pipeline and buffers persist across keyframes and the columns are read in
+place from one mapped staging buffer. Devices without those features still
+decline to the CPU zone with a stderr reason. The GLSL kernel and its ash host
+are deleted; the film shaders keep shaderc until SHAD-02/GPU-14.
+
+**Translation rules.** No `frexp`: exponents and mantissas come from the IEEE
+bits (GPU-12's NVIDIA driver crash); identical for positive normal inputs, and
+`exponent_of` returns frexp's 0 for zero. `isnan`/`isinf` are an
+all-ones-exponent bit test. The normal angle rounds half away from zero, as
+GPU-12's WGSL arm. Naga rejects `patch` (reserved) and constant f64-to-f32
+casts; a CPU-only test, `zone_wgsl_validates`, runs naga's validator on all
+three kernels so CI catches WGSL errors without a GPU.
+
+**Parity** (`cargo test -p fd-cli --release gpu_zone -- --nocapture`, 480x270,
+same thresholds as GPU-03/GPU-02):
+
+| | RTX 3050 Ti (Windows, local) | RX 5700 XT (Linux, run 38627967273) | GPU-02 round 2 (ash, RX 5700 XT) |
+|---|---|---|---|
+| f64 worst nu/de/normal | 3.42e-4 px, 0 class | 3.42e-4 px, 0 class | pass |
+| mixed: max samples > 1e-3 px / worst | 13 / 4.18e-3 px | 3 / 2.30e-3 px | 3 / 2.3e-3 px |
+| f32: max samples > 1e-3 px / worst | 174 (1e-42) / 4.19e-3 px | 216 (1e-42) / 4.23e-3 px | 216 (1e-42) / 4.2e-3 px |
+| class mismatches (mixed, f32) | 0 | 1 at 2e-49 | 1 at 2e-49 |
+
+On the RX 5700 XT the per-depth counts reproduce round 2's ash figures. With
+the renderer kept across keyframes, 480x270 dispatch+readback is 6-12 ms on
+the RX 5700 XT and ~31 ms on the RTX 3050 Ti.
+
+Runner safety (the RX 5700 XT is the owner's home desktop): the `zone` job of
+`gpu-route-rx5700xt.yml` (manual, `check=zone`) runs every command in a user
+systemd scope (4 GiB, no swap, one CPU, nice 19), refuses to run without one,
+caps each step with `timeout`, and runs the film gate only with
+`film_gate=true`. The new kernel ran locally on the RTX 3050 Ti before it was
+dispatched there.
+
+**Film gate** (run 38630967035, `film_gate=true`; `scripts/check/GPU-02.sh`,
+GPU_KERNEL=mixed, 10 s 1920x1080 60 fps master-ice, keyframes 2, iter 100000,
+v0 path 1e-29 to 2e-49): `PASS fd-filmcheck/1 frames=600`, every frame at
+least 99.9999% within one level and 100% outside reference noise, no excess
+flicker. All 67 keyframes rendered on the RX 5700 XT (`wgpu mixed zone on`);
+keyframe render 14.5 s on the GPU against 45.6 s for the CPU film under the
+same one-CPU scope. 4K keyframe whole-frame times: 141-344 ms, median 174 ms;
+dispatch+readback 116-321 ms, unpack 15-27 ms. 64 of 67 keyframes are at or
+below round 2's 255 ms ceiling; the three deepest are 278, 303 and 344 ms.
+
+**Timing against the ash kernel** (run 38632535908, `baseline_ref=3df7fd0`):
+the same GPU-only film (mixed, same args) alternating ash, wgpu, ash, wgpu on
+the RX 5700 XT under the same scope; per keyframe, the faster of two runs.
+
+| | ash/GLSL (3df7fd0) | wgpu/WGSL (GPU-13) | wgpu / ash per keyframe |
+|---|---|---|---|
+| whole-frame, median (range) | 167.9 ms (132-337) | 172.6 ms (141-344) | median 1.032x, max 1.069x |
+| dispatch+readback, median | 140.8 ms | 147.7 ms | median 1.052x, max 1.090x |
+| unpack, median | 26.8 ms | 15.8 ms | median 0.59x |
+| all 67 keyframes | 12.12 s | 12.51 s | 1.03x |
+
+No keyframe is above 1.07x of ash, against the 1.25x bar. The deepest keyframe
+takes 337 ms on ash too: round 2's 172-255 ms range did not include it, so the
+film gate's 278-344 ms tail is the path's cost, not a regression. The 5% in
+dispatch+readback is wgpu's device-local output plus one copy into the mapped
+staging buffer, where ash wrote host-visible memory directly.
+
+Evidence: branch `ishoo/GPU-13`; local RTX 3050 Ti runs at BelowNormal
+priority with one Cargo job (target dir outside the repo; the shared worktree
+target path exceeds MSVC's object-path limit when shaderc builds from source);
+runner runs 38627967273 (parity), 38630967035 (parity + film gate),
+38632535908 (parity + A/B); CI 38632539020 and gpu-route-build 38631123708
+green.

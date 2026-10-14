@@ -982,7 +982,7 @@ pub(crate) fn render_frame(
     render_frame_kernel(view, p, zone, false)
 }
 
-/// Zone FP64 Vulkan is an opt-in backend; failures fall back before consuming samples.
+/// Zone FP64 wgpu is an opt-in backend; failures fall back before consuming samples.
 pub(crate) fn render_frame_kernel(
     view: &View,
     p: &Params,
@@ -995,7 +995,7 @@ pub(crate) fn render_frame_kernel(
                 match crate::zone_gpu::render(view, p, z) {
                     Ok((h, s)) => return Ok((h, s, Used::Zone)),
                     Err(e) => {
-                        eprintln!("fd film: FP64 Vulkan zone unavailable ({e}); using CPU zone")
+                        eprintln!("fd film: FP64 wgpu zone unavailable ({e}); using CPU zone")
                     }
                 }
             }

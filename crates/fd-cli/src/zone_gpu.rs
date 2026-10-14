@@ -1,27 +1,15 @@
-//! Vulkan zone samples. The CPU preflight owns decimal camera arithmetic and
-//! the zone validity gate; a rejected GPU path retains the exact CPU renderer.
-use ash::{vk, Device, Entry, Instance};
+//! wgpu zone samples (GPU-13). The CPU preflight owns decimal camera
+//! arithmetic and the zone validity gate; a rejected GPU path retains the
+//! exact CPU renderer.
 use fd_kernel::{Params, Zone};
 use fd_samples::{Class, Column, Evidence, Header, Kind, Samples, View};
-use gpu_allocator::vulkan::{
-    Allocation, AllocationCreateDesc, AllocationScheme, Allocator, AllocatorCreateDesc,
-};
-use gpu_allocator::MemoryLocation;
-use std::ffi::CStr;
-use std::io::Cursor;
-use std::mem::ManuallyDrop;
 use std::time::Instant;
 
-/// Mapped views of one dispatch's output columns.
+/// Views of one dispatch's output columns.
 struct Columns<'a> {
     nu: &'a [f64],
     de: &'a [f32],
     word: &'a [u32],
-}
-
-struct Buffer {
-    handle: vk::Buffer,
-    allocation: Allocation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,9 +33,9 @@ impl Kernel {
 
     fn kernel_tag(self) -> &'static str {
         match self {
-            Self::F64 => "vulkan-f64",
-            Self::F32 => "vulkan-f32",
-            Self::Mixed => "vulkan-mixed",
+            Self::F64 => "wgpu-f64",
+            Self::F32 => "wgpu-f32",
+            Self::Mixed => "wgpu-mixed",
         }
     }
 
@@ -58,9 +46,30 @@ impl Kernel {
             Self::Mixed => "mixed",
         }
     }
+
+    /// The WGSL module: zone.wgsl plus the guarded f32 finish, or a stub
+    /// that keeps the f64 kernel free of subgroup operations.
+    fn source(self) -> String {
+        const F64_TAIL: &str = "const F32_FINISH: bool = false;\n\
+            fn wave_all(ready: bool) -> bool { return false; }\n\
+            fn finish32(gid: i32, z: C, du: C, n: i32, errpx: f64) -> bool { return false; }\n";
+        let tail = match self {
+            Self::F64 => F64_TAIL,
+            Self::F32 | Self::Mixed => include_str!("../shaders/zone_finish32.wgsl"),
+        };
+        format!("{}\n{tail}", include_str!("../shaders/zone.wgsl"))
+    }
+
+    fn features(self) -> wgpu::Features {
+        let base = wgpu::Features::SHADER_F64 | wgpu::Features::SHADER_INT64;
+        match self {
+            Self::F64 => base,
+            Self::F32 | Self::Mixed => base | wgpu::Features::SUBGROUP,
+        }
+    }
 }
 
-/// Holds the Vulkan resources across successive keyframes.
+/// Holds the device, pipeline and buffers across successive keyframes.
 pub(crate) struct Renderer {
     mode: Kernel,
     gpu: Option<Gpu>,
@@ -78,20 +87,15 @@ impl Renderer {
 }
 
 struct Gpu {
-    _entry: Entry,
-    instance: Instance,
-    device: Device,
-    allocator: ManuallyDrop<Allocator>,
-    queue: vk::Queue,
-    pool: vk::CommandPool,
-    descriptor_pool: vk::DescriptorPool,
-    set_layout: vk::DescriptorSetLayout,
-    pipeline_layout: vk::PipelineLayout,
-    pipeline: vk::Pipeline,
-    command: vk::CommandBuffer,
-    constants: Option<Buffer>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pipeline: wgpu::ComputePipeline,
+    group: wgpu::BindGroup,
+    constants: wgpu::Buffer,
     /// Sample columns as the host stores them: nu f64, de f32, normal | class << 16.
-    outputs: Vec<Buffer>,
+    outputs: [wgpu::Buffer; 3],
+    /// The three columns back to back, mapped for reading after each dispatch.
+    staging: wgpu::Buffer,
     name: String,
     mode: Kernel,
     dispatch: (u32, u32),
@@ -99,416 +103,196 @@ struct Gpu {
 
 impl Gpu {
     fn new(count: usize, constants: &[f64], mode: Kernel) -> Result<Self, String> {
-        let values = constants.len();
-        let entry = unsafe { Entry::load() }.map_err(|e| format!("Vulkan loader: {e}"))?;
-        let app = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_2);
-        let instance = unsafe {
-            entry.create_instance(
-                &vk::InstanceCreateInfo::default().application_info(&app),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan instance: {e}"))?;
-        let selected = unsafe { instance.enumerate_physical_devices() }
-            .map_err(|e| format!("Vulkan enumerate: {e}"))?
-            .into_iter()
-            .find_map(|physical| {
-                let props = unsafe { instance.get_physical_device_properties(physical) };
-                if vk::api_version_major(props.api_version) < 1
-                    || (vk::api_version_major(props.api_version) == 1
-                        && vk::api_version_minor(props.api_version) < 2)
-                    || unsafe { instance.get_physical_device_features(physical) }.shader_float64
-                        != vk::TRUE
-                {
-                    return None;
+        let required = mode.features();
+        let const_bytes = std::mem::size_of_val(constants) as u64;
+        let column_bytes = (count as u64).checked_mul(8).ok_or("GPU grid overflow")?;
+        let groups = count.div_ceil(64) as u64;
+        // The binary64 kernels are proven on Vulkan only (GPU-12/19/20); other
+        // backends arrive with the f32-only path (GPU-05).
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let mut adapters: Vec<_> =
+            pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
+                .into_iter()
+                .filter(|a| {
+                    let limits = a.limits();
+                    let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
+                    a.get_info().device_type != wgpu::DeviceType::Cpu
+                        && a.features().contains(required)
+                        && x > 0
+                        && groups.div_ceil(x)
+                            <= u64::from(limits.max_compute_workgroups_per_dimension)
+                        && column_bytes <= limits.max_storage_buffer_binding_size
+                        && const_bytes <= limits.max_storage_buffer_binding_size
+                        && 2 * column_bytes <= limits.max_buffer_size
+                })
+                .collect();
+        adapters.sort_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu);
+        let Some(adapter) = adapters.into_iter().next() else {
+            return Err(format!(
+                "no wgpu Vulkan GPU with {} and sufficient buffer limits",
+                if mode == Kernel::F64 {
+                    "SHADER_F64 and SHADER_INT64"
+                } else {
+                    "SHADER_F64, SHADER_INT64 and SUBGROUP (f32/mixed)"
                 }
-                // f32 finishing hands whole subgroups over together (subgroupAll).
-                let mut subgroup = vk::PhysicalDeviceSubgroupProperties::default();
-                let mut props2 = vk::PhysicalDeviceProperties2::default().push_next(&mut subgroup);
-                unsafe { instance.get_physical_device_properties2(physical, &mut props2) };
-                if mode != Kernel::F64
-                    && !(subgroup
-                        .supported_operations
-                        .contains(vk::SubgroupFeatureFlags::VOTE)
-                        && subgroup
-                            .supported_stages
-                            .contains(vk::ShaderStageFlags::COMPUTE))
-                {
-                    return None;
-                }
-                let family =
-                    unsafe { instance.get_physical_device_queue_family_properties(physical) }
-                        .iter()
-                        .position(|f| {
-                            f.queue_count > 0 && f.queue_flags.contains(vk::QueueFlags::COMPUTE)
-                        })?;
-                let bytes = count.checked_mul(8)?;
-                let const_bytes = values.checked_mul(8)?;
-                let groups = count.div_ceil(64);
-                let x = groups.min(props.limits.max_compute_work_group_count[0] as usize);
-                if x == 0
-                    || groups.div_ceil(x) > props.limits.max_compute_work_group_count[1] as usize
-                    || bytes > props.limits.max_storage_buffer_range as usize
-                    || const_bytes > props.limits.max_storage_buffer_range as usize
-                {
-                    return None;
-                }
-                Some((
-                    physical,
-                    family as u32,
-                    props,
-                    (x as u32, groups.div_ceil(x) as u32),
-                ))
-            });
-        let Some((physical, family, props, dispatch)) = selected else {
-            unsafe { instance.destroy_instance(None) };
-            return Err(
-                "no Vulkan 1.2 compute device with shaderFloat64, subgroup vote (f32/mixed) and sufficient buffer limits"
-                    .into(),
-            );
+            ));
         };
-        let name = unsafe { CStr::from_ptr(props.device_name.as_ptr()) }
-            .to_string_lossy()
-            .into_owned();
-        let priorities = [1.0f32];
-        let queues = [vk::DeviceQueueCreateInfo::default()
-            .queue_family_index(family)
-            .queue_priorities(&priorities)];
-        let features = vk::PhysicalDeviceFeatures::default().shader_float64(true);
-        let device = unsafe {
-            instance.create_device(
-                physical,
-                &vk::DeviceCreateInfo::default()
-                    .queue_create_infos(&queues)
-                    .enabled_features(&features),
-                None,
-            )
+        let name = adapter.get_info().name;
+        let limits = adapter.limits();
+        let per_dim = u64::from(limits.max_compute_workgroups_per_dimension);
+        let x = groups.min(per_dim);
+        let dispatch = (x as u32, groups.div_ceil(x) as u32);
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("fd zone"),
+            required_features: required,
+            required_limits: limits,
+            ..Default::default()
+        }))
+        .map_err(|e| format!("wgpu device: {e}"))?;
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fd zone kernel"),
+            source: wgpu::ShaderSource::Wgsl(mode.source().into()),
+        });
+        let shape = specialisation(constants);
+        let overrides = [
+            ("DEG", f64::from(shape[0])),
+            ("NPHI", f64::from(shape[1])),
+            ("NPSI", f64::from(shape[2])),
+            ("F32_FRONT", if mode == Kernel::F32 { 1.0 } else { 0.0 }),
+        ];
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fd zone kernel"),
+            layout: None,
+            module: &module,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants: &overrides,
+                ..Default::default()
+            },
+            cache: None,
+        });
+        let storage = |label, size, usage| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage,
+                mapped_at_creation: false,
+            })
+        };
+        let out = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC;
+        let constants_buffer = storage(
+            "zone constants",
+            const_bytes,
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+        let outputs = [
+            storage("zone nu", column_bytes, out),
+            storage("zone de", column_bytes / 2, out),
+            storage("zone normal+class", column_bytes / 2, out),
+        ];
+        let staging = storage(
+            "zone readback",
+            2 * column_bytes,
+            wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        );
+        let entries: Vec<_> = std::iter::once(&constants_buffer)
+            .chain(&outputs)
+            .enumerate()
+            .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                binding: binding as u32,
+                resource: buffer.as_entire_binding(),
+            })
+            .collect();
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("fd zone"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            return Err(format!("wgpu zone pipeline rejected: {e}"));
         }
-        .map_err(|e| format!("Vulkan device: {e}"))?;
-        let queue = unsafe { device.get_device_queue(family, 0) };
-        let allocator = Allocator::new(&AllocatorCreateDesc {
-            instance: instance.clone(),
-            device: device.clone(),
-            physical_device: physical,
-            debug_settings: Default::default(),
-            buffer_device_address: false,
-            allocation_sizes: Default::default(),
-        })
-        .map_err(|e| format!("Vulkan allocator: {e}"))?;
-        let mut gpu = Self {
-            _entry: entry,
-            instance,
+        Ok(Self {
             device,
-            allocator: ManuallyDrop::new(allocator),
             queue,
-            pool: vk::CommandPool::null(),
-            descriptor_pool: vk::DescriptorPool::null(),
-            set_layout: vk::DescriptorSetLayout::null(),
-            pipeline_layout: vk::PipelineLayout::null(),
-            pipeline: vk::Pipeline::null(),
-            command: vk::CommandBuffer::null(),
-            constants: None,
-            outputs: Vec::new(),
+            pipeline,
+            group,
+            constants: constants_buffer,
+            outputs,
+            staging,
             name,
             mode,
             dispatch,
+        })
+    }
+
+    /// Run one keyframe and hand the mapped columns to `read`.
+    fn dispatch<R>(
+        &self,
+        constants: &[f64],
+        count: usize,
+        read: impl FnOnce(&Columns) -> R,
+    ) -> Result<R, String> {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let bytes: Vec<u8> = constants.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        self.queue.write_buffer(&self.constants, 0, &bytes);
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.group, &[]);
+            pass.dispatch_workgroups(self.dispatch.0, self.dispatch.1, 1);
+        }
+        let n = count as u64;
+        let mut at = 0;
+        for (buffer, size) in self.outputs.iter().zip([8 * n, 4 * n, 4 * n]) {
+            encoder.copy_buffer_to_buffer(buffer, 0, &self.staging, at, size);
+            at += size;
+        }
+        self.queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.staging.map_async(wgpu::MapMode::Read, ..at, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| format!("wgpu poll: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("wgpu map callback: {e}"))?
+            .map_err(|e| format!("wgpu map: {e}"))?;
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            self.staging.unmap();
+            return Err(format!("wgpu zone dispatch rejected: {e}"));
+        }
+        let result = {
+            let view = self
+                .staging
+                .get_mapped_range(..at)
+                .map_err(|e| format!("wgpu mapped range: {e}"))?;
+            let ptr = view.as_ptr();
+            if ptr.align_offset(8) != 0 {
+                return Err("wgpu readback is not 8-byte aligned".into());
+            }
+            // SAFETY: the view is 16 * count initialised bytes laid out as
+            // count f64, then count f32, then count u32; the base is 8-aligned.
+            let columns = unsafe {
+                Columns {
+                    nu: std::slice::from_raw_parts(ptr.cast(), count),
+                    de: std::slice::from_raw_parts(ptr.add(8 * count).cast(), count),
+                    word: std::slice::from_raw_parts(ptr.add(12 * count).cast(), count),
+                }
+            };
+            read(&columns)
         };
-        gpu.init(family, count, constants)?;
-        Ok(gpu)
-    }
-
-    fn buffer(
-        &mut self,
-        len: usize,
-        location: MemoryLocation,
-        label: &str,
-    ) -> Result<Buffer, String> {
-        let handle = unsafe {
-            self.device.create_buffer(
-                &vk::BufferCreateInfo::default()
-                    .size(len as u64)
-                    .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-                    .sharing_mode(vk::SharingMode::EXCLUSIVE),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan buffer: {e}"))?;
-        let requirements = unsafe { self.device.get_buffer_memory_requirements(handle) };
-        let allocation = self
-            .allocator
-            .allocate(&AllocationCreateDesc {
-                name: label,
-                requirements,
-                location,
-                linear: true,
-                allocation_scheme: AllocationScheme::GpuAllocatorManaged,
-            })
-            .map_err(|e| format!("Vulkan allocation: {e}"))?;
-        unsafe {
-            self.device
-                .bind_buffer_memory(handle, allocation.memory(), allocation.offset())
-        }
-        .map_err(|e| format!("Vulkan bind memory: {e}"))?;
-        Ok(Buffer { handle, allocation })
-    }
-
-    fn init(&mut self, family: u32, count: usize, constants: &[f64]) -> Result<(), String> {
-        let values = constants.len();
-        let dev = self.device.clone();
-        self.pool = unsafe {
-            dev.create_command_pool(
-                &vk::CommandPoolCreateInfo::default().queue_family_index(family),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan command pool: {e}"))?;
-        self.command = unsafe {
-            dev.allocate_command_buffers(
-                &vk::CommandBufferAllocateInfo::default()
-                    .command_pool(self.pool)
-                    .level(vk::CommandBufferLevel::PRIMARY)
-                    .command_buffer_count(1),
-            )
-        }
-        .map_err(|e| format!("Vulkan commands: {e}"))?[0];
-        let bindings: Vec<_> = (0..4)
-            .map(|binding| {
-                vk::DescriptorSetLayoutBinding::default()
-                    .binding(binding)
-                    .descriptor_count(1)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .stage_flags(vk::ShaderStageFlags::COMPUTE)
-            })
-            .collect();
-        self.set_layout = unsafe {
-            dev.create_descriptor_set_layout(
-                &vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan set layout: {e}"))?;
-        let sizes = [vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::STORAGE_BUFFER,
-            descriptor_count: 4,
-        }];
-        self.descriptor_pool = unsafe {
-            dev.create_descriptor_pool(
-                &vk::DescriptorPoolCreateInfo::default()
-                    .pool_sizes(&sizes)
-                    .max_sets(1),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan descriptor pool: {e}"))?;
-        let layouts = [self.set_layout];
-        let set = unsafe {
-            dev.allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::default()
-                    .descriptor_pool(self.descriptor_pool)
-                    .set_layouts(&layouts),
-            )
-        }
-        .map_err(|e| format!("Vulkan descriptor set: {e}"))?[0];
-        self.pipeline_layout = unsafe {
-            dev.create_pipeline_layout(
-                &vk::PipelineLayoutCreateInfo::default().set_layouts(&layouts),
-                None,
-            )
-        }
-        .map_err(|e| format!("Vulkan pipeline layout: {e}"))?;
-        let binary: &[u8] = match self.mode {
-            Kernel::F64 => include_bytes!(concat!(env!("OUT_DIR"), "/zone_f64.spv")),
-            Kernel::F32 => include_bytes!(concat!(env!("OUT_DIR"), "/zone_f32.spv")),
-            Kernel::Mixed => include_bytes!(concat!(env!("OUT_DIR"), "/zone_mixed.spv")),
-        };
-        let words = ash::util::read_spv(&mut Cursor::new(binary))
-            .map_err(|e| format!("Vulkan SPIR-V: {e}"))?;
-        let module = unsafe {
-            dev.create_shader_module(&vk::ShaderModuleCreateInfo::default().code(&words), None)
-        }
-        .map_err(|e| format!("Vulkan shader: {e}"))?;
-        let shape = specialisation(constants);
-        let entries: Vec<_> = (0..3)
-            .map(|i| vk::SpecializationMapEntry {
-                constant_id: i,
-                offset: 4 * i,
-                size: 4,
-            })
-            .collect();
-        let data: Vec<u8> = shape.iter().flat_map(|v| v.to_ne_bytes()).collect();
-        let special = vk::SpecializationInfo::default()
-            .map_entries(&entries)
-            .data(&data);
-        let stage = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::COMPUTE)
-            .module(module)
-            .name(c"main")
-            .specialization_info(&special);
-        let result = unsafe {
-            dev.create_compute_pipelines(
-                vk::PipelineCache::null(),
-                &[vk::ComputePipelineCreateInfo::default()
-                    .stage(stage)
-                    .layout(self.pipeline_layout)],
-                None,
-            )
-        };
-        unsafe { dev.destroy_shader_module(module, None) };
-        self.pipeline = result.map_err(|(_, e)| format!("Vulkan pipeline: {e}"))?[0];
-        self.constants =
-            Some(self.buffer(values * 8, MemoryLocation::CpuToGpu, "zone f64 constants")?);
-        for (bytes, label) in [(8, "zone nu"), (4, "zone de"), (4, "zone normal+class")] {
-            let buffer = self.buffer(count * bytes, MemoryLocation::GpuToCpu, label)?;
-            self.outputs.push(buffer);
-        }
-        let mut descriptors = vec![vk::DescriptorBufferInfo::default()
-            .buffer(self.constants.as_ref().unwrap().handle)
-            .range((values * 8) as u64)];
-        for (buffer, bytes) in self.outputs.iter().zip([8, 4, 4]) {
-            descriptors.push(
-                vk::DescriptorBufferInfo::default()
-                    .buffer(buffer.handle)
-                    .range((count * bytes) as u64),
-            );
-        }
-        let writes: Vec<_> = (0..4)
-            .map(|i| {
-                vk::WriteDescriptorSet::default()
-                    .dst_set(set)
-                    .dst_binding(i as u32)
-                    .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                    .buffer_info(std::slice::from_ref(&descriptors[i]))
-            })
-            .collect();
-        unsafe { dev.update_descriptor_sets(&writes, &[]) };
-        // One dispatch for all samples; each invocation writes its three column entries.
-        unsafe {
-            dev.begin_command_buffer(self.command, &vk::CommandBufferBeginInfo::default())
-                .map_err(|e| format!("Vulkan begin: {e}"))?;
-            let host_to_shader = [vk::MemoryBarrier::default()
-                .src_access_mask(vk::AccessFlags::HOST_WRITE)
-                .dst_access_mask(vk::AccessFlags::SHADER_READ)];
-            dev.cmd_pipeline_barrier(
-                self.command,
-                vk::PipelineStageFlags::HOST,
-                vk::PipelineStageFlags::COMPUTE_SHADER,
-                vk::DependencyFlags::empty(),
-                &host_to_shader,
-                &[],
-                &[],
-            );
-            dev.cmd_bind_pipeline(self.command, vk::PipelineBindPoint::COMPUTE, self.pipeline);
-            dev.cmd_bind_descriptor_sets(
-                self.command,
-                vk::PipelineBindPoint::COMPUTE,
-                self.pipeline_layout,
-                0,
-                &[set],
-                &[],
-            );
-            dev.cmd_dispatch(self.command, self.dispatch.0, self.dispatch.1, 1);
-            dev.end_command_buffer(self.command)
-                .map_err(|e| format!("Vulkan end: {e}"))?;
-        }
-        Ok(())
-    }
-
-    fn mapped(buffer: &Buffer) -> Result<*mut u8, String> {
-        buffer
-            .allocation
-            .mapped_ptr()
-            .map(|p| p.as_ptr() as *mut u8)
-            .ok_or_else(|| "Vulkan buffer is not host-mapped".to_string())
-    }
-
-    fn range(buffer: &Buffer) -> vk::MappedMemoryRange<'static> {
-        vk::MappedMemoryRange::default()
-            .memory(unsafe { buffer.allocation.memory() })
-            .offset(0)
-            .size(vk::WHOLE_SIZE)
-    }
-
-    /// Run one keyframe; the columns are read in place from mapped memory.
-    fn dispatch(&self, constants: &[f64], count: usize) -> Result<Columns<'_>, String> {
-        let input = self.constants.as_ref().unwrap();
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                constants.as_ptr().cast::<u8>(),
-                Self::mapped(input)?,
-                std::mem::size_of_val(constants),
-            );
-            self.device
-                .flush_mapped_memory_ranges(&[Self::range(input)])
-                .map_err(|e| format!("Vulkan flush: {e}"))?;
-        }
-        let commands = [self.command];
-        unsafe {
-            self.device
-                .queue_submit(
-                    self.queue,
-                    &[vk::SubmitInfo::default().command_buffers(&commands)],
-                    vk::Fence::null(),
-                )
-                .map_err(|e| format!("Vulkan submit: {e}"))?;
-            self.device
-                .queue_wait_idle(self.queue)
-                .map_err(|e| format!("Vulkan wait: {e}"))?;
-            let ranges: Vec<_> = self.outputs.iter().map(Self::range).collect();
-            self.device
-                .invalidate_mapped_memory_ranges(&ranges)
-                .map_err(|e| format!("Vulkan invalidate: {e}"))?;
-            Ok(Columns {
-                nu: std::slice::from_raw_parts(Self::mapped(&self.outputs[0])?.cast(), count),
-                de: std::slice::from_raw_parts(Self::mapped(&self.outputs[1])?.cast(), count),
-                word: std::slice::from_raw_parts(Self::mapped(&self.outputs[2])?.cast(), count),
-            })
-        }
-    }
-
-    fn free(&mut self, buffer: Buffer) {
-        unsafe { self.device.destroy_buffer(buffer.handle, None) };
-        let _ = self.allocator.free(buffer.allocation);
+        self.staging.unmap();
+        Ok(result)
     }
 }
 
-impl Drop for Gpu {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = self.device.device_wait_idle();
-        }
-        if let Some(buffer) = self.constants.take() {
-            self.free(buffer);
-        }
-        for buffer in std::mem::take(&mut self.outputs) {
-            self.free(buffer);
-        }
-        unsafe {
-            if self.pipeline != vk::Pipeline::null() {
-                self.device.destroy_pipeline(self.pipeline, None);
-            }
-            if self.pipeline_layout != vk::PipelineLayout::null() {
-                self.device
-                    .destroy_pipeline_layout(self.pipeline_layout, None);
-            }
-            if self.descriptor_pool != vk::DescriptorPool::null() {
-                self.device
-                    .destroy_descriptor_pool(self.descriptor_pool, None);
-            }
-            if self.set_layout != vk::DescriptorSetLayout::null() {
-                self.device
-                    .destroy_descriptor_set_layout(self.set_layout, None);
-            }
-            if self.pool != vk::CommandPool::null() {
-                self.device.destroy_command_pool(self.pool, None);
-            }
-            ManuallyDrop::drop(&mut self.allocator);
-            self.device.destroy_device(None);
-            self.instance.destroy_instance(None);
-        }
-    }
-}
-
-/// Probe the FP64 Vulkan stack; unavailable devices are not correctness failures.
+/// Probe the FP64 wgpu stack; unavailable devices are not correctness failures.
 #[cfg(test)]
 fn probe() -> Result<String, String> {
     Ok(Gpu::new(1, &[0.0; 32], Kernel::F64)?.name.clone())
@@ -528,9 +312,7 @@ impl Renderer {
     ) -> Result<(Header, Samples), String> {
         let start = Instant::now();
         let (mut header, constants) = zone.gpu_f64_input(view, p)?;
-        if self.mode != Kernel::F64 {
-            header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
-        }
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let prep = start.elapsed();
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
@@ -544,15 +326,15 @@ impl Renderer {
         }
         let init = t.elapsed();
         let gpu = self.gpu.as_ref().unwrap();
-        let t = Instant::now();
-        let raw = gpu.dispatch(&constants, count)?;
-        let execute = t.elapsed();
-        let t = Instant::now();
         let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
-        unpack(&raw, &mut samples, p.threads)?;
-        let unpack = t.elapsed();
+        let t = Instant::now();
+        let (execute, unpack) = gpu.dispatch(&constants, count, |raw| {
+            let execute = t.elapsed();
+            let t = Instant::now();
+            unpack(raw, &mut samples, p.threads).map(|()| (execute, t.elapsed()))
+        })??;
         eprintln!(
-            "fd: Vulkan {} zone on {}: constants {:.3} ms, setup {:.3} ms, dispatch/readback {:.3} ms, unpack {:.3} ms, whole-frame {:.3} ms",
+            "fd: wgpu {} zone on {}: constants {:.3} ms, setup {:.3} ms, dispatch/readback {:.3} ms, unpack {:.3} ms, whole-frame {:.3} ms",
             gpu.mode.label(),
             gpu.name,
             prep.as_secs_f64() * 1e3,
@@ -663,20 +445,33 @@ mod tests {
         assert_eq!(groups.div_ceil(x), 2);
     }
 
+    /// All three kernels parse and validate without a GPU, so CI catches WGSL
+    /// errors on machines with no binary64 device.
+    #[test]
+    fn zone_wgsl_validates() {
+        use naga::valid::{Capabilities, ValidationFlags, Validator};
+        for mode in [Kernel::F64, Kernel::Mixed, Kernel::F32] {
+            let module = naga::front::wgsl::parse_str(&mode.source())
+                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&mode.source())));
+            let mut caps = Capabilities::FLOAT64 | Capabilities::SHADER_INT64;
+            if mode != Kernel::F64 {
+                caps |= Capabilities::SUBGROUP;
+            }
+            Validator::new(ValidationFlags::all(), caps)
+                .validate(&module)
+                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&mode.source())));
+        }
+    }
+
     #[test]
     fn gpu_zone_f64_parity() {
         match probe() {
-            Ok(name) => eprintln!("GPU-03 Vulkan FP64 device: {name}"),
-            Err(e)
-                if e.contains("no Vulkan")
-                    || e.contains("Vulkan loader")
-                    || e.contains("Vulkan instance")
-                    || e.contains("Vulkan enumerate") =>
-            {
+            Ok(name) => eprintln!("GPU-13 wgpu FP64 device: {name}"),
+            Err(e) if e.contains("no wgpu") => {
                 eprintln!("GPU-03 SKIP: {e}");
                 return;
             }
-            Err(e) => panic!("GPU-03 Vulkan init failed: {e}"),
+            Err(e) => panic!("GPU-13 wgpu init failed: {e}"),
         }
         let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
         let centre_re =
