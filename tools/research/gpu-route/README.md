@@ -126,3 +126,12 @@ Every command retains its 30-second runtime limit, including explicit 1080p
 commands. Run preview first, and keep all resource limits from the safe-build
 section. Native GPU timestamp queries are required for the timed WGSL path;
 absence is an error, never reported as zero time or replaced with CPU timing.
+
+
+`host_stages` for the shared arm reports CPU allocation/upload preparation,
+launch, and submission/readback (including pending GPU work). The parts come
+from the run with median whole-stage wall time, so they add to that frame time;
+they are not independent per-component medians. GPU-16 switches this arm to
+`Client::create(Bytes::from_elems(...))` for typed owned inputs, avoiding the
+redundant slice clones and erased-byte alignment reallocation. Kernel maths,
+packed columns, GPU timestamps and parity thresholds are unchanged.

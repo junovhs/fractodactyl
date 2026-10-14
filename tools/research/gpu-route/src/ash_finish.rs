@@ -531,6 +531,7 @@ impl Runner {
                 words,
                 gpu_ms,
                 frame_ms,
+                stages: None,
             })
         }
     }

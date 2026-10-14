@@ -2161,3 +2161,46 @@ Guarded-f32 results are **ineligible** at every depth. Every arm passes displace
 Do not promote mixed precision from this probe. CubeCL's binary64 compute pass is within 1.13x of WGSL here, but its current client/transport makes the whole finish stage 3.3–4.9x slower. That is a Linux finding about this implementation, not a two-device source-route verdict. Investigate shared-source host transport before discarding the compiler route; the Windows laptop rows are still required by GPU-12.
 
 Evidence: source snapshot tree 1390685c41f516d9d53c064ed05e6dc1b9e2c66a, capture/check jobs 127–168 (36 measured rows plus six captures), all experiment commands exit 0. Candidate parity is stated in each row, independently of command completion. The six native source/precision rows at 64x36 first passed in job 122. Serial resource limits stayed at one CPU, one Cargo/libtest worker, 4 GiB RAM, zero swap, 180-second OS/build cap and 30-second runtime cap per invocation; host RAM available about 46 GiB and GPU about 2% busy before 1080p checks. No larger benchmark or tolerance waiver was used. GPU-12 remains pending Windows and final route selection; GPU-15 supplies the runnable harness and this negative/positive Linux evidence.
+
+
+### GPU-16: shared-source transport correction (2026-10-14)
+
+The host-stage trace locates the largest part of GPU-15's shared-source excess
+in CPU allocation/upload preparation, not in kernel execution. The pinned
+CubeCL `create_from_slice` implementation clones the payload twice and wraps it
+in an erased-byte `Bytes` controller. That controller always reallocates to its
+maximum reported alignment. For known f64/u32 payloads,
+`Client::create(Bytes::from_elems(typed_vec))` transfers one owned typed copy and
+preserves its valid element alignment without that extra allocation/copy.
+No dependency fork, kernel-math change or parity change is involved.
+
+| Linux RX 5700 XT, width 1e-40 | Preview 64x36 whole stage (ms) | 1080p allocation/upload CPU (ms) | 1080p launch (ms) | 1080p submission/readback (ms) | 1080p GPU dispatch (ms) | 1080p whole stage (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Original shared slice API | 1.486 | 109.903 | 0.111 | 62.625 | 22.374 | 172.637 |
+| Typed owned API | 1.318 | 32.486 | 0.111 | 71.618 | 22.697 | 104.215 |
+| WGSL control | 1.374 | — | — | — | 20.727 | 45.117 |
+
+The preview earned the confirmation: 11.3% cheaper at identical parity. At
+1080p the complete stage is 1.66x faster (39.6% less wall time), while GPU
+dispatch is effectively unchanged. Every binary64 class/displacement/DE/normal
+gate passes, with identical worst displacement 1.63e-10 px. The readback phase
+includes queued uploads and compute; it is not pure data-download time.
+Component figures above were independently medianed in the original trace,
+while the final trace uses the components of the median whole-frame run so
+its printed stage sum accounts exactly for that frame time.
+
+A preliminary `create(Bytes::from_bytes_vec(...))` wrapper did **not** win the
+preview (1.635 ms); it retained the erased-byte alignment copy and was rejected
+before an expensive confirmation. The typed constructor is the retained fix.
+The corrected shared arm is still 2.31x the WGSL whole-stage time in job 188,
+although its GPU dispatch is within 1.10x. There is significant host/transport
+cost left, so this is
+not a source-route verdict or a claim that the 1.25x whole-frame bar is met.
+GPU-12 remains responsible for the final Windows/Linux decision.
+
+Evidence: jobs 178/179 preview and 180/181 original 1080p trace; 182/183 rejected
+erased-byte wrapper; 184/185 typed preview; 186/187 typed 1080p capture/confirmation.
+All experiments passed the existing parity gate, and every command exited 0
+within its 30-second runtime cap. Three GPU timestamp runs and three separate
+unprofiled wall runs per row, one CPU/Cargo worker, 4 GiB RAM, zero swap and the
+180-second OS cap remained in force. No benchmark film or full path was run.
