@@ -2269,9 +2269,13 @@ unaffected. Bisected by stubbing only `frexp`, after which the pipeline compiled
 `frexp` for positive normal inputs (the log polynomial only sees values above
 about 33), and identical after the existing [0, 900] clamp for every finite
 guard input, including zero and subnormals. Every Windows WGSL row matches the
-shared and ash rows' worst displacement and failure counts exactly. Linux
-binary64 parity is re-checked by the registered GPU-15 WGSL rows on this
-candidate. Linux WGSL timings below remain GPU-18's pre-workaround measurements.
+shared and ash rows' worst displacement and failure counts exactly. GPU-20
+re-checked the edited WGSL on the RX 5700 XT (workflow `gpu-route-rx5700xt`,
+run 38616843242, source tree dfd429fb2f6f5ba9b2132826453affcb5f3e33fe):
+`zone-smoke` passes, and all six 1080p WGSL binary64 rows pass parity with zero
+class/displacement/DE/normal failures (worst 2.41e-5 px). Whole-stage times of
+37.3–55.9 ms there are consistent with GPU-18, so the Linux WGSL timings below
+remain GPU-18's measurements.
 
 Binary64, RTX 3050 Ti, 1920x1080 (GPU dispatch / whole finish stage, ms;
 median of three timestamp runs and three separate unprofiled wall runs):
