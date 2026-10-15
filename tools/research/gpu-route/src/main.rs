@@ -3,6 +3,7 @@ use cubecl::{Device, device::WgpuDeviceKind, prelude::*};
 mod ash_finish;
 mod columns;
 mod encoding;
+mod ff;
 mod frame;
 mod mixed;
 mod wgsl;

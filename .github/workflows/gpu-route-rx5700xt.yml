@@ -94,6 +94,21 @@ jobs:
             grep -q '^frame_result .*parity=PASS' "$LOG_DIR/frame-$w.log" || { echo "::error::$w wgsl f64 did not pass parity"; failed=1; }
           done
           exit $failed
+      # GPU-09/GPU-05: float-float finish arm (no f64 in the kernel) on the
+      # same frozen inputs. Its parity verdict is a recorded result, not a job
+      # gate: the CPU probe predicts DE/normal failures under the current gate.
+      - name: Six 1080p WGSL float-float rows
+        run: |
+          set -o pipefail
+          probe="$CARGO_TARGET_DIR/debug/gpu-route-probe"
+          for w in 1e-37 1e-40 1e-43 1e-46 2e-48 2e-49; do
+            $LIMIT "$probe" frame "$w" wgsl ff 2>&1 | tee "$LOG_DIR/frame-ff-$w.log"
+          done
+          failed=0
+          for w in 1e-37 1e-40 1e-43 1e-46 2e-48 2e-49; do
+            grep -q '^frame_result ' "$LOG_DIR/frame-ff-$w.log" || { echo "::error::$w wgsl ff did not complete"; failed=1; }
+          done
+          exit $failed
       - name: Job summary
         if: always()
         run: |
@@ -102,6 +117,7 @@ jobs:
             echo '```'
             grep -h '^adapter=\|wgsl_f64_pipeline=' "$LOG_DIR/capabilities.log" 2>/dev/null || true
             grep -h 'hand-written-wgsl\|^tiny_grid' "$LOG_DIR/zone-smoke.log" 2>/dev/null || true
+            grep -h '^ff_adapter=' "$LOG_DIR"/frame-ff-*.log 2>/dev/null | head -n 1 || true
             grep -h 'frame_result' "$LOG_DIR"/frame-*.log 2>/dev/null || echo 'no frame_result lines'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
