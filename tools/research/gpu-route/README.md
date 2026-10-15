@@ -26,6 +26,12 @@ Current commands:
   separately. Escape-count changes are diagnostic (unavailable from the original
   ash shader). No 1080p or performance verdict is implied.
 
+- `ff-selftest`: GPU-09 float-float arm. On one adapter, checks that TwoSum,
+  FastTwoSum, the fma error term and TwoProd are exact, and that one
+  float-float z^2 + C step is within 2^-44, for both TwoProds (fma, Dekker),
+  scored against binary64 on the host (65,536 cases). Prints a verdict per
+  TwoProd; it never fails the command.
+
 Every command has a 30-second runtime cutoff. Building is separate and can take
 longer. No command implicitly renders a film or runs a full-frame benchmark.
 
@@ -83,7 +89,10 @@ under `~/.cache/fractodactyl-gpu-route-ci`, and each probe command runs in a
 `systemd-run --user` scope (4 GiB, no swap, one CPU), or under `nice -n 19` when
 there is no user systemd bus. It runs `capabilities`, `zone-smoke`, and then
 `capture-frame` plus `frame <width> wgsl f64` at all six depths. The run fails
-unless every row reports `parity=PASS`. `glslc` comes from the optional `glslc`
+unless every binary64 row reports `parity=PASS`. It then runs `ff-selftest`
+(guarded and unguarded) and `frame <width> wgsl ff` at all six depths; ff rows
+must complete, but their parity verdict is a recorded result, not a job gate.
+`glslc` comes from the optional `glslc`
 dispatch input, then PATH, then the product shaderc build under the runner's
 home. Logs are uploaded as an artifact. Timings in these logs are informational;
 METHOD.md tables are not replaced by them.
@@ -200,3 +209,58 @@ The shared compute pass is within 1.11x of WGSL; its complete stage remains
 current Linux comparison. Full parity counts, boundary-band caveats and source
 provenance are in METHOD.md under GPU-18. The previous mixed precision failures
 remain disqualifying. GPU-12 combines these with the RTX 3050 Ti rows for the WGSL verdict.
+
+## Float-float arm (GPU-09/GPU-05)
+
+```text
+gpu-route-probe ff-selftest
+gpu-route-probe frame 1e-40 wgsl ff
+FD_GPU_ROUTE_ADAPTER=iris gpu-route-probe frame 1e-40 wgsl ff
+```
+
+`frame <width> wgsl ff` runs the float-float finish (`src/ff.wgsl`), a port of
+`finff` in `tools/research/twolevel/zone_finish/zfin.c`, on the same frozen
+inputs and parity gate as the other arms. The kernel has no f64: naga
+validates it with no capabilities (`ff_wgsl_validates_without_f64`), and the
+device is opened with only `TIMESTAMP_QUERY`, so the arm also runs on adapters
+without `SHADER_F64` (Intel Iris Xe). Without a CubeCL f64 client, `frame ...
+wgsl ff` never needs an f64 device.
+
+- **Arithmetic.** z is float-float (TwoSum adds; TwoProd by fma or Dekker);
+  dz/dc is an f32 mantissa with an i32 exponent, renormalised every step.
+  Escape at |z|^2 > 1e20 on the hi words; at most 20,000 iterations.
+- **Host.** The host stays binary64. It rounds each landing state to
+  float-float (hi = f32(z), lo = f32(z - hi)) and dz/dc to mantissa/exponent,
+  directly into the mapped upload buffer. This conversion is inside the timed
+  `finish_frame_ms`.
+- **Encoding.** nu, DE and the normal are encoded in f32 on the device, with
+  log2/atan2 from the IEEE bits and short polynomials (no transcendental
+  builtins, no frexp/ldexp). nu leaves as an exact (integer, fraction) f32 pair.
+  The host sums the pair in binary64 after the clock stops, as the other arms
+  exclude column decoding. Output is still 16 bytes per input.
+- **Reassociation guard.** Every TwoSum/FastTwoSum intermediate and the TwoProd
+  product pass through `opq`, an XOR with a runtime zero from the camera
+  buffer. Without it, the NVIDIA and Intel drivers rewrite the error terms to
+  zero and parity fails badly. `FD_GPU_ROUTE_FF_NOGUARD=1` strips the guard, for
+  diagnosis only.
+- **TwoProd selection.** Vulkan lets a driver split `fma` into a multiply and
+  an add, and RADV (RX 5700 XT) does. At start-up the runner self-tests the fma
+  TwoProd on the device and uses it only if it is exact; otherwise it uses
+  Dekker/Veltkamp splitting. Each row prints the choice as `two_prod` and
+  `two_prod_selection` (`auto`, `auto_fma_not_fused` or `forced`).
+  `FD_GPU_ROUTE_FF_TWOPROD=fma|dekker` forces one.
+- **Adapter.** `FD_GPU_ROUTE_ADAPTER=<name substring>` (case-insensitive) picks
+  the adapter; otherwise a discrete GPU is preferred. Software adapters are
+  excluded.
+- **Diagnostics.** `FD_GPU_ROUTE_FF_STAGES=1` prints each run's host stages to
+  stderr. `FD_GPU_ROUTE_DUMP_CLASS=1` (any arm) prints every class mismatch
+  with its frozen landing state.
+
+`frame_result` lines for every arm also carry `report_only_de_wrong_ge1px` and
+`report_only_normal_wrong_ge1px`: DE/normal failures counted only where the
+reference DE is at least 1 px. These are report-only. The pass/fail contract
+(class, displacement <= 1e-3 px, DE <= 0.2% and normal <= 0.2 degrees outside
+the 1e-3 px boundary band) is unchanged.
+
+Results (RTX 3050 Ti, Iris Xe, RX 5700 XT) and the GPU-05 kill-line verdict
+are in METHOD.md under "GPU-09/GPU-05: float-float finish arm".

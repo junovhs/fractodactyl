@@ -794,6 +794,79 @@ are upper bounds.**
 
 ---
 
+## §21. Measured on GPU (2026-10-14, Claude; float-float only)
+
+The float-float arm from §14 now exists as a WGSL kernel in the GPU-12 route probe:
+`gpu-route-probe frame <width> wgsl ff` (`tools/research/gpu-route/src/ff.wgsl`).
+- It has no f64 on the device, and it runs on the Intel Iris Xe (no `SHADER_F64`).
+- It is timed against the binary64 WGSL finish on the same frozen 1080p inputs and scored with
+  the same parity gate.
+- The full entry is in METHOD.md, "GPU-09/GPU-05: float-float finish arm". The two-level tile
+  arm was not built (parked).
+
+**Parity.** Displacement failures are 0 everywhere. "≥ 1 px" counts only pixels whose
+reference DE is at least 1 px.
+
+| width | 3050 Ti and Iris Xe (identical): class; DE/normal current; ≥ 1 px; max px | RX 5700 XT (Dekker TwoProd) |
+|---|---|---|
+| 1e-37 | 0; 0/0; 0; 8.7e-6 | 0; 0/0; 0; 6.6e-6 |
+| 1e-40 | 0; 0/0; 0; 7.7e-6 | 0; 0/0; 0; 6.7e-6 |
+| 1e-43 | 0; 26/1; 0; 1.9e-4 | 0; 34/1; 0; 2.2e-4 |
+| 1e-46 | 0; 160/33; 0; 3.7e-4 | 0; 170/31; 0; 3.4e-4 |
+| 2e-48 | 0; 322/82; 0; 7.3e-4 | 0; 323/87; 0; 8.1e-4 |
+| 2e-49 | **1**; 1/0; 0; 7.2e-5 | 0; 3/2; 0; 1.3e-4 |
+
+**Timing**, ms (GPU dispatch / whole finish stage), and ff speed-up over binary64:
+
+| width | 3050 Ti f64 → ff | 3050 Ti speed-up | 5700 XT f64 → ff | 5700 XT speed-up | Iris Xe ff |
+|---|---|---|---|---|---|
+| 1e-37 | 175.6/197.4 → 37.9/74.6 | 4.63x / 2.65x | 33.1/49.6 → 31.1/64.9 | 1.06x / 0.76x | 137.5/153.4 |
+| 1e-40 | 104.5/128.3 → 23.0/58.3 | 4.55x / 2.20x | 20.8/37.3 → 18.8/53.1 | 1.10x / 0.70x | 79.3/94.7 |
+| 1e-43 | 170.4/193.0 → 37.0/73.5 | 4.61x / 2.62x | 33.6/49.3 → 30.0/65.0 | 1.12x / 0.76x | 158.1/142.6 |
+| 1e-46 | 180.4/203.5 → 39.2/74.6 | 4.60x / 2.73x | 33.8/50.8 → 31.9/70.0 | 1.06x / 0.73x | 124.7/150.7 |
+| 2e-48 | 194.4/216.6 → 52.0/77.3 | 3.74x / 2.80x | 36.3/56.9 → 34.1/67.6 | 1.06x / 0.84x | 152.3/148.9 |
+| 2e-49 | 177.6/197.2 → 37.2/69.5 | 4.78x / 2.84x | 33.3/48.5 → 31.7/61.5 | 1.05x / 0.79x | 143.0/136.0 |
+
+**Verdict: GPU-05 kill line passed (KEEP).** On the 3050 Ti, the whole finish stage is
+2.20–2.84x faster against a 1.5x bar.
+
+**What contradicts or adds to the CPU projection:**
+
+1. **Speed is below the op-count projection.**
+   - 3050 Ti dispatch: 3.7–4.8x, against 7.7x projected.
+   - RX 5700 XT: 1.05–1.12x dispatch and 0.70–0.84x whole stage, against 1.96x projected.
+     Float-float loses to native binary64 there.
+   - Even the (incorrect) split-fma kernel reached only 1.22–1.25x dispatch on the 5700 XT.
+     So §19's assumption, that the RDNA1 binary64 finish is limited by the 1/16 FP64 rate,
+     does not hold.
+   - On that device class, native f64 stays the faster arm.
+2. **The compilers break the error-free transformations unless they are prevented.**
+   - **Reassociation.** NVIDIA, Intel and RADV all rewrite TwoSum's error term to zero.
+     - Every TwoSum/FastTwoSum intermediate must be made opaque. The kernel uses an XOR with
+       a runtime zero.
+     - Guarding only `s` and `bb` still let `(a - (s - bb)) + (b - bb)` become `(a + b) - s`.
+   - **fma splitting.** RADV splits WGSL `fma` into a multiply and an add, so the fma TwoProd
+     is wrong on every product.
+     - The kernel self-tests at start-up and falls back to Dekker's TwoProd.
+     - `gpu-route-probe ff-selftest` shows both effects in 65,536 cases.
+   - The CPU probe (gcc `-ffp-contract=off`) could not show either effect. Any GPU float-float
+     or two-level kernel inherits both requirements.
+3. **One class error at 2e-49 that the CPU probe did not have.**
+   - Pixel (1121, 569) on the Windows-captured inputs. The reference escapes at about
+     iteration 19,983 of 20,000, with DE 3.1e-16 px. Float-float does not escape by 20,000.
+   - A CPU replay of `finff` on the same landing state reproduces it.
+   - The CPU probe and the RX 5700 XT used Linux captures, where the landing state differs in
+     the last bits, and they did not flip.
+   - So float-float can fail the class rule on near-cap chaotic orbits, not only the DE rule.
+     The targeted re-run tier recommended in §22 would need to cover this case too.
+4. **The DE/normal failure counts match the projection.**
+   - DE + normal counts on the 3050 Ti are 0/0/27/193/404/1 at the six depths; a pixel that
+     fails both rules counts twice. The CPU probe's per-pixel counts were 0/0/27/170/354/1
+     (DE or normal).
+   - 0 under the ≥ 1 px tally, everywhere.
+
+---
+
 ## §22. Shading proof: does the DE rule buy anything visible? (2026-10-15, cloud; CPU only)
 
 **Question (owner).** Render the frames both ways and compare the actual images. Find the
