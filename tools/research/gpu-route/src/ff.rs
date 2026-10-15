@@ -1,0 +1,375 @@
+//! GPU-09/GPU-05 float-float WGSL finish arm. The device sees no f64: the host
+//! (binary64) rounds each landing state to float-float and dz/dc to an f32
+//! mantissa plus i32 exponent while uploading, inside the timed finish stage.
+use cubecl::prelude::*;
+
+pub struct Runner {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pipeline: wgpu::ComputePipeline,
+    pub adapter: String,
+    pub shader_f64: bool,
+}
+
+fn source() -> String {
+    let source = include_str!("ff.wgsl").to_owned();
+    if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() {
+        source.replace(
+            "fn opq(x: f32) -> f32 { return bitcast<f32>(bitcast<u32>(x) ^ KEY); }",
+            "fn opq(x: f32) -> f32 { return x; }",
+        )
+    } else {
+        source
+    }
+}
+
+/// Float-float pair: hi = f32(x), lo = f32(x - hi).
+fn split(x: f64) -> (f32, f32) {
+    let hi = x as f32;
+    (hi, (x - f64::from(hi)) as f32)
+}
+
+/// frexp exponent of a positive normal binary64 (mantissa in [0.5, 1)).
+fn exponent_of(x: f64) -> i32 {
+    ((x.to_bits() >> 52) & 2047) as i32 - 1022
+}
+
+fn pow2(k: i32) -> f64 {
+    f64::from_bits(((1023 + k) as u64) << 52)
+}
+
+/// Mantissa/exponent of a complex value: (re 2^-e, im 2^-e, e).
+fn scaled(re: f64, im: f64) -> (f32, f32, i32) {
+    let big = re.abs().max(im.abs());
+    if big == 0.0 || !big.is_normal() {
+        return (re as f32, im as f32, 0);
+    }
+    let e = exponent_of(big);
+    ((re * pow2(-e)) as f32, (im * pow2(-e)) as f32, e)
+}
+
+impl Runner {
+    /// `FD_GPU_ROUTE_ADAPTER` picks a hardware adapter by name substring
+    /// (case-insensitive); otherwise a discrete GPU is preferred.
+    pub fn new() -> Result<Self, String> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let mut adapters =
+            cubecl::future::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
+                .into_iter()
+                .filter(|a| a.get_info().device_type != wgpu::DeviceType::Cpu)
+                .collect::<Vec<_>>();
+        let wanted = std::env::var("FD_GPU_ROUTE_ADAPTER").ok();
+        let adapter = if let Some(want) = &wanted {
+            let want = want.to_lowercase();
+            adapters
+                .into_iter()
+                .find(|a| a.get_info().name.to_lowercase().contains(&want))
+                .ok_or(format!("no hardware Vulkan adapter matches FD_GPU_ROUTE_ADAPTER={want}"))?
+        } else {
+            adapters.sort_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu);
+            adapters
+                .into_iter()
+                .next()
+                .ok_or("no hardware Vulkan adapter; software adapters are excluded")?
+        };
+        let name = adapter.get_info().name;
+        let shader_f64 = adapter.features().contains(wgpu::Features::SHADER_F64);
+        // Deliberately no SHADER_F64/SHADER_INT64/SUBGROUP: the arm must run without them.
+        let required = wgpu::Features::TIMESTAMP_QUERY;
+        if !adapter.features().contains(required) {
+            return Err(format!("WGSL ff arm needs GPU timestamps; {name} has none"));
+        }
+        let (device, queue) =
+            cubecl::future::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                required_features: required,
+                ..Default::default()
+            }))
+            .map_err(|e| format!("WGSL ff device: {e}"))?;
+        let errors = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GPU-09 float-float finish"),
+            source: wgpu::ShaderSource::Wgsl(source().into()),
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("GPU-09 float-float finish"),
+            layout: None,
+            module: &module,
+            entry_point: Some("main"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
+        if let Some(e) = cubecl::future::block_on(errors.pop()) {
+            return Err(format!("WGSL ff pipeline rejected: {e}"));
+        }
+        Ok(Self {
+            device,
+            queue,
+            pipeline,
+            adapter: name,
+            shader_f64,
+        })
+    }
+
+    fn input(&self, bytes: &[u8]) -> Result<wgpu::Buffer, String> {
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GPU-09 ff inputs"),
+            size: bytes.len() as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        buffer
+            .get_mapped_range_mut(..)
+            .map_err(|e| format!("WGSL ff mapped input: {e}"))?
+            .copy_from_slice(bytes);
+        buffer.unmap();
+        Ok(buffer)
+    }
+
+    /// Same packed checkpoints and camera as the f64 arm; conversion is timed.
+    pub fn run_measured(
+        &self,
+        input: &[f64],
+        iterations: &[u32],
+        camera: &[f64],
+        timing: bool,
+    ) -> Result<super::columns::Measured, String> {
+        let started = std::time::Instant::now();
+        let count = iterations.len();
+        if camera.len() != 6 {
+            return Err("expected pixel/cos/sin camera".into());
+        }
+        if count == 0 || input.len() != count * 4 || count > 1920 * 1080 {
+            return Err("WGSL ff arm needs 1..1080p packed checkpoints".into());
+        }
+        let errors = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        // Convert straight into the mapped upload buffer (no staging Vec/copy).
+        let inputs = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GPU-09 ff inputs"),
+            size: (count * 32) as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: true,
+        });
+        let allocated_ms = started.elapsed().as_secs_f64() * 1000.0;
+        {
+            let mut mapped = inputs
+                .get_mapped_range_mut(..)
+                .map_err(|e| format!("WGSL ff mapped input: {e}"))?;
+            // Mapped views are write-only: convert in cache-sized chunks.
+            const CHUNK: usize = 65536;
+            let mut chunk = Vec::<u32>::with_capacity(CHUNK * 8);
+            for (at, states) in input.chunks(CHUNK * 4).enumerate() {
+                chunk.clear();
+                let first = at * CHUNK;
+                for (state, &n) in states.chunks_exact(4).zip(&iterations[first..]) {
+                    let (zrh, zrl) = split(state[0]);
+                    let (zih, zil) = split(state[1]);
+                    let (dr, di, kd) = scaled(state[2], state[3]);
+                    chunk.extend_from_slice(&[
+                        zrh.to_bits(),
+                        zrl.to_bits(),
+                        zih.to_bits(),
+                        zil.to_bits(),
+                        dr.to_bits(),
+                        di.to_bits(),
+                        kd as u32,
+                        n,
+                    ]);
+                }
+                mapped
+                    .slice(first * 32..first * 32 + chunk.len() * 4)
+                    .copy_from_slice(u32::as_bytes(&chunk));
+            }
+        }
+        inputs.unmap();
+        let converted_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let (crh, crl) = split(camera[3]);
+        let (cih, cil) = split(camera[4]);
+        let (hm, _, kh) = scaled(camera[0], 0.0);
+        let camera32 = [
+            crh.to_bits(),
+            crl.to_bits(),
+            cih.to_bits(),
+            cil.to_bits(),
+            (camera[1] as f32).to_bits(),
+            (camera[2] as f32).to_bits(),
+            (camera[5] as f32).to_bits(),
+            hm.to_bits(),
+            kh as u32,
+            0, // opaque zero for the reassociation guard
+        ];
+        let camera_buffer = self.input(u32::as_bytes(&camera32))?;
+        let nu_bytes = count * 8;
+        let de_bytes = count * 4;
+        let word_bytes = count * 4;
+        let output = |label, size: usize| {
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: size as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            })
+        };
+        let nu = output("GPU-09 nu", nu_bytes);
+        let de = output("GPU-09 DE", de_bytes);
+        let words = output("GPU-09 words", word_bytes);
+        let query = self.device.create_query_set(&wgpu::QuerySetDescriptor {
+            label: Some("GPU-09 timestamps"),
+            ty: wgpu::QueryType::Timestamp,
+            count: 2,
+        });
+        let query_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GPU-09 timestamp resolve"),
+            size: 16,
+            usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("GPU-09 readback"),
+            size: (nu_bytes + de_bytes + word_bytes + if timing { 16 } else { 0 }) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let entries = [&inputs, &camera_buffer, &nu, &de, &words]
+            .iter()
+            .enumerate()
+            .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                binding: binding as u32,
+                resource: buffer.as_entire_binding(),
+            })
+            .collect::<Vec<_>>();
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("GPU-09 ff finish"),
+            layout: &self.pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let timestamps = timing.then_some(wgpu::ComputePassTimestampWrites {
+                query_set: &query,
+                beginning_of_pass_write_index: Some(0),
+                end_of_pass_write_index: Some(1),
+            });
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: timestamps,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups((count as u32).div_ceil(64), 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&nu, 0, &staging, 0, nu_bytes as u64);
+        encoder.copy_buffer_to_buffer(&de, 0, &staging, nu_bytes as u64, de_bytes as u64);
+        encoder.copy_buffer_to_buffer(
+            &words,
+            0,
+            &staging,
+            (nu_bytes + de_bytes) as u64,
+            word_bytes as u64,
+        );
+        if timing {
+            encoder.resolve_query_set(&query, 0..2, &query_buffer, 0);
+            encoder.copy_buffer_to_buffer(
+                &query_buffer,
+                0,
+                &staging,
+                (nu_bytes + de_bytes + word_bytes) as u64,
+                16,
+            );
+        }
+        let submit_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.queue.submit([encoder.finish()]);
+        let (tx, rx) = std::sync::mpsc::channel();
+        staging.map_async(wgpu::MapMode::Read, .., move |result| {
+            let _ = tx.send(result);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| format!("WGSL ff poll: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("WGSL ff callback: {e}"))?
+            .map_err(|e| format!("WGSL ff map: {e}"))?;
+        if let Some(e) = cubecl::future::block_on(errors.pop()) {
+            return Err(format!("WGSL ff dispatch rejected: {e}"));
+        }
+        let mapped_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let bytes = staging
+            .get_mapped_range(..)
+            .map_err(|e| format!("WGSL ff mapped output: {e}"))?;
+        // The f64 arm's stage ends at mapped columns; decoding is excluded there
+        // too, so the clock stops before the diagnostic nu-pair sum.
+        let frame_ms = started.elapsed().as_secs_f64() * 1000.0;
+        // Host sums the exact (integer, fraction) nu pair into the f64 column.
+        let mut nu64 = Vec::with_capacity(nu_bytes);
+        for pair in bytes[..nu_bytes].chunks_exact(8) {
+            let whole = f32::from_le_bytes(pair[..4].try_into().unwrap());
+            let fraction = f32::from_le_bytes(pair[4..].try_into().unwrap());
+            nu64.extend((f64::from(whole) + f64::from(fraction)).to_le_bytes());
+        }
+        if std::env::var_os("FD_GPU_ROUTE_FF_STAGES").is_some() {
+            eprintln!(
+                "ff_stages alloc_ms={allocated_ms:.3} convert_upload_ms={:.3} setup_ms={:.3} gpu_wait_readback_ms={:.3} map_ms={:.3} frame_ms={frame_ms:.3} nu_pair_decode_ms_excluded={:.3}",
+                converted_ms - allocated_ms,
+                submit_ms - converted_ms,
+                mapped_ms - submit_ms,
+                frame_ms - mapped_ms,
+                started.elapsed().as_secs_f64() * 1000.0 - frame_ms
+            );
+        }
+        let decoded = super::columns::decoded(
+            &nu64,
+            &bytes[nu_bytes..nu_bytes + de_bytes],
+            &bytes[nu_bytes + de_bytes..nu_bytes + de_bytes + word_bytes],
+        );
+        let gpu_ms = if timing {
+            let at = nu_bytes + de_bytes + word_bytes;
+            let start = u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+            let end = u64::from_le_bytes(bytes[at + 8..at + 16].try_into().unwrap());
+            Some(
+                end.wrapping_sub(start) as f64 * f64::from(self.queue.get_timestamp_period()) / 1e6,
+            )
+        } else {
+            None
+        };
+        drop(bytes);
+        staging.unmap();
+        let (terminal, words) = decoded?;
+        Ok(super::columns::Measured {
+            terminal,
+            words,
+            gpu_ms,
+            frame_ms,
+            stages: None,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CPU-only: naga validates the kernel with no capabilities at all, which
+    /// proves it uses no f64, int64 or subgroups.
+    #[test]
+    fn ff_wgsl_validates_without_f64() {
+        use naga::valid::{Capabilities, ValidationFlags, Validator};
+        let source = source();
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        Validator::new(ValidationFlags::all(), Capabilities::empty())
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+    }
+
+    #[test]
+    fn host_split_is_exact_float_float() {
+        let x = -0.7432918908524302_f64;
+        let (hi, lo) = split(x);
+        assert!((f64::from(hi) + f64::from(lo) - x).abs() <= x.abs() * 2f64.powi(-48));
+        let (re, im, e) = scaled(3.0e52, -1.0e52);
+        assert!((f64::from(re) * 2f64.powi(e) / 3.0e52 - 1.0).abs() < 1e-7);
+        assert!((0.5..1.0).contains(&re.abs().max(im.abs())));
+    }
+}

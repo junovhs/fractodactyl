@@ -12,6 +12,10 @@ struct Gate {
     normal_wrong: usize,
     near_de_wrong: usize,
     near_normal_wrong: usize,
+    // Report-only tally (GPU-09): DE/normal failures where the reference DE
+    // is at least 1 px. Never part of the pass/fail contract.
+    de_wrong_ge1px: usize,
+    normal_wrong_ge1px: usize,
     nonfinite: usize,
     max_px: f64,
     max_de_relative: f64,
@@ -79,6 +83,10 @@ fn gate(
         // changes are diagnostic; displacement and class are the contract.
         let de_wrong = usize::from(relative > 0.002);
         let normal_wrong = usize::from(f64::from(angle) * 360.0 / 65536.0 > 0.2);
+        if rd >= 1.0 {
+            g.de_wrong_ge1px += de_wrong;
+            g.normal_wrong_ge1px += normal_wrong;
+        }
         if rd <= 1e-3 {
             g.near_de_wrong += de_wrong;
             g.near_normal_wrong += normal_wrong;
@@ -482,24 +490,49 @@ pub fn benchmark(
     only_precision: Option<&str>,
 ) -> Result<(), String> {
     if only_arm.is_some_and(|a| !["shared", "wgsl", "ash"].contains(&a))
-        || only_precision.is_some_and(|p| !["f64", "mixed"].contains(&p))
+        || only_precision.is_some_and(|p| !["f64", "mixed", "ff"].contains(&p))
+        || (only_precision == Some("ff") && only_arm.is_some_and(|a| a != "wgsl"))
     {
-        return Err("arm: shared|wgsl|ash; precision: f64|mixed".into());
+        return Err("arm: shared|wgsl|ash; precision: f64|mixed (ff: wgsl only)".into());
     }
-    let client = super::f64_client()?;
+    // The ff arm needs no f64 device, so it never opens the CubeCL f64 client.
+    let client = if only_precision == Some("ff") {
+        None
+    } else {
+        Some(super::f64_client()?)
+    };
     let expected_words = vec![u32::MAX; indices.len() * 2];
     for arm in ["shared", "wgsl", "ash"] {
         if only_arm.is_some_and(|a| a != arm) {
             continue;
         }
-        for mixed in [false, true] {
-            let precision = if mixed { "mixed" } else { "f64" };
-            if only_precision.is_some_and(|p| p != precision) {
+        for precision in ["f64", "mixed", "ff"] {
+            if only_precision.is_some_and(|p| p != precision)
+                || (precision == "ff" && arm != "wgsl")
+            {
                 continue;
             }
-            let wgsl = if arm == "wgsl" {
+            let mixed = precision == "mixed";
+            let ff = if precision == "ff" {
+                let runner = super::ff::Runner::new()?;
+                println!(
+                    "ff_adapter={:?} shader_f64={} kernel_f64=NONE reassociation_guard={}",
+                    runner.adapter,
+                    runner.shader_f64,
+                    if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() { "OFF" } else { "ON" }
+                );
+                Some(runner)
+            } else {
+                None
+            };
+            let client = if ff.is_none() {
+                Some(client.as_ref().ok_or("f64 client unavailable")?)
+            } else {
+                None
+            };
+            let wgsl = if arm == "wgsl" && ff.is_none() {
                 Some(super::wgsl::Runner::new(
-                    &client.properties().identity.name,
+                    &client.unwrap().properties().identity.name,
                     mixed,
                 )?)
             } else {
@@ -507,14 +540,20 @@ pub fn benchmark(
             };
             let ash = if arm == "ash" {
                 Some(super::ash_finish::Runner::new(
-                    &client.properties().identity.name,
+                    &client.unwrap().properties().identity.name,
                     mixed,
                 )?)
             } else {
                 None
             };
             let run = |timing| match arm {
-                "shared" => shared_measured(&client, input, iterations, camera, mixed, timing),
+                _ if ff.is_some() => ff
+                    .as_ref()
+                    .unwrap()
+                    .run_measured(input, iterations, camera, timing),
+                "shared" => {
+                    shared_measured(client.unwrap(), input, iterations, camera, mixed, timing)
+                }
                 "wgsl" => wgsl
                     .as_ref()
                     .unwrap()
@@ -556,6 +595,9 @@ pub fn benchmark(
                     verdict.max_px = verdict.max_px.max(g.max_px);
                     verdict.near_de_wrong = verdict.near_de_wrong.max(g.near_de_wrong);
                     verdict.near_normal_wrong = verdict.near_normal_wrong.max(g.near_normal_wrong);
+                    verdict.de_wrong_ge1px = verdict.de_wrong_ge1px.max(g.de_wrong_ge1px);
+                    verdict.normal_wrong_ge1px =
+                        verdict.normal_wrong_ge1px.max(g.normal_wrong_ge1px);
                     if timing {
                         kernels.push(measured.gpu_ms.ok_or(
                             "GPU timestamp measurement unavailable; no system-time substitution",
@@ -595,7 +637,7 @@ pub fn benchmark(
                 + verdict.nonfinite
                 == 0;
             println!(
-                "frame_result arm={arm} precision={precision} width={width} grid={nx}x{ny} total_pixels={} finish_inputs={} cpu_bypassed={} parity={} class_wrong={} displacement_wrong={} de_wrong={} normal_wrong={} nonfinite={} max_px={:e} near_de_over={} near_normal_over={} dispatch_ms={:.6} finish_frame_ms={:.6} repeats=3 timing=GPU_TIMESTAMP_AND_SEPARATE_UNPROFILED_WALL output_bytes_per_input=16",
+                "frame_result arm={arm} precision={precision} width={width} grid={nx}x{ny} total_pixels={} finish_inputs={} cpu_bypassed={} parity={} class_wrong={} displacement_wrong={} de_wrong={} normal_wrong={} nonfinite={} max_px={:e} near_de_over={} near_normal_over={} report_only_de_wrong_ge1px={} report_only_normal_wrong_ge1px={} dispatch_ms={:.6} finish_frame_ms={:.6} repeats=3 timing=GPU_TIMESTAMP_AND_SEPARATE_UNPROFILED_WALL output_bytes_per_input=16",
                 nx as usize * ny as usize,
                 indices.len(),
                 nx as usize * ny as usize - indices.len(),
@@ -608,6 +650,8 @@ pub fn benchmark(
                 verdict.max_px,
                 verdict.near_de_wrong,
                 verdict.near_normal_wrong,
+                verdict.de_wrong_ge1px,
+                verdict.normal_wrong_ge1px,
                 kernels[1],
                 frames[1]
             );
