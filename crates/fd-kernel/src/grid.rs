@@ -104,7 +104,7 @@ pub fn render_with(
 }
 
 /// [`render_with`] computing only the samples whose `mask` entry (row-major over the
-/// sample grid) is true; the others are left unset (FILM-15 jet-AA passes).
+/// sample grid) is true; the others are left unset (FILM-16 jet-AA passes).
 pub fn render_with_masked(
     view: &View,
     p: &Params,

@@ -5,7 +5,7 @@
 **Verdict:**
 - **Passes.** The kill line is read per film (§6). DEC-29 is met everywhere, and a v0 dive
   averages 2.1 samples per pixel.
-- **Built** as `fd film --jet-aa on` (FILM-15, §10): **1.84x faster** on a BLA film, same
+- **Built** as `fd film --jet-aa on` (FILM-16, §10): **1.84x faster** on a BLA film, same
   frames within DEC-29, no added flicker.
 - Zone frames stay exact, because their samples are already too cheap for jet-AA to pay.
 - Stills are untouched (DEC-17).
@@ -42,7 +42,7 @@ columns. That is a 1.6–4x cut in film fractal samples, measured by frame, not 
    the densest frames** (eff 2.9–3.6 on v0 5e-49 and 2e-49 / p764 spiral, 1.0–2.5 elsewhere; DEC-29
    met everywhere, no added flicker), see q6 answer".
 2. Record the decisions of §6 (taken from north star v4) as Ishoo decisions.
-3. File FILM-15 (jet-AA in `fd film`, built: §10) and the remaining leads in §7 as issues.
+3. File FILM-16 (jet-AA in `fd film`, built: §10) and the remaining leads in §7 as issues.
 4. Add the METHOD.md results-log entry (text in §8).
 
 ## 1. What was built and how it was scored
@@ -380,7 +380,7 @@ Under the literal reading, Q6 is killed on those frames. It is kept as a lead be
 > frames; kept as a lead (FILM jet-AA refine pass). The exact order-3 recurrences cost 2x
 > per iteration and are not needed.
 
-## 10. FILM-15: jet-AA built into `fd film` (2026-10-15)
+## 10. FILM-16: jet-AA built into `fd film` (2026-10-15)
 
 - **Kernel:** `render_with_masked`, `render_bla_masked` and `render_zone_masked`
   (fd-kernel) compute only the samples a mask selects. The unmasked functions are unchanged

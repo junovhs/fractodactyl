@@ -1,4 +1,4 @@
-//! Jet-AA for films (FILM-15; research: docs/research/10-11-26/q6-supersampling-from-jets.md).
+//! Jet-AA for films (FILM-16; research: docs/research/10-11-26/q6-supersampling-from-jets.md).
 //!
 //! An ss 2 film frame is rendered in two kernel passes. Pass 1 computes each pixel's
 //! top-left sample only. [`rebuild`] then predicts the other three samples of each pixel

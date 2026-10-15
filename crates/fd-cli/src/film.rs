@@ -31,7 +31,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (off)] \
-[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-15)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -295,7 +295,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     base.dither = a.str("dither").is_none_or(|v| v == "on");
     let zone = a.str("zone").map(Zone::load).transpose()?;
-    // `--jet-aa on` (FILM-15): ss 2 frames from one computed sample per pixel plus the
+    // `--jet-aa on` (FILM-16): ss 2 frames from one computed sample per pixel plus the
     // samples the jet rebuild rejects (jetaa.rs). Films only; stills stay exact.
     let jet_aa = match a.str("jet-aa").unwrap_or("off") {
         "off" => false,
@@ -1037,7 +1037,7 @@ pub(crate) fn render_frame_kernel(
     Ok((h, s, Used::Plain))
 }
 
-/// A film frame with jet-AA (FILM-15): pass 1 computes each pixel's top-left ss 2
+/// A film frame with jet-AA (FILM-16): pass 1 computes each pixel's top-left ss 2
 /// sample, [`crate::jetaa::rebuild`] predicts the rest, pass 2 computes the rejected
 /// ones. BLA or plain perturbation as [`render_frame_kernel`] (CPU), with the reference
 /// orbit and BLA table built once for both passes; zone frames are rendered exactly.
@@ -1107,7 +1107,7 @@ struct Report {
     keyframe_sample_shade: f64,
     keyframe_resample: f64,
     encode_wait: f64,
-    /// Jet-AA (FILM-15): samples computed and output pixels rendered.
+    /// Jet-AA (FILM-16): samples computed and output pixels rendered.
     jet_samples: u64,
     jet_pixels: u64,
     /// Seconds in pass 1, the rebuild and pass 2.
