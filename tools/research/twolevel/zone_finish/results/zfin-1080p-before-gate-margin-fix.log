@@ -1,0 +1,120 @@
+file 1e-37.zfin T 8 | captured 2073600 escaped 1.0000 | mean finish steps f64 151.7 ff 151.7 tl 151.7 | tile orbit steps/px 2.39 (refs 32400) | 25.9s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 8.72e-06 | DE/normal over: A 0 B 0
+  tl raw (no guard): cls 0 px>1e-3 233 max 1.32e+00
+  fallback: nu-only 4.3888% | contract A 10.9409% | contract B 4.3888%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 1.29e-05 DE 14 normal 4
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 1.29e-05 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.29e-05 DE 14 normal 4
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.29e-05 DE 0 normal 0
+  proj A: hybrid/ff-only 1.52x | hybrid vs f64 RDNA1 2.99x, vs f64 Ampere-consumer 11.77x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 35.1%
+  proj B: hybrid/ff-only 1.84x | hybrid vs f64 RDNA1 3.61x, vs f64 Ampere-consumer 14.20x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 21.7%
+file 1e-37.zfin T 16 | captured 2073600 escaped 1.0000 | mean finish steps f64 151.7 ff 151.7 tl 151.7 | tile orbit steps/px 0.60 (refs 8160) | 25.6s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 8.72e-06 | DE/normal over: A 0 B 0
+  tl raw (no guard): cls 0 px>1e-3 424 max 2.15e-01
+  fallback: nu-only 5.5474% | contract A 14.1799% | contract B 5.5474%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 2.94e-05 DE 37 normal 12
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 2.94e-05 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.94e-05 DE 37 normal 12
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.94e-05 DE 0 normal 0
+  proj A: hybrid/ff-only 1.44x | hybrid vs f64 RDNA1 2.83x, vs f64 Ampere-consumer 11.13x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 40.3%
+  proj B: hybrid/ff-only 1.82x | hybrid vs f64 RDNA1 3.56x, vs f64 Ampere-consumer 14.02x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 24.8%
+file 1e-40.zfin T 8 | captured 2073600 escaped 1.0000 | mean finish steps f64 73.2 ff 73.2 tl 73.2 | tile orbit steps/px 1.16 (refs 32400) | 15.0s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 4.25e-09 | DE/normal over: A 0 B 0
+  tl raw (no guard): cls 0 px>1e-3 60 max 9.00e-03
+  fallback: nu-only 2.5357% | contract A 6.9973% | contract B 2.5357%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 1.30e-04 DE 19 normal 13
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 1.30e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.30e-04 DE 19 normal 13
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.30e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.49x | hybrid vs f64 RDNA1 2.92x, vs f64 Ampere-consumer 11.52x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 36.5%
+  proj B: hybrid/ff-only 1.80x | hybrid vs f64 RDNA1 3.53x, vs f64 Ampere-consumer 13.92x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 23.2%
+file 1e-40.zfin T 16 | captured 2073600 escaped 1.0000 | mean finish steps f64 73.2 ff 73.2 tl 73.2 | tile orbit steps/px 0.29 (refs 8160) | 15.5s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 4.25e-09 | DE/normal over: A 0 B 0
+  tl raw (no guard): cls 0 px>1e-3 121 max 9.06e-03
+  fallback: nu-only 2.9734% | contract A 9.0529% | contract B 2.9734%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 1.45e-04 DE 37 normal 27
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 1.45e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.45e-04 DE 37 normal 27
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.45e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.41x | hybrid vs f64 RDNA1 2.76x, vs f64 Ampere-consumer 10.88x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 41.6%
+  proj B: hybrid/ff-only 1.79x | hybrid vs f64 RDNA1 3.50x, vs f64 Ampere-consumer 13.80x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 26.0%
+file 1e-43.zfin T 8 | captured 2073600 escaped 1.0000 | mean finish steps f64 147.3 ff 147.3 tl 147.3 | tile orbit steps/px 2.32 (refs 32400) | 28.4s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 1.91e-04 | DE/normal over: A 27 B 0
+  tl raw (no guard): cls 0 px>1e-3 663 max 4.45e+00
+  fallback: nu-only 4.0653% | contract A 10.3012% | contract B 4.0653%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 2.41e-04 DE 42 normal 9
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 2.52e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.41e-04 DE 17 normal 7
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.52e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.55x | hybrid vs f64 RDNA1 3.04x, vs f64 Ampere-consumer 11.99x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 33.9%
+  proj B: hybrid/ff-only 1.86x | hybrid vs f64 RDNA1 3.64x, vs f64 Ampere-consumer 14.36x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 20.8%
+file 1e-43.zfin T 16 | captured 2073600 escaped 1.0000 | mean finish steps f64 147.3 ff 147.3 tl 147.3 | tile orbit steps/px 0.58 (refs 8160) | 28.5s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 1.91e-04 | DE/normal over: A 27 B 0
+  tl raw (no guard): cls 0 px>1e-3 1180 max 6.93e+00
+  fallback: nu-only 5.0088% | contract A 13.2752% | contract B 5.0088%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 2.13e-04 DE 67 normal 20
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 2.51e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.13e-04 DE 40 normal 18
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.51e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.47x | hybrid vs f64 RDNA1 2.89x, vs f64 Ampere-consumer 11.38x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 39.0%
+  proj B: hybrid/ff-only 1.84x | hybrid vs f64 RDNA1 3.61x, vs f64 Ampere-consumer 14.22x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 23.7%
+file 1e-46.zfin T 8 | captured 2073599 escaped 1.0000 | mean finish steps f64 145.5 ff 145.5 tl 145.5 | tile orbit steps/px 2.29 (refs 32400) | 24.7s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 3.63e-04 | DE/normal over: A 170 B 0
+  tl raw (no guard): cls 0 px>1e-3 1737 max 3.42e+00
+  fallback: nu-only 4.0287% | contract A 10.6456% | contract B 4.0287%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 3.63e-04 DE 172 normal 39
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 3.63e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.96e-04 DE 21 normal 7
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.96e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.54x | hybrid vs f64 RDNA1 3.03x, vs f64 Ampere-consumer 11.92x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 34.3%
+  proj B: hybrid/ff-only 1.85x | hybrid vs f64 RDNA1 3.63x, vs f64 Ampere-consumer 14.32x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 21.0%
+file 1e-46.zfin T 16 | captured 2073599 escaped 1.0000 | mean finish steps f64 145.5 ff 145.5 tl 145.5 | tile orbit steps/px 0.57 (refs 8160) | 24.9s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 3.63e-04 | DE/normal over: A 170 B 0
+  tl raw (no guard): cls 0 px>1e-3 3802 max 1.52e+01
+  fallback: nu-only 4.8415% | contract A 13.5761% | contract B 4.8415%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 3.63e-04 DE 187 normal 51
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 3.63e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.64e-04 DE 34 normal 19
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.80e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.46x | hybrid vs f64 RDNA1 2.87x, vs f64 Ampere-consumer 11.30x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 39.4%
+  proj B: hybrid/ff-only 1.84x | hybrid vs f64 RDNA1 3.60x, vs f64 Ampere-consumer 14.18x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 24.0%
+file 2e-48.zfin T 8 | captured 2070905 escaped 1.0000 | mean finish steps f64 122.2 ff 122.2 tl 122.2 | tile orbit steps/px 1.92 (refs 32374) | 19.9s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 7.34e-04 | DE/normal over: A 354 B 0
+  tl raw (no guard): cls 0 px>1e-3 3160 max 1.13e+01
+  fallback: nu-only 4.3625% | contract A 11.4561% | contract B 4.3625%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 7.34e-04 DE 339 normal 86
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 7.34e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 6.88e-05 DE 23 normal 10
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.05e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.48x | hybrid vs f64 RDNA1 2.91x, vs f64 Ampere-consumer 11.46x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 36.8%
+  proj B: hybrid/ff-only 1.79x | hybrid vs f64 RDNA1 3.50x, vs f64 Ampere-consumer 13.79x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 23.9%
+file 2e-48.zfin T 16 | captured 2070905 escaped 1.0000 | mean finish steps f64 122.2 ff 122.2 tl 122.2 | tile orbit steps/px 0.48 (refs 8157) | 20.5s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 7.34e-04 | DE/normal over: A 354 B 0
+  tl raw (no guard): cls 0 px>1e-3 6085 max 1.56e+01
+  fallback: nu-only 5.0719% | contract A 14.0808% | contract B 5.0719%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 7.34e-04 DE 362 normal 97
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 7.34e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 7.91e-05 DE 50 normal 21
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.21e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.42x | hybrid vs f64 RDNA1 2.78x, vs f64 Ampere-consumer 10.94x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 41.3%
+  proj B: hybrid/ff-only 1.77x | hybrid vs f64 RDNA1 3.47x, vs f64 Ampere-consumer 13.66x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 26.7%
+file 2e-49.zfin T 8 | captured 1804504 escaped 0.9988 | mean finish steps f64 103.1 ff 103.1 tl 103.1 | tile orbit steps/px 1.66 (refs 28575) | 13.7s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 7.17e-05 | DE/normal over: A 1 B 0
+  tl raw (no guard): cls 12 px>1e-3 6033 max 5.63e+00
+  fallback: nu-only 6.1195% | contract A 13.5987% | contract B 6.1195%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 8.70e-05 DE 15 normal 9
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 2.25e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 8.70e-05 DE 14 normal 9
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.25e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.34x | hybrid vs f64 RDNA1 2.63x, vs f64 Ampere-consumer 10.37x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 42.8%
+  proj B: hybrid/ff-only 1.60x | hybrid vs f64 RDNA1 3.13x, vs f64 Ampere-consumer 12.34x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 31.9%
+file 2e-49.zfin T 16 | captured 1804504 escaped 0.9988 | mean finish steps f64 103.1 ff 103.1 tl 103.1 | tile orbit steps/px 0.42 (refs 7265) | 13.6s
+  ff alone (f32-only, every pixel): cls 0 px>1e-3 0 max 7.17e-05 | DE/normal over: A 1 B 0
+  tl raw (no guard): cls 9 px>1e-3 9682 max 9.49e+00
+  fallback: nu-only 7.0688% | contract A 15.8707% | contract B 7.0688%
+  final A (tl + ff fallback): cls 0 px>1e-3 0 max 1.17e-04 DE 32 normal 17
+  final B (tl + ff fallback): cls 0 px>1e-3 0 max 2.68e-04 DE 0 normal 0
+  kept-only A (= binary64 fallback arm): cls 0 px>1e-3 0 max 1.17e-04 DE 31 normal 17
+  kept-only B (= binary64 fallback arm): cls 0 px>1e-3 0 max 2.68e-04 DE 0 normal 0
+  proj A: hybrid/ff-only 1.29x | hybrid vs f64 RDNA1 2.53x, vs f64 Ampere-consumer 9.95x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 46.6%
+  proj B: hybrid/ff-only 1.57x | hybrid vs f64 RDNA1 3.07x, vs f64 Ampere-consumer 12.11x | ff-only vs f64: 1.96x / 7.72x | fallback cost share 35.0%

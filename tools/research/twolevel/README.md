@@ -1,6 +1,6 @@
 # Two-level references for float32 pixels (frontier question 4)
 
-Notes and results: `2026-10-14-q4-two-level-float32-references-notes.md` (repo root); generated tables and logs in `results/`.
+Notes and results: `docs/research/2026-10-14-q4-two-level-float32-references-notes.md` (Part A); the zone-finish follow-up is in `zone_finish/` (Part B). Generated tables and logs are in `results/`.
 
 A CPU simulation of the GPU arithmetic. It is not a GPU run.
 

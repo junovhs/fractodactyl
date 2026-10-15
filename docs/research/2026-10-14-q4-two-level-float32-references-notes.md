@@ -1,20 +1,30 @@
-# 2026-10-14: Q4, two-level references for float32 pixels (research notes for filing)
+# 2026-10-14/15: Q4, two-level references for float32 pixels, plus the GPU-09 zone-finish probe (research notes for filing)
 
 **Author:** Claude, a cloud session with a compute sandbox (4 CPU cores, no GPU).
 **Question:** frontier question 4 in `docs/research/10-11-26/frontier-questions.md`.
-**Status:** **killed under the stated kill criterion.** The tiling itself works, and a hybrid
+This file has two parts.
+
+- **Part A (§0–§12)** is the general question, answered with perturbation simulations.
+- **Part B (§13–§20)** is the follow-up the owner asked for on 2026-10-15: a CPU probe of the
+  two-level float32 finish and of float-float on the real zone-finish inputs. It is filed as
+  **design input for GPU-09 and GPU-05, not a new track.**
+
+**Status, Part A:** **killed under the stated kill criterion.** The tiling itself works, and a hybrid
 with binary64 fallback still projects 3–9x on RDNA1 (from operation counts, not measured).
 
-**Results so far.** The 1e-10 and 1e-30 results are final. The 1e-100 and 1e-300 runs were
-still going when this was written; see §10. All 1e-100 numbers measured before 14:00 are
-**invalid** because of a simulator bug, fixed in §6.4.
+**Status, Part B:** see §13.
+
+**Results coverage, Part A.** The 1e-10 and 1e-30 results are final. The 1e-100 and 1e-300
+runs were **stopped on the owner's instruction**, because they cannot change the verdict (§10).
+All 1e-100 numbers measured before the float-exp fix are **invalid**; see §6.4.
 
 **Process note for the filing agent:**
 
 - Ishoo (`ishoo_*` MCP tools) was **not available** in this session.
-- The owner explicitly told me to commit to `main` and to put all notes in this single root
-  file so that another agent can file them. This overrides CLAUDE.md's rule against touching
-  `main` without Ishoo.
+- The owner explicitly told me to commit to `main` and to keep all notes in this single file
+  so that another agent can file them. This overrides CLAUDE.md's rule against touching
+  `main` without Ishoo. On 2026-10-15 the owner had the file moved from the repo root into
+  `docs/research/`.
 - An earlier WIP commit was also pushed to `claude/trusting-volta-5t6ong`, before the owner's
   instruction. That branch is redundant and can be deleted.
 
@@ -22,6 +32,9 @@ still going when this was written; see §10. All 1e-100 numbers measured before 
 
 ## 0. Filing checklist (for the agent)
 
+0. **Part B first.** Attach §13–§20 to **GPU-09** (and the float-float numbers to **GPU-05**)
+   as design input. Do not open a new track. The owner decides between DE contract A and B
+   from the §16 numbers. **The GPU build (Part A's step 3) waits for the owner's go-ahead.**
 1. Create a research answer file `docs/research/10-11-26/q4-two-level-references-float32.md`
    from §1–§9. Then set row 4 of the table in `docs/research/10-11-26/frontier-questions.md`
    to: "**killed** (fallback 1.3–6% > 1%; kept error ≤ 3e-4 px); hybrid projects 3–9x, see
@@ -465,7 +478,11 @@ Sources:
 
 ---
 
-## 10. Pending at time of writing
+## 10. Deep widths: stopped (owner, 2026-10-15)
+
+The owner had the deep runs stopped because they cannot change the verdict. What had
+finished on the fixed build is in §3 (eye-30, mis-30). Below is what was queued, kept for
+anyone who wants to complete the matrix.
 
 - **Matrix rerun with the fixed float-exp, hi+lo build:**
   - nuc-30 (T = 8/16/64);
@@ -512,7 +529,7 @@ Sources:
 > **Dead ends.** Rigorous linear guard (500x pessimistic, and not a bound near the boundary);
 > rounding-diversity cross-check.
 >
-> Full notes: `2026-10-14-q4-two-level-float32-references-notes.md`.
+> Full notes: `docs/research/2026-10-14-q4-two-level-float32-references-notes.md`.
 
 ---
 
@@ -520,7 +537,7 @@ Sources:
 
 | path | what |
 |---|---|
-| `2026-10-14-q4-two-level-float32-references-notes.md` | this file: the single source for filing |
+| `docs/research/2026-10-14-q4-two-level-float32-references-notes.md` | this file: the single source for filing |
 | `tools/research/twolevel/README.md` | how to build and run the tools |
 | `tools/research/twolevel/ref.py` | exact centres (eye, mis via Misiurewicz Newton, nuc via box-period plus clamped Newton plus size bisection) and global reference orbits; writes `.ref` (int64 N, int32 K, N complex doubles) and `.ref.txt` metadata |
 | `tools/research/twolevel/tile32.c` | the simulator, in two modes: `truth REF NMAX S OUT` and `f32 REF NMAX S TILE TRUTH [centre\|maxit] [tol] [bla]`. Env vars: `REC=` per-pixel records (10 doubles, or 13 with `ALT=1`); `WLO=1` hi+lo; `ALT=1` cross-check run; `DUMP=1` and `DUMPDE=1` bad-pixel printouts; `DBG=1` non-finite diagnostics |
@@ -535,7 +552,242 @@ Sources:
 | `tools/research/twolevel/results/refs/*.ref.txt` | metadata for all 12 views: K, Nref, bits, nucleus period and size |
 | `tools/research/twolevel/results/logs/matrix-1e-10-pre-fix.log` | 1e-10 runs (T = 4/8/16/64/2048) plus the start of 1e-30; plain W; valid at 1e-10 (reproduced exactly by the fixed build) |
 | `tools/research/twolevel/results/logs/matrix-1e-30-1e-100-pre-fix-INVALID-deep.log` | pre-fix 1e-30/1e-100 runs; the 1e-100 rows are **invalid** (§6.4) |
-| `tools/research/twolevel/results/logs/matrix-fixed-floatexp-hilo.log` | fixed-build rerun (in progress when committed) |
+| `tools/research/twolevel/results/logs/matrix-fixed-floatexp-hilo.log` | fixed-build rerun (stopped after eye-30/mis-30) |
+| `tools/research/twolevel/zone_finish/README.md` | Part B: how to run the zone-finish probe |
+| `tools/research/twolevel/zone_finish/capture/` | Part B: standalone Rust tool that dumps the real v0-zone finish checkpoints via `fd_kernel::Zone::probe_finish_inputs` (feature `gpu-route-probe`) |
+| `tools/research/twolevel/zone_finish/zfin.c` | Part B: binary64, float-float and two-level float32 finish arms, guard, scoring under contracts A and B, cost projection |
+| `tools/research/twolevel/zone_finish/run.sh` | Part B: reproduces everything (about 6 min, 4 cores) |
+| `tools/research/twolevel/zone_finish/results/zfin-1080p-final.log` | Part B: final per-depth output (6 depths × T = 8, 16) |
+| `tools/research/twolevel/zone_finish/results/zfin-1080p-before-gate-margin-fix.log` | Part B: earlier run without the DE-gate margin (superseded; kept for the §17 diagnosis) |
+| `tools/research/twolevel/zone_finish/results/ff-contractA-failures-2e-48.txt` | Part B: the 354 float-float pixels that fail contract A at 2e-48 |
 
 The `.ref` orbit files and per-pixel record files (about 22 MB each) were not committed; they
 are regenerated by `ref.py` and `run_matrix.sh`. Compiled binaries are git-ignored.
+
+---
+
+# Part B: zone-finish probe (2026-10-15), design input for GPU-09 and GPU-05
+
+## 13. Summary for GPU-09
+
+The owner's constraints for this probe:
+- CPU only.
+- The fallback must not need native binary64. Per DEC-25/GPU-05 the baseline device is
+  f32-only (Intel Iris Xe and lavapipe have no f64), so the fallback is float-float (2×binary32)
+  with exponents, and native f64 is only an optional fast arm.
+- Report both DE contracts. Do not change the contract.
+- Do not start the GPU build without asking.
+
+Inputs: **12,169,808 real finish inputs** from the v0 zone at the six GPU-12 depths, 1920×1080
+(the same count as GPU-12/15). Everything is scored against the binary64 finish, which is the
+production arithmetic.
+
+**Contract A** (current) gates DE and normal where DE_ref > 1e-3 px. **Contract B** gates them
+only where DE_ref ≥ 1 px.
+
+| | float-float only (f32-only, no tiles) | two-level float32 plus float-float fallback (T = 8) |
+|---|---|---|
+| nu / class | **0 errors at every depth**, max 7.3e-4 px | **0 errors**, max 7.3e-4 px (that pixel is a float-float fallback) |
+| Contract B (DE/normal where DE ≥ 1 px) | **0 failures, 0 fallback** | **0 failures**, fallback **2.5–6.1%** |
+| Contract A (current) | **fails at 4 of 6 depths: 27 / 170 / 354 / 1 pixels** (1e-43 / 1e-46 / 2e-48 / 2e-49) | inherits the float-float failures (0–319 DE, 0–78 normal per frame); fallback 7.7–15.2% |
+| Projected vs binary64 finish, RX 5700 XT | **1.96x** | 3.1–3.6x (B), 2.5–3.0x (A) |
+| Projected vs binary64 finish, RTX 3050 Ti class | **7.7x** | 12.3–14.4x (B), 10.0–11.6x (A) |
+| Projected gain over float-float only | — | 1.60–1.86x (B), 1.30–1.51x (A) |
+
+All projections are issue-slot counts (§19), **not GPU timings**.
+
+**Reading, in brief:**
+
+1. **Float-float alone is the simplest correct f32-only finish under contract B.** It has zero
+   fallback, and its projection clears GPU-05's ≥1.5x keep line on both GPUs. It needs real GPU
+   timing.
+2. **Contract A cannot be met with f32-only arithmetic as built.** About 350 pixels per frame
+   at depth need more than about 48 bits: DE 1e-3 to 1e-2 px, position error 3–8e-6 px, finishes
+   of about 4,100 iterations. Meeting A on an f32-only device needs triple-float, or native f64
+   as an optional arm, for those pixels.
+3. **Two-level tiles add 1.6–1.9x over float-float (contract B)** at 2.5–6.1% fallback. They are
+   worth building only if GPU timing confirms that the float32 step and the compacted fallback
+   cost what §19 assumes.
+
+## 14. What was built
+
+Code is in `tools/research/twolevel/zone_finish/`; run `run.sh` to reproduce it.
+
+- **Capture.** `capture/` calls `fd_kernel::Zone::probe_finish_inputs` (feature
+  `gpu-route-probe`, the same hook GPU-12 uses) for the v0 zone. It uses ss = 1,
+  max_iter 20,000 and escape radius 1e10, and dumps per pixel the landing z, dz/dc and
+  iteration, plus the shared C and the pixel size h = width/1920. Capture takes about 6 s per
+  depth.
+- **Truth.** The binary64 finish, z' = z² + C and D' = 2zD + 1, until |z|² > 1e20 or n = 20,000.
+  Outputs are encoded exactly as the GPU-12 encoder does:
+  - nu = n + 1 − log2(log2|z|);
+  - DE = 2|z|ln|z| / |D| / h;
+  - normal = arg(z·conj D);
+  - displacement = |Δν|·DE·ln2/2 px.
+
+  This matches `fd compare` / GATE-02: class must agree; displacement ≤ 1e-3 px; DE ≤ 0.2%
+  relative and normal ≤ 0.2° inside the contract's DE gate.
+- **ff arm.** z is float-float (binary32 hi + lo, Dekker/Knuth TwoSum and FMA TwoProd, about
+  48 bits). dz/dc is a binary32 mantissa plus an int exponent. The landing state is rounded from
+  binary64 to float-float once.
+- **tl arm** (two-level float32):
+  - **Tile reference.** For each T×T tile, take the captured pixel nearest the centre. Its
+    landing state is iterated in **float-float** as the tile orbit W, until escape. No native
+    f64 is involved.
+  - **Pixel recurrence.** Each pixel iterates e = z − W as a binary32 mantissa plus exponent:
+    **e' = 2We + e²**, with **no c term**. The fixed-C tail gives every pixel the same C, so this
+    is Julia-set perturbation: cheaper, and with no |ε| error injection. e₀ = z_pixel − z_ref is
+    taken from the landing states. W is stored hi+lo with an exponent (Part A §6.3, §6.4).
+  - **Rebasing.** When |z| < |e|, or when W ends, rebase onto the **critical orbit of C**
+    (z₀ = 0, C, C² + C, …). That orbit is periodic (period-764 nucleus), shared by all tiles,
+    and computed once in float-float. z is formed in float-float at the rebase.
+  - **Guard.** The variance model σ from Part A, with λ = 4. A pixel falls back to the ff
+    finish from its landing checkpoint (DEC-20 checkpoint rule) if:
+    - it escapes and 4σ > min(1e-3 px, DE/2), or
+    - it does not escape and 4σₙ > |zₙ| at some step, or
+    - (contract A) the candidate's DE > 0.5e-3 px and 4σ > 2e-3·DE/2, or
+    - (contract B) the candidate's DE ≥ 0.5 px and 4σ > 2e-3·DE/2.
+
+    A dz/dc relative-error variance is also tracked; it never changed a decision (§17).
+- **Optional native-f64 fallback arm.** Reported as "kept-only" errors: fallback pixels take
+  the binary64 result, so only kept float32 pixels can be wrong.
+
+## 15. Per-depth results (T = 8; T = 16 is in the log and is worse on every row)
+
+The steps column is the mean finish length.
+
+| width | steps | ff only: max px; A fails; B fails | tl raw, no guard: px > 1e-3; class | fallback: nu / A / B | final A, ff fallback: DE; normal | final A, f64 fallback (kept only): DE; normal | final B (either fallback) | proj RX 5700 XT A / B | proj 3050 Ti A / B |
+|---|---|---|---|---|---|---|---|---|---|
+| 1e-37 | 151.7 | 8.7e-6; 0; 0 | 233; 0 | 4.39 / 12.03 / 4.39% | 0; 0 | 0; 0 | all 0, max 1.3e-5 | 2.90 / 3.61x | 11.4 / 14.2x |
+| 1e-40 | 73.2 | 4.3e-9; 0; 0 | 60; 0 | 2.54 / 7.71 / 2.54% | 0; 0 | 0; 0 | all 0, max 1.3e-4 | 2.83 / 3.53x | 11.2 / 13.9x |
+| 1e-43 | 147.3 | 1.9e-4; 27; 0 | 663; 0 | 4.07 / 11.32 / 4.08% | 27; 2 | 2; 0 | all 0, max 2.5e-4 | 2.95 / 3.64x | 11.6 / 14.4x |
+| 1e-46 | 145.5 | 3.6e-4; 170; 0 | 1,737; 0 | 4.03 / 11.72 / 4.04% | 154; 32 | 2; 0 | all 0, max 3.6e-4 | 2.93 / 3.63x | 11.6 / 14.3x |
+| 2e-48 | 122.2 | 7.3e-4; 354; 0 | 3,160; 0 | 4.36 / 12.65 / 4.36% | 319; 78 | 2; 1 | all 0, max 7.3e-4 | 2.82 / 3.50x | 11.1 / 13.8x |
+| 2e-49 | 103.1 | 7.2e-5; 1; 0 | 6,033; 12 | 6.12 / 15.16 / 6.12% | 1; 0 | 0; 0 | all 0, max 2.3e-4 | 2.54 / 3.13x | 10.0 / 12.3x |
+
+**At T = 16:**
+- fallback (nu-only and contract B): 5.55 / 2.97 / 5.01 / 4.84 / 5.07 / 7.07%;
+- contract A: 15.3 / 9.8 / 14.3 / 14.7 / 15.3 / 17.4%;
+- projections 1–4% lower than T = 8.
+
+The cheaper tile orbits (0.3–0.6 against 1.2–2.4 float-float steps per pixel) do not pay for
+the larger error. **Use T = 8.**
+
+## 16. The DE contract, in numbers (owner decision; contract unchanged here)
+
+- **Contract B** (DE/normal gated at DE ≥ 1 px): every arm is clean at every depth.
+  - Float-float alone: 0 fallback.
+  - Hybrid: 2.5–6.1% fallback.
+  - In both, 0 class errors, 0 nu errors, 0 DE errors and 0 normal errors.
+- **Contract A** (current, DE > 1e-3 px):
+  - Float-float alone fails 27–354 pixels per frame at the three deepest depths (1e-43 to
+    2e-48), plus 1 at 2e-49. These are **genuine precision failures**, not artefacts:
+    - DE_ref is 1.0e-3 to 1.0e-2 px (median 1.45e-3);
+    - position error is 3–8e-6 px;
+    - the finishes are long (about 4,100 iterations);
+    - float-float with binary64 dz/dc (`FFD64=1`) fails the same 354 pixels, so dz/dc rounding
+      is not the cause.
+
+    The list is in `results/ff-contractA-failures-2e-48.txt`.
+  - The hybrid's fallback roughly triples (7.7–15.2%). With a native-f64 fallback arm, kept
+    float32 pixels still miss on 0–2 DE and 0–1 normal per frame (residual guard misses).
+- **Cost of contract A over B:** about 0.6–0.7x on the projected speed-up, and native f64 (or
+  triple-float) becomes mandatory for about 0.02% of pixels.
+
+## 17. Diagnoses made on the way (for whoever builds GPU-09)
+
+- **DE-gate boundary artefact.** Before the fix, 19–50 kept float32 pixels per frame failed
+  contract A even at λ_DE = 256. In every one, DE_ref was 1.000–1.022e-3 px while the
+  candidate's DE was just under 1e-3: the guard skipped the DE rule while the scorer applied it.
+  **Fix: apply the DE rule with margin** (candidate DE > 0.5× the gate). Kept failures dropped
+  to 0–2 per frame. Any GPU guard keyed on a DE threshold needs this margin.
+- **dz/dc precision is not the problem** at these depths. A dz/dc variance guard flagged
+  nothing new, and binary64 dz/dc in the ff arm changed nothing.
+- **Raw two-level without a guard is not usable.** It has 60–6,033 pixels over 1e-3 px (max
+  up to 15 px) and up to 12 class errors. The guard is essential, and it catches all of them.
+- **Fallback is still above 1% even with short finishes** (73–152 steps against thousands in
+  Part A). The near-boundary floor from Part A §5 dominates again: the share of pixels too close
+  to the set for a float32 estimate barely shrinks as N falls.
+
+## 18. GPU-09 design as probed (inputs for the kernel author)
+
+1. **Tile reference:** the landing state of the captured pixel nearest the centre of a T = 8
+   tile. Its orbit runs in float-float until escape; this costs 1.2–2.4 float-float steps per
+   pixel. No native f64 is needed.
+2. **Pixel step:** e' = 2We + e² as a binary32 mantissa plus exponent, with exponent-aligned
+   adds. The Julia form has no c term. W is stored hi+lo with its own exponent. dz/dc is a
+   binary32 mantissa plus exponent (|dz/dc| ≈ 1/h ≫ 2^127).
+3. **Rebase:** onto the zone's critical orbit (periodic, precomputed once per zone in
+   float-float), when |z| < |e| or W ends. z is formed in float-float at the rebase.
+4. **Guard:** as described in §14, including the DE-gate margin.
+5. **Fallback:** a float-float finish from the stored landing checkpoint (DEC-20), in a
+   compacted queue (GPU-04). Optional native-f64 arm on devices that have it. For contract A, a
+   triple-float or f64 tier is also needed for the residual pixels.
+6. **Inputs:** the probe used binary64 landing states from the CPU zone. On an f32-only device,
+   the front stages (return map, approach, Koenigs, patch) must deliver landing states to at
+   least float-float precision. That is outside this probe, and an open question for GPU-05.
+
+## 19. Cost model (unmeasured; this is what GPU timing must check)
+
+The figures are issue slots per lane per finish step.
+
+| arm | slots | breakdown |
+|---|---|---|
+| Binary64 finish | 12 FP64 + 4 int | z: 4 FMA-class ops; D: 6; escape: 2. FP64 runs at 1/16 rate on RDNA1 and 1/64 on consumer Ampere, so **196 slots on the 5700 XT and 772 on the 3050 Ti.** |
+| Float-float finish | **≈ 100** | z² + C: 3 ff multiplies at about 7, 3 ff adds at about 20, so about 81; dz/dc as f32-exp: about 12; escape and loop: about 7 |
+| Two-level float32 step | **≈ 41** | includes the guard and the exponent handling |
+| Tile orbits | 100 per float-float step | 1.2–2.4 steps per pixel at T = 8 |
+| Fallback | 100 per step | rerun from landing, weighted by each pixel's real length |
+
+Hence:
+- **Float-float only vs binary64: 1.96x (RX 5700 XT), 7.7x (RTX 3050 Ti).**
+- The hybrid adds 1.3–1.9x on top.
+
+What this ignores: occupancy and register pressure (float-float doubles the registers of z),
+divergence before compaction, queue overhead and memory traffic for W (8 B hi + 8 B lo per tile
+per step, staged in LDS). GPU-02 showed that divergence alone can erase a float32 win. **These
+are upper bounds.**
+
+## 20. Recommendation and next step (needs owner approval; not started)
+
+- **Contract B:** build **float-float only** first, as the GPU-05/GPU-09 baseline finish. It is
+  the simplest correct f32-only path, with no guard and no fallback, and it is projected at
+  1.96x / 7.7x. Then add the two-level layer only if timing shows float-float is the
+  bottleneck. The layer is projected at a further 1.6–1.9x, but it needs the guard, a compaction
+  queue and tile orbits.
+- **Contract A:** float-float alone is not enough. Either keep native f64 for the queue on
+  devices that have it, or add a triple-float tier for the roughly 0.02% of pixels that need it.
+  An f32-only device cannot meet contract A without that tier.
+- **Proposed GPU experiment** (step 3; awaiting the owner's go-ahead):
+  - Build WGSL kernels on the GPU-13 route: a float-float finish arm; then a two-level arm
+    (kernel A: tile orbits in float-float; kernel B: the float32 finish with guard and queue
+    append; kernel C: the float-float queue).
+  - Time them against the current WGSL binary64 zone finish on the RX 5700 XT and the RTX 3050
+    Ti, using the same `capture-frame` checkpoints.
+  - Run the float-float arm on an f32-only adapter (Iris Xe) for portability.
+  - Kill float-float if it is < 1.5x on the 3050 Ti (GPU-05's line). Kill the two-level layer
+    if it is < 1.3x over float-float on either GPU.
+
+## Suggested METHOD.md results-log entry for Part B
+
+> ### GPU-09 design probe: float-float and two-level float32 finish (2026-10-15, Claude, CPU only)
+>
+> **Setup.** 12,169,808 real v0-zone finish inputs at the six GPU-12 depths, 1080p, captured
+> through `probe_finish_inputs`. Scored against the binary64 finish with GPU-12's encoder and
+> the fd compare gate. Code: `tools/research/twolevel/zone_finish/`.
+>
+> **Float-float only** (f32-only):
+> - 0 class errors and 0 nu errors; 0 DE/normal failures with DE gated at ≥ 1 px.
+> - Under the current gate (DE > 1e-3 px) it fails 27/170/354/1 pixels at
+>   1e-43/1e-46/2e-48/2e-49. These are real precision failures on long finishes.
+> - Projected 1.96x (RX 5700 XT) and 7.7x (RTX 3050 Ti) over the binary64 finish (op counts).
+>
+> **Two-level float32** (T = 8 tile orbits in float-float; Julia-form e' = 2We + e²; rebase onto
+> C's critical orbit; λ = 4 variance guard with DE-gate margin; float-float fallback):
+> - fallback 2.5–6.1% (≥ 1 px gate) or 7.7–15.2% (current gate);
+> - 0 class/nu errors, max 7.3e-4 px;
+> - projected 1.6–1.9x over float-float only.
+>
+> **Contract.** Unchanged; owner to choose between the gates.
+>
+> **Next.** GPU timing, pending approval.
