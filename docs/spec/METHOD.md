@@ -2407,3 +2407,176 @@ target path exceeds MSVC's object-path limit when shaderc builds from source);
 runner runs 38627967273 (parity), 38630967035 (parity + film gate),
 38632535908 (parity + A/B); CI 38632539020 and gpu-route-build 38631123708
 green.
+
+### GPU-09/GPU-05: float-float finish arm (2026-10-14)
+
+**Question.** The CPU probe (notes Part B) projected that an f32-only
+float-float finish would be 1.96x (RX 5700 XT) and 7.7x (RTX 3050 Ti) faster
+than binary64, from op counts. Does that hold up as a real WGSL kernel?
+GPU-05's kill line: on the RTX 3050 Ti, the ff whole finish stage must be at
+least 1.5x faster than the binary64 WGSL finish.
+
+**Arm.** `gpu-route-probe frame <width> wgsl ff` (`tools/research/gpu-route/src/ff.wgsl`,
+`ff.rs`), a port of `finff` in `zfin.c`:
+- **Arithmetic.** z is float-float, with TwoSum adds and TwoProd. dz/dc is an
+  f32 mantissa plus an i32 exponent. Escape at |z|^2 > 1e20; at most 20,000
+  iterations.
+- **No f64 on the device.** naga validates the kernel with no capabilities,
+  and the device is opened with timestamps only.
+- **Host.** Binary64 landing states are rounded to float-float while
+  uploading, inside the timed stage.
+- **Encoding.** nu, DE and the normal are encoded in f32 on the device. nu
+  leaves as an exact (integer, fraction) pair, which the host sums after the
+  clock stops (the other arms also exclude decoding).
+- **Shared with the f64 arm:** the frozen inputs, the 16 B/sample output and
+  the parity gate.
+
+The arm runs on the Intel Iris Xe, which has no `SHADER_F64`.
+
+**Compiler findings** (each verified by `gpu-route-probe ff-selftest`, 65,536 cases):
+
+1. **Reassociation.** Without a guard, the NVIDIA, Intel and RADV compilers
+   rewrite TwoSum's error term to zero (TwoSum wrong in 62,045 of 65,536
+   cases). Parity then fails at 1e-40 with 151,925 displacement failures,
+   max 1.9 px.
+   - Guarding only `s` and `bb` was not enough (4,309 failures, max 0.07 px):
+     `(a - (s - bb)) + (b - bb)` was still reassociated to `(a + b) - s`.
+   - The fix makes every TwoSum/FastTwoSum intermediate and the TwoProd
+     product opaque, through an XOR with a runtime zero from the camera buffer.
+   - Any f32-only kernel that relies on error-free transformations needs this,
+     because WGSL has no `precise`/NoContraction.
+2. **fma is not always fused.** RADV (RX 5700 XT, Mesa) splits WGSL `fma` into
+   a multiply and an add: the fma error term is wrong in 65,536 of 65,536
+   cases (Vulkan allows this).
+   - With the fma TwoProd, run 38661690202 failed every depth, by up to
+     6.6e3 px, with 21 class errors at 2e-49.
+   - Dekker/Veltkamp TwoProd (no fma) is exact on RADV.
+   - The runner now self-tests at start-up: fma where it is fused (NVIDIA,
+     Intel), Dekker otherwise (RADV; logged as
+     `two_prod_selection=auto_fma_not_fused`).
+3. **NVIDIA f64 `frexp` crash (GPU-19).** Avoided: exponents come from IEEE
+   bits, with no frexp/ldexp and no transcendental builtins.
+
+**Commands** (run from the repository checkout, inputs outside it, one Cargo
+worker, every command within the 30 s cutoff):
+
+```text
+cargo +1.95.0 build --locked --jobs 1 --target-dir <outside checkout>
+gpu-route-probe ff-selftest                      # also with FD_GPU_ROUTE_FF_NOGUARD=1
+gpu-route-probe capture-frame <w>                # w in 1e-37 1e-40 1e-43 1e-46 2e-48 2e-49
+gpu-route-probe frame <w> wgsl f64
+gpu-route-probe frame <w> wgsl ff                # RTX 3050 Ti (discrete preferred)
+FD_GPU_ROUTE_ADAPTER=iris gpu-route-probe frame <w> wgsl ff
+gh workflow run gpu-route-rx5700xt.yml --ref main    # RX 5700 XT rows
+```
+
+**Evidence.**
+- Source tree 603b2e589e929eef516d1cdbef58f92106b025dc (commit d30773c), the
+  same on all three devices.
+- Windows 11: RTX 3050 Ti Laptop GPU (Vulkan, driver 610.60) and Iris Xe
+  (driver 32.0.101.7088).
+- RX 5700 XT: RADV NAVI10, workflow `gpu-route-rx5700xt` run 38662793070 (route
+  job, systemd scope: 4 GiB, no swap, one CPU).
+- Diagnosis runs: 38661690202 (the fma TwoProd fails on RADV) and 38662410399
+  (self-test plus Dekker rows).
+- Rust 1.95.0, dev profile as registered. Timings are the median of three
+  GPU-timestamp runs and three separate unprofiled wall runs, warm-up excluded.
+
+**Parity** against the CPU-zone `.fds`. "Current gate" is the unchanged
+contract. "≥ 1 px" is the report-only tally of DE/normal failures where the
+reference DE ≥ 1 px. DE/normal counts are pixels over 0.2% / 0.2° outside the
+1e-3 px band. Displacement failures are 0 and non-finite outputs are 0 in
+every row.
+
+| Width | Device | Class | DE / normal, current gate | DE / normal, ≥ 1 px | Max px | Verdict |
+|---|---|---:|---:|---:|---:|---|
+| 1e-37 | RTX 3050 Ti, Iris Xe | 0 | 0 / 0 | 0 / 0 | 8.7e-6 | PASS |
+| 1e-37 | RX 5700 XT (Dekker) | 0 | 0 / 0 | 0 / 0 | 6.6e-6 | PASS |
+| 1e-40 | RTX 3050 Ti, Iris Xe | 0 | 0 / 0 | 0 / 0 | 7.7e-6 / 7.6e-6 | PASS |
+| 1e-40 | RX 5700 XT | 0 | 0 / 0 | 0 / 0 | 6.7e-6 | PASS |
+| 1e-43 | RTX 3050 Ti, Iris Xe | 0 | 26 / 1 | 0 / 0 | 1.9e-4 | FAIL |
+| 1e-43 | RX 5700 XT | 0 | 34 / 1 | 0 / 0 | 2.2e-4 | FAIL |
+| 1e-46 | RTX 3050 Ti, Iris Xe | 0 | 160 / 33 | 0 / 0 | 3.7e-4 | FAIL |
+| 1e-46 | RX 5700 XT | 0 | 170 / 31 | 0 / 0 | 3.4e-4 | FAIL |
+| 2e-48 | RTX 3050 Ti, Iris Xe | 0 | 322 / 82 | 0 / 0 | 7.3e-4 | FAIL |
+| 2e-48 | RX 5700 XT | 0 | 323 / 87 | 0 / 0 | 8.1e-4 | FAIL |
+| 2e-49 | RTX 3050 Ti, Iris Xe | **1** | 1 / 0 | 0 / 0 | 7.2e-5 | FAIL |
+| 2e-49 | RX 5700 XT | 0 | 3 / 2 | 0 / 0 | 1.3e-4 | FAIL |
+
+What the parity table shows:
+- **NVIDIA and Intel agree pixel for pixel**: identical counts, and identical
+  max px except at 1e-40.
+- **They match the CPU probe's float-float exactly** in max displacement and
+  in the shape of the failures (CPU: 27/170/354/1 pixels failing DE or normal).
+  The RX 5700 XT's Dekker TwoProd rounds slightly differently, so its counts
+  differ a little.
+- **The ≥ 1 px tally is 0 everywhere**, as projected.
+- **The class mismatch is real.** It is pixel (1121, 569) at 2e-49, on the
+  Windows-captured inputs.
+  - The reference escapes at about iteration 19,983 of the 20,000 cap, with DE
+    3.1e-16 px; float-float has not escaped by 20,000.
+  - A CPU replay of zfin.c's exact `finff` arithmetic on the same frozen landing
+    state reproduces it (binary64 escapes at 19,988; float-float does not).
+  - So it is a float-float precision limit on a chaotic orbit, not a kernel bug.
+- **Why the CPU probe and the RX 5700 XT showed 0 class errors there.** Both
+  used Linux captures. CPU-zone landing states differ by platform in the last
+  bits: the binary64 arms' max px differ between Windows and Linux, as KERN-05's
+  per-platform hashes do. A 520-iteration near-boundary orbit amplifies that
+  difference.
+- **On at least one platform, float-float fails the current contract on class
+  as well as on DE.**
+
+**Timing**, 1920x1080, ms (GPU dispatch / whole finish stage), ff against the
+binary64 WGSL arm on the same captured inputs:
+
+| Width | 3050 Ti f64 | 3050 Ti ff | 3050 Ti ratio (dispatch / whole) | 5700 XT f64 | 5700 XT ff (Dekker) | 5700 XT ratio (dispatch / whole) | Iris Xe ff |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 1e-37 | 175.6 / 197.4 | 37.9 / 74.6 | 4.63x / **2.65x** | 33.1 / 49.6 | 31.1 / 64.9 | 1.06x / 0.76x | 137.5 / 153.4 |
+| 1e-40 | 104.5 / 128.3 | 23.0 / 58.3 | 4.55x / **2.20x** | 20.8 / 37.3 | 18.8 / 53.1 | 1.10x / 0.70x | 79.3 / 94.7 |
+| 1e-43 | 170.4 / 193.0 | 37.0 / 73.5 | 4.61x / **2.62x** | 33.6 / 49.3 | 30.0 / 65.0 | 1.12x / 0.76x | 158.1 / 142.6 |
+| 1e-46 | 180.4 / 203.5 | 39.2 / 74.6 | 4.60x / **2.73x** | 33.8 / 50.8 | 31.9 / 70.0 | 1.06x / 0.73x | 124.7 / 150.7 |
+| 2e-48 | 194.4 / 216.6 | 52.0 / 77.3 | 3.74x / **2.80x** | 36.3 / 56.9 | 34.1 / 67.6 | 1.06x / 0.84x | 152.3 / 148.9 |
+| 2e-49 | 177.6 / 197.2 | 37.2 / 69.5 | 4.78x / **2.84x** | 33.3 / 48.5 | 31.7 / 61.5 | 1.05x / 0.79x | 143.0 / 136.0 |
+
+How to read the timings:
+- **3050 Ti whole stage.** About 31 ms of the ff whole stage is host-side
+  (`FD_GPU_ROUTE_FF_STAGES=1`, medians):
+  - about 8 ms allocation;
+  - about 23 ms conversion and upload into the mapped buffer, most of it the
+    same 66 MB write the f64 arm pays.
+
+  The nu-pair sum (about 11 ms) is excluded, like the other arms' decoding.
+- **Iris Xe.** Timestamp and wall medians come from separate runs, and the
+  iGPU's clock varies between them, so dispatch can exceed the whole stage.
+  Its whole stage is 95–153 ms, about 0.75x of the 3050 Ti's binary64 whole
+  stage.
+- **RX 5700 XT.** Ratios are from run 38662793070's rows. Run 38662410399 gave
+  ff whole stages within 4 ms of them.
+
+**Verdict against the GPU-05 kill line: KEEP.** On the RTX 3050 Ti, the ff whole
+finish stage is 2.20–2.84x faster than binary64 (the kill line is 1.5x), and
+dispatch is 3.7–4.8x faster. The arm runs on an f32-only adapter (Iris Xe), with
+parity identical to the 3050 Ti.
+
+**Contradictions of the CPU projection.**
+- **3050 Ti:** dispatch is 3.7–4.8x faster, against the projected 7.7x.
+- **RX 5700 XT:** float-float is not a speed-up. Dispatch is 1.05–1.12x and the
+  whole stage is 0.70–0.84x of binary64, against the projected 1.96x. Two
+  causes:
+  - RADV needs the Dekker TwoProd: two Veltkamp splits and four partial
+    products in place of one fma.
+  - The binary64 finish there is not bound by FP64 issue rate, as §19 assumed.
+    Even the incorrect split-fma kernel in run 38661690202 reached only
+    1.22–1.25x dispatch.
+- **Consequence:** on RDNA1-class devices native f64 stays the faster arm, which
+  DEC-25 allows as an optional fast path.
+
+**Parity eligibility: not eligible under the current contract.**
+- ff fails DE/normal at four of six depths, at 1–410 pixels per frame, all with
+  reference DE below 1 px.
+- It fails class at 2e-49 on the Windows inputs.
+- It passes everything at DE ≥ 1 px.
+
+The contract and gate are unchanged. The notes' §22 (shading proof) already
+recommends float-float plus a targeted higher-precision re-run. That tier would
+also have to cover the near-cap chaotic pixel found here; it is not built here.
