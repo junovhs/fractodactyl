@@ -9,36 +9,47 @@ pub struct Runner {
     pipeline: wgpu::ComputePipeline,
     pub adapter: String,
     pub shader_f64: bool,
+    two_prod: TwoProd,
+    selection: &'static str,
 }
 
-fn dekker() -> bool {
-    std::env::var("FD_GPU_ROUTE_FF_TWOPROD").is_ok_and(|v| v == "dekker")
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TwoProd {
+    /// One fma per TwoProd; needs a fused fma.
+    Fma,
+    /// Veltkamp/Dekker splitting, no fma; for drivers that split fma.
+    Dekker,
 }
 
-/// Variants for diagnosis: FD_GPU_ROUTE_FF_NOGUARD=1 strips the reassociation
-/// guard; FD_GPU_ROUTE_FF_TWOPROD=dekker swaps the fma TwoProd for Dekker's.
-fn source() -> String {
+/// FD_GPU_ROUTE_FF_TWOPROD=fma|dekker forces a TwoProd; otherwise the
+/// self-test picks fma when the device fuses it exactly, else Dekker.
+fn forced() -> Option<TwoProd> {
+    match std::env::var("FD_GPU_ROUTE_FF_TWOPROD").ok().as_deref() {
+        Some("fma") => Some(TwoProd::Fma),
+        Some("dekker") => Some(TwoProd::Dekker),
+        _ => None,
+    }
+}
+
+fn guarded() -> bool {
+    std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_none()
+}
+
+/// FD_GPU_ROUTE_FF_NOGUARD=1 strips the reassociation guard (diagnosis only).
+fn source(two_prod: TwoProd) -> String {
     let mut source = include_str!("ff.wgsl").to_owned();
-    if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() {
+    if !guarded() {
         source = source.replace(
             "fn opq(x: f32) -> f32 { return bitcast<f32>(bitcast<u32>(x) ^ KEY); }",
             "fn opq(x: f32) -> f32 { return x; }",
         );
     }
-    if dekker() {
+    if two_prod == TwoProd::Dekker {
         source = source
             .replace("fn ff_mul(x: FF", "fn ff_mul_fma(x: FF")
             .replace("fn ff_mul_dekker(x: FF", "fn ff_mul(x: FF");
     }
     source
-}
-
-pub fn variant() -> String {
-    format!(
-        "reassociation_guard={} two_prod={}",
-        if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() { "OFF" } else { "ON" },
-        if dekker() { "dekker" } else { "fma" }
-    )
 }
 
 /// Float-float pair: hi = f32(x), lo = f32(x - hi).
@@ -70,7 +81,30 @@ impl Runner {
     /// `FD_GPU_ROUTE_ADAPTER` picks a hardware adapter by name substring
     /// (case-insensitive); otherwise a discrete GPU is preferred.
     pub fn new() -> Result<Self, String> {
-        Self::build(source(), "GPU-09 float-float finish")
+        let (two_prod, selection) = match forced() {
+            Some(t) => (t, "forced"),
+            None => {
+                let (_, bad, _) = selftest_run(TwoProd::Fma)?;
+                if bad[2] == 0 && bad[3] == 0 {
+                    (TwoProd::Fma, "auto")
+                } else {
+                    (TwoProd::Dekker, "auto_fma_not_fused")
+                }
+            }
+        };
+        let mut runner = Self::build(source(two_prod), "GPU-09 float-float finish")?;
+        runner.two_prod = two_prod;
+        runner.selection = selection;
+        Ok(runner)
+    }
+
+    pub fn variant(&self) -> String {
+        format!(
+            "reassociation_guard={} two_prod={:?} two_prod_selection={}",
+            if guarded() { "ON" } else { "OFF" },
+            self.two_prod,
+            self.selection
+        )
     }
 
     fn build(source: String, label: &'static str) -> Result<Self, String> {
@@ -132,6 +166,8 @@ impl Runner {
             pipeline,
             adapter: name,
             shader_f64,
+            two_prod: TwoProd::Fma,
+            selection: "build",
         })
     }
 
@@ -370,8 +406,8 @@ impl Runner {
 
 /// The ff helpers (TwoSum, TwoProd, float-float add/mul) without the finish
 /// kernel's bindings, followed by the self-test entry point.
-fn selftest_source() -> String {
-    let source = source();
+fn selftest_source(two_prod: TwoProd) -> String {
+    let source = source(two_prod);
     let start = source.find("var<private> KEY").unwrap();
     let end = source.find("@compute").unwrap();
     format!("{}\n{}", &source[start..end], include_str!("ff_selftest.wgsl"))
@@ -382,13 +418,37 @@ fn selftest_source() -> String {
 /// 2^-44, scored on the host in binary64. Compiler rewrites that break the
 /// error-free transformations show up here directly.
 pub fn selftest() -> Result<(), String> {
-    let runner = Runner::build(selftest_source(), "GPU-09 ff self-test")?;
-    println!(
-        "ff_selftest_adapter={:?} {}",
-        runner.adapter,
-        variant()
-    );
-    const N: usize = 1 << 16;
+    let variants = match forced() {
+        Some(t) => vec![t],
+        None => vec![TwoProd::Fma, TwoProd::Dekker],
+    };
+    for two_prod in variants {
+        let (adapter, bad, step_worst) = selftest_run(two_prod)?;
+        // The raw fma error term only matters when TwoProd uses fma.
+        let used = if two_prod == TwoProd::Fma { 0 } else { 2 };
+        let pass = bad.iter().enumerate().all(|(i, &b)| b == 0 || (used == 2 && i == 2));
+        println!(
+            "ff_selftest adapter={adapter:?} reassociation_guard={} two_prod={two_prod:?} cases={} two_sum_wrong={} fast_two_sum_wrong={} fma_error_term_wrong={} two_prod_wrong={} ff_step_over_2^-44={} ff_step_worst_relative={step_worst:e} verdict={}",
+            if guarded() { "ON" } else { "OFF" },
+            SELFTEST_CASES,
+            bad[0],
+            bad[1],
+            bad[2],
+            bad[3],
+            bad[4],
+            if pass { "PASS" } else { "FAIL" }
+        );
+    }
+    Ok(())
+}
+
+const SELFTEST_CASES: usize = 1 << 16;
+
+/// Returns the adapter, the failure counts (TwoSum, FastTwoSum, fma error
+/// term, TwoProd, z^2 + C step over 2^-44) and the worst step error.
+fn selftest_run(two_prod: TwoProd) -> Result<(String, [usize; 5], f64), String> {
+    let runner = Runner::build(selftest_source(two_prod), "GPU-09 ff self-test")?;
+    const N: usize = SELFTEST_CASES;
     const CR: f64 = -0.743_291_890_852_430_2;
     const CI: f64 = 0.131_240_552_308_797_6;
     // Deterministic xorshift cases: a, b within 2^20 of each other (so a + b
@@ -485,15 +545,7 @@ pub fn selftest() -> Result<(), String> {
         step_worst = step_worst.max(err);
         bad[4] += usize::from(err > 2f64.powi(-44));
     }
-    println!(
-        "ff_selftest cases={N} two_sum_wrong={} fast_two_sum_wrong={} fma_error_term_wrong={} two_prod_wrong={} ff_step_over_2^-44={} ff_step_worst_relative={step_worst:e}",
-        bad[0], bad[1], bad[2], bad[3], bad[4]
-    );
-    println!(
-        "ff_selftest={}",
-        if bad.iter().all(|&b| b == 0) { "PASS" } else { "FAIL" }
-    );
-    Ok(())
+    Ok((runner.adapter, bad, step_worst))
 }
 
 #[cfg(test)]
@@ -503,7 +555,7 @@ mod tests {
     #[test]
     fn ff_selftest_wgsl_validates_without_f64() {
         use naga::valid::{Capabilities, ValidationFlags, Validator};
-        let source = selftest_source();
+        let source = selftest_source(TwoProd::Fma);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
         Validator::new(ValidationFlags::all(), Capabilities::empty())
@@ -516,12 +568,14 @@ mod tests {
     #[test]
     fn ff_wgsl_validates_without_f64() {
         use naga::valid::{Capabilities, ValidationFlags, Validator};
-        let source = source();
-        let module = naga::front::wgsl::parse_str(&source)
-            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
-        Validator::new(ValidationFlags::all(), Capabilities::empty())
-            .validate(&module)
-            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        for two_prod in [TwoProd::Fma, TwoProd::Dekker] {
+            let source = source(two_prod);
+            let module = naga::front::wgsl::parse_str(&source)
+                .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+            Validator::new(ValidationFlags::all(), Capabilities::empty())
+                .validate(&module)
+                .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        }
     }
 
     #[test]

@@ -519,7 +519,7 @@ pub fn benchmark(
                     "ff_adapter={:?} shader_f64={} kernel_f64=NONE {}",
                     runner.adapter,
                     runner.shader_f64,
-                    super::ff::variant()
+                    runner.variant()
                 );
                 Some(runner)
             } else {
