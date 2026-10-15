@@ -3,6 +3,7 @@
 use fd_fixed::Fixed;
 
 /// Reference orbit points `Z_0..Z_len-1`.
+#[derive(Clone)]
 pub struct Reference {
     /// Real parts.
     pub re: Vec<f64>,

@@ -16,7 +16,10 @@ use crate::orbit::EPS;
 use crate::path::sig6;
 use crate::render::{columns, size};
 use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
-use fd_kernel::{bla_dc_max, render_bla, render_with, render_zone, zone_covers, Bla, Params, Zone};
+use fd_kernel::{
+    bla_dc_max, render_bla, render_bla_masked, render_with, render_with_masked, render_zone,
+    zone_covers, Bla, Params, Zone,
+};
 use fd_samples::{Header, Samples, View};
 use fd_shade::Appearance;
 use std::io::Write as _;
@@ -28,7 +31,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (off)] \
-[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-15)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +74,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "gpu",
         "gpu-kernel",
         "raw-dir",
+        "jet-aa",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -291,6 +295,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     base.dither = a.str("dither").is_none_or(|v| v == "on");
     let zone = a.str("zone").map(Zone::load).transpose()?;
+    // `--jet-aa on` (FILM-15): ss 2 frames from one computed sample per pixel plus the
+    // samples the jet rebuild rejects (jetaa.rs). Films only; stills stay exact.
+    let jet_aa = match a.str("jet-aa").unwrap_or("off") {
+        "off" => false,
+        "on" => true,
+        v => return Err(format!("--jet-aa: expected on or off, got {v:?}")),
+    };
+    if jet_aa && (ss != 2 || a.str("keyframes").is_some() || zone_f64) {
+        return Err("--jet-aa needs --ss 2, no --keyframes and no --gpu-kernel".into());
+    }
     // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
     if speed_curve.is_some()
         && a.str("keyframes").is_some()
@@ -508,7 +522,15 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             continue;
         }
         let t = Instant::now();
-        let (hd, mut s, used) = render_frame_kernel(view, &p, zone.as_ref(), zone_f64)?;
+        let (hd, mut s, used) = if jet_aa {
+            let (hd, s, used, computed, st) = render_frame_jet(view, &p, zone.as_ref())?;
+            r.jet_samples += computed;
+            (0..3).for_each(|k| r.jet_stage[k] += st[k]);
+            r.jet_pixels += (p.nx / 2) as u64 * (p.ny / 2) as u64;
+            (hd, s, used)
+        } else {
+            render_frame_kernel(view, &p, zone.as_ref(), zone_f64)?
+        };
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
         if let Some(normal) = s.normal.as_mut().filter(|_| view.rotation != 0.0) {
@@ -1015,6 +1037,66 @@ pub(crate) fn render_frame_kernel(
     Ok((h, s, Used::Plain))
 }
 
+/// A film frame with jet-AA (FILM-15): pass 1 computes each pixel's top-left ss 2
+/// sample, [`crate::jetaa::rebuild`] predicts the rest, pass 2 computes the rejected
+/// ones. BLA or plain perturbation as [`render_frame_kernel`] (CPU), with the reference
+/// orbit and BLA table built once for both passes; zone frames are rendered exactly.
+/// Also returns the samples computed and the seconds of pass 1, the rebuild and pass 2.
+pub(crate) fn render_frame_jet(
+    view: &View,
+    p: &Params,
+    zone: Option<&Zone>,
+) -> Result<(Header, Samples, Used, u64, [f64; 3]), String> {
+    if p.ss != 2 {
+        return Err("jet-AA rebuilds ss 2 frames".into());
+    }
+    let (w, h) = ((p.nx / 2) as usize, (p.ny / 2) as usize);
+    let first = crate::jetaa::first(w, h);
+    let in_zone = match zone {
+        Some(z) => zone_covers(view, p, z)?,
+        None => false,
+    };
+    // Zone samples are cheap (a 960x540 v0 dive: the rebuild costs about 0.6 samples per
+    // pixel and the rejected samples are the long ones, so jet-AA ran 0-16% slower than
+    // exact ss 2). Zone frames stay exact; jet-AA pays where samples are expensive (BLA
+    // and perturbation frames: 1.84x faster on a tendril film at 1e-57).
+    if let (true, Some(z)) = (in_zone, zone) {
+        let (hd, s, _, _) = render_zone(view, p, z)?;
+        return Ok((hd, s, Used::Zone, 4 * (w * h) as u64, [0.0; 3]));
+    }
+    let (o, bits) = fd_kernel::reference(view, p)?;
+    let table = match bla_dc_max(view, p) {
+        Ok(dc) => Some(Bla::build(&o, EPS, dc)?).filter(|t| !t.levels.is_empty()),
+        Err(_) => None,
+    };
+    let pass = |mask: &[bool]| -> Result<(Header, Samples, Used), String> {
+        match &table {
+            Some(t) => {
+                let (hd, s, _, _) = render_bla_masked(view, p, (o.clone(), bits), t, Some(mask))?;
+                Ok((hd, s, Used::Bla))
+            }
+            None => {
+                let (hd, s, _) = render_with_masked(view, p, Some((o.clone(), bits)), mask)?;
+                Ok((hd, s, Used::Plain))
+            }
+        }
+    };
+    let t = Instant::now();
+    let (hd, mut s, used) = pass(&first)?;
+    let t1 = t.elapsed().as_secs_f64();
+    let t = Instant::now();
+    let todo = crate::jetaa::rebuild(&mut s, w, h);
+    let rest = todo.iter().filter(|&&t| t).count();
+    let t2 = t.elapsed().as_secs_f64();
+    let t = Instant::now();
+    if rest > 0 {
+        let (_, s2, _) = pass(&todo)?;
+        crate::jetaa::merge(&mut s, &s2, &todo);
+    }
+    let t3 = t.elapsed().as_secs_f64();
+    Ok((hd, s, used, (w * h + rest) as u64, [t1, t2, t3]))
+}
+
 #[derive(Default)]
 struct Report {
     frames: [usize; 3],
@@ -1025,6 +1107,11 @@ struct Report {
     keyframe_sample_shade: f64,
     keyframe_resample: f64,
     encode_wait: f64,
+    /// Jet-AA (FILM-15): samples computed and output pixels rendered.
+    jet_samples: u64,
+    jet_pixels: u64,
+    /// Seconds in pass 1, the rebuild and pass 2.
+    jet_stage: [f64; 3],
     /// (zone seconds, per-frame BLA seconds) for the compared frames.
     compared: Vec<(f64, f64)>,
 }
@@ -1052,7 +1139,7 @@ impl Report {
         format!(
             "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
-             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\
+             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
             crate::bench::q(mp4),
             n as f64 / fps,
@@ -1069,6 +1156,14 @@ impl Report {
             self.keyframe_sample_shade,
             self.keyframe_resample,
             self.encode_wait,
+            if self.jet_pixels > 0 {
+                format!("{:.4}", self.jet_samples as f64 / self.jet_pixels as f64)
+            } else {
+                "null".into()
+            },
+            self.jet_stage[0],
+            self.jet_stage[1],
+            self.jet_stage[2],
             self.compared.len()
         )
     }

@@ -1,0 +1,17 @@
+[package]
+name = "jetaa"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Standalone research tool (frontier question 6: supersampling from jets). Not part of the workspace.
+[workspace]
+
+[dependencies]
+fd-kernel = { path = "../../../crates/fd-kernel" }
+fd-samples = { path = "../../../crates/fd-samples" }
+fd-shade = { path = "../../../crates/fd-shade" }
+
+[profile.release]
+debug = false
+opt-level = 3

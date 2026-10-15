@@ -791,6 +791,20 @@ pub fn render_zone(
     p: &Params,
     zone: &Zone,
 ) -> Result<(Header, Samples, Stats, ZoneStats), String> {
+    render_zone_masked(view, p, zone, None)
+}
+
+/// [`render_zone`] computing only the samples whose `mask` entry (row-major over the
+/// sample grid) is true; the others are left unset (FILM-15 jet-AA passes).
+pub fn render_zone_masked(
+    view: &View,
+    p: &Params,
+    zone: &Zone,
+    mask: Option<&[bool]>,
+) -> Result<(Header, Samples, Stats, ZoneStats), String> {
+    if mask.is_some_and(|m| m.len() != p.nx as usize * p.ny as usize) {
+        return Err("sample mask must cover the sample grid".into());
+    }
     if p.columns.has(Column::Bound) {
         return Err("--columns bound: the zone pipeline carries no error radii (PROB-13)".into());
     }
@@ -835,6 +849,9 @@ pub fn render_zone(
                             break;
                         };
                         for i in 0..row.class.len() {
+                            if mask.is_some_and(|m| !m[row.j * nx + i]) {
+                                continue;
+                            }
                             let (ux, uy) = plane.unit_offset(i, row.j);
                             if use_mid {
                                 let dc = Cx(

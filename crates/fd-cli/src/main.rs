@@ -10,6 +10,7 @@ mod explore;
 mod film;
 mod film_gpu;
 mod filmcheck;
+mod jetaa;
 mod keyframe;
 mod lod;
 mod manifest;
