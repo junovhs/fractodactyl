@@ -17,6 +17,21 @@ fn fd(args: &[&str]) -> String {
     text
 }
 
+/// Runs a just-copied executable. On Linux a parallel test that forks while the
+/// copy's write descriptor is open leaves it open in the child, and exec fails
+/// with ETXTBSY until that child execs or exits, so retry briefly (FIX-57).
+fn output_of_copied(command: &mut Command) -> std::process::Output {
+    for _ in 0..50 {
+        match command.output() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            result => return result.unwrap(),
+        }
+    }
+    command.output().unwrap()
+}
+
 /// The token after `key` on a space-separated report line.
 fn field<'a>(line: &'a str, key: &str) -> &'a str {
     let mut it = line.split(' ');
@@ -168,19 +183,19 @@ fn preset_survives_removed_build_worktree() {
     let executable = worktree.join(format!("bin/fd{}", std::env::consts::EXE_SUFFIX));
     std::fs::copy(env!("CARGO_BIN_EXE_fd"), &executable).unwrap();
     let shade = |exe: &std::path::Path, cwd: &std::path::Path, name: &str, out: &str| {
-        let output = Command::new(exe)
-            .current_dir(cwd)
-            .env_remove("FD_LOOKS")
-            .args([
-                "shade",
-                samples.to_str().unwrap(),
-                "--preset",
-                name,
-                "-o",
-                dir.join(out).to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
+        let output = output_of_copied(
+            Command::new(exe)
+                .current_dir(cwd)
+                .env_remove("FD_LOOKS")
+                .args([
+                    "shade",
+                    samples.to_str().unwrap(),
+                    "--preset",
+                    name,
+                    "-o",
+                    dir.join(out).to_str().unwrap(),
+                ]),
+        );
         assert!(
             output.status.success(),
             "{}",
