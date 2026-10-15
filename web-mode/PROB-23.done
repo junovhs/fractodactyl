@@ -1,0 +1,18 @@
+STATUS: needs-run
+COMMIT: 191f046c4d8c73a9c33535e1f50040ea9e5f0c4f
+SUMMARY: Round 3 fixes the 0.28-second planning crash: np.int64/np.int32 grid coordinates are converted to Python int before mp.mpf/mp.mpc.
+SUMMARY: Search and harvest normalize NumPy floating/complex scalars to decimal strings/native integers at the mpmath boundary, including roots, nucleus sizes, spiral inputs and visibility.
+SUMMARY: Adds mocked-fd tests that exercise real harvest_nuclei and search_targets using NumPy-typed roots, grid coordinates and return values.
+SUMMARY: Keeps round-2 six-region, 45-75-decade ranked planning, cand-N diagnostics and the 4K60 continuous-speed GPU --pick film path unchanged.
+TESTED: Owner round-2: unit tests OK, real planning crashed after 0.28s before any candidates were made (mpmath 1.3.0 rejects np.int64); not a visual/render acceptance.
+TESTED: Local focused NumPy 2.3.5/mpmath 1.3.0 boundary probe passed for int32/int64, float32/float64, complex128 and a 47.92-decade mocked harvest/search seed.
+TESTED: GitHub diff verified ahead of main; only decades.py, test_decades_arc.py, METHOD.md, done marker changed; no .ishoo/ modifications.
+TESTED: Actual repo Python unittest, fd planning, 4K preview/film, cargo test and clippy NOT run here (fd/Rust checkout unavailable); owner must rerun. Newly added regression is not claimed to have passed on desktop.
+RUN:
+python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --size 3840x2160 --fps 60 --candidates 6
+python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --size 3840x2160 --fps 60 --film --pick 1 --preview-seconds 60
+python3 tools/research/variety/decades.py --out out/prob23-r2 --minutes 10 --size 3840x2160 --fps 60 --film --pick 1
+python3 -m unittest discover -s tools/research/variety -p 'test_decades_arc.py'
+cargo test --workspace
+cargo clippy --workspace --all-targets
+QUESTIONS: Please rerun the first planning command immediately and paste stdout/traceback if it fails. Inspect ranking.json and cand-N/contact.jpg plus arc.png, then replace --pick 1 with your chosen N in both render commands. Proceed to full film only after the visual and one-minute preview checks pass.

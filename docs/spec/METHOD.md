@@ -97,6 +97,115 @@ A dead idea is a result. Record negative and positive results in the log below, 
 the command and the numbers, so nobody pays for the same answer twice.
 
 ## Results log
+
+### PROB-23 round 3: NumPy scalar boundary crash (2026-10-11)
+
+**Desktop failure at 4990c50:** planning ended after 0.28 s in
+`harvest_nuclei`: mpmath 1.3.0 rejected `mp.mpf(np.int64(81))`.
+The pre-existing test suite passed because it did not exercise the
+new search/harvest path with NumPy-generated grid indices.
+
+**Fix:** convert sampled grid indices to Python `int` before use,
+and normalize NumPy integer, floating and complex scalar inputs at
+the search-to-mpmath boundary (including roots, widths, nuclei and
+sizes). Deep decimal strings and mpmath values remain exact; no
+new f64 conversion for DEC-21. Extend normalization to the nucleus,
+spiral and visibility entry points. Add an fd-free regression that
+actually calls `harvest_nuclei` and `search_targets` with mocked
+NumPy 2.x `int64/int32/float32/float64` grid/seed/nucleus values.
+
+**Local focused probe:** using mpmath 1.3.0 and NumPy 2.3.5,
+the previously rejected `np.int64` input is accepted at the
+conversion boundary; a mocked 160x90 harvest gives a 47.92-decade
+target with Python integer period and mpmath centre/size. Explicit
+int32/int64, float32/float64 and complex128 conversions pass.
+This is not a real fd planning run; desktop rerun is required.
+
+
+### PROB-23 round 2: deeper, ranked visual arc search (2026-10-11)
+
+**Owner's measured round-1 negative:** planning took 38.0 s (34 nuclei, only 3
+targets scored); best 26.9 decades, 14 sections averaging ~1.9 decades,
+and a 600 s run at 22.3 s/decade. Contact shows mostly fine haze, a weak
+60-80% climax and magenta unresolved regions. Unit tests passed; no film
+was rendered. This disproves the original arc-ranking claim and justifies
+a broad discovery gate before any 4K benchmark.
+
+**Changes:** search six starting regions (requested root, seahorse, seahorse
+spiral, elephant valley, triple spiral, antenna); recursively discover
+decorated child nuclei at 300x/70x parent scale (configurable --beam and
+--rounds). Only candidates with depth around 45-75 decades for a ten-minute
+1.25x/s film are eligible. The repository's VIDE-01 period-764 calibrated
+100-digit nucleus is also re-solved at high precision and supplies a
+49.21-decade known-depth fallback, not a visual-quality guarantee. Every
+point is a Newton-refined mp centre; no deep centre/width passes through
+f64. The nucleus gate checks Newton drift from the seed (previously a
+no-op comparison against itself). Search failures are explicit.
+
+**Visual gate:** fd's mathematical de/nu/class at 112x63 cheaply triages
+candidates, and whole-decade 256x144 with --ss 2 supplies scores AND the
+contact image. A 5x5 low-pass and 8x8 tile occupancy, central structure,
+mid-frequency power and hue-independent silhouette replace the saturated
+DE<1 edge fraction as hero cues. Strong haze/unresolved and corner-only
+structure penalties apply to all decades; the climax region receives
+3.5x fit weight. Every top candidate gets cand-N/plan.json, arc.png,
+contact.jpg and speed.txt; ranking.json records pass/fail heuristic gates.
+Section dynamic programming **requires** 3-6 decades and 30-60 s. This
+is visual selection, not a numeric validity shortcut (DEC-10/17);
+the planner labels candidate gates and the owner must inspect them.
+
+**Film:** --film --pick N reads only a saved matching plan, with
+FILM-12 continuous speed, --keyframes 2, --gpu on. --preview-seconds 60
+uses fd film --frames for a 60 s excerpt of the unchanged 600 s
+speed/path (default fraction 0.65); this tests a real section boundary
+without cramming 55 decades into 60 s. The contact shade explicitly
+uses --unresolved interior like fd film. The built-in master-ice interior
+is #05070d, not magenta: unresolved pixels in the previous contact
+were rendered with the fd shade default --unresolved mark, not the
+film default. The new contact labels unresolved fractions.
+
+**Local tests available here:** synthetic Python/Numpy 44-75-decade
+speed/partition probe, with 225 randomized/fractional cases:
+0 impossible partitions; for 58 decades, exactly 600.000 s, 15.0 s
+rest ramp, 10.22 s/decade mean cruise and 12 sections, each 4-6
+decades / 45-59 s. Known v0 point resolves at p=764,
+size 4.12049120899653482e-50 (137-digit mpmath, 2 Newton
+iterations, ~0.14 s). ImageMagick 7 arc/contact probes produced a
+1100x450 PNG and labelled JPEG. No fd binary or Rust cargo in this
+environment; the actual discovered targets, supersampled contact
+sheets, cargo tests, 1-minute preview, 10-minute film and owner
+aesthetic verdict remain unverified and are exact commands in the
+latest web-mode/PROB-23.done.
+
+
+### PROB-23: whole-film arc planner (2026-10-11)
+
+Directed decades.py scores each fixed-centre minibrot path with a calm/opening,
+rising-action, ~70%-climax and calm-resolution target curve. Tiny fd math
+renders supply per-decade edge, mid-frequency detail, symmetry and dust;
+the hero metric penalises sparse views and fine grey haze. Dynamic programming
+groups consecutive similar decades into 30-60 s sections and rewards real
+signature jumps at boundaries. Plan.json records sections, actual/target arc,
+hero score, exact centre/width, and continuous speed file knots. The --spiral
+contract rejects candidate targets whose fixed camera would shift the spiral
+by more than 0.06 view widths at D2; there is no moving centre (DEC-21).
+
+FILM-12's single speed curve starts at rest with a 15 s analytic ramp,
+lingers on hero features, avoids acceleration near the landing, and integrates
+exactly to --minutes. One fd film --speed FILE --keyframes 2 --gpu on
+produces the MP4; no segment stitching. Plan reuse is allowed only when input
+settings match and speed.txt is present; otherwise replan (DEC-10).
+The diagnostic contact sheet and 1-minute preview are the acceptance gate
+for this heuristic, not a per-pixel rendering shortcut (DEC-17).
+
+Synthetic 60-decade probe (Python/Numpy): 600.000000 s total, ~15 s opening
+ramp, 12 coherent sections of ~43-57 s, one shift at distance 2.9, steady tail.
+ImageMagick 7 generated test arc PNG and labelled contact JPEG. This runtime
+has no fd binary or Rust toolchain: real planning, preview, full 4K film,
+cargo test --workspace and cargo clippy --workspace --all-targets are owner-side.
+See web-mode/PROB-23.done for exact acceptance commands and run order.
+
+
 ### Parallel-in-time reference orbits (2026-10-11, owner-run research; killed)
 
 Question 1 of `docs/research/10-11-26/frontier-questions.md`; full answer in
