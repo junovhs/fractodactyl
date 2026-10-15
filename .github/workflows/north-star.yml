@@ -1,0 +1,47 @@
+name: north-star
+# DOCS-03: docs/spec/NORTH-STAR.md is generated from the newest north star in
+# refs/ishoo/store. GitHub cannot trigger on pushes to that ref, so this runs after
+# every push to main, daily, and on demand, and commits only when the file changed.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: north-star
+  cancel-in-progress: false
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Read the north star from refs/ishoo/store
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin +refs/ishoo/store:refs/ishoo/store
+          git show refs/ishoo/store:.ishoo/store.meta > "$RUNNER_TEMP/store.meta"
+      - name: Generate docs/spec/NORTH-STAR.md
+        run: |
+          set -euo pipefail
+          cargo run --locked --release --manifest-path tools/north-star/Cargo.toml -- \
+            "$RUNNER_TEMP/store.meta" docs/spec/NORTH-STAR.md
+      - name: Commit if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- docs/spec/NORTH-STAR.md; then
+            echo "NORTH-STAR.md already matches the north star"; exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs(north-star): regenerate NORTH-STAR.md from refs/ishoo/store' \
+            -- docs/spec/NORTH-STAR.md
+          branch="$GITHUB_REF_NAME"
+          git push origin "HEAD:$branch" || {
+            git pull --rebase origin "$branch"
+            git push origin "HEAD:$branch"
+          }
