@@ -30,3 +30,10 @@ This is CPU only: it emulates GPU float32 arithmetic and is not a GPU measuremen
   `results/zfin-1080p-before-gate-margin-fix.log` is the earlier run whose DE gate had no
   margin (kept a few artefacts; superseded). `results/ff-contractA-failures-2e-48.txt` lists
   the 354 float-float contract-A failures at 2e-48.
+- `capture/src/bin/shadecmp.rs`: the shading proof (§22 of the notes).
+  - usage: `shadecmp WIDTH DUMP LOOKSDIR`, where DUMP comes from `zfin` with `DUMPOUT=`.
+  - It renders the binary64, float-float, hybrid and double-double (truth) frames with every
+    look, and reports changed pixels and colour levels by distance to the edge.
+  - `FFGUARD=16` turns the hybrid slot into float-float plus a targeted re-run (re-run share
+    printed); `DNU=` sets the Δν threshold, default 0.01.
+  - Results: `results/shading/`.

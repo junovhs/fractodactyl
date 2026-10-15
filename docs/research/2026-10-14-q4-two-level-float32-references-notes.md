@@ -791,3 +791,97 @@ are upper bounds.**
 > **Contract.** Unchanged; owner to choose between the gates.
 >
 > **Next.** GPU timing, pending approval.
+
+---
+
+## §22. Shading proof: does the DE rule buy anything visible? (2026-10-15, cloud; CPU only)
+
+**Question (owner).** Render the frames both ways and compare the actual images. Find the
+DE level where errors start changing a colour level, then set the gate a notch stricter for
+headroom.
+
+### Method
+
+- Code: `tools/research/twolevel/zone_finish/capture/src/bin/shadecmp.rs` (uses `fd-shade`),
+  plus `zfin.c` with `DUMPOUT=`.
+- Inputs: all six GPU-12 depths, 1080p, every captured finish pixel.
+- **Truth:** a new double-double (about 106-bit) finish arm from the same landing states.
+  Every image is compared against the image rendered from truth.
+- **Looks:** 10 in total. They are the `fd_shade::NAMES` (umber, palette, relief, studio),
+  every `BUILTIN` studio look, and `looks/master-ice.look` (haze).
+- **Counting:** "changed px" is summed over the 10 looks (20.7M pixel-looks per depth). Results
+  are split by the truth DE of the pixel (its distance to the set's edge, in px). Levels are
+  8-bit RGB steps.
+- **Sanity check:** the binary64 arm reproduces the CPU-zone columns exactly (Δnu = 0,
+  ΔDE = 0). The normal is carried as deltas from the binary64 arm, so the zone's angle
+  convention does not matter.
+- Results: `tools/research/twolevel/zone_finish/results/shading/*.txt`.
+
+### Findings
+
+1. **Production binary64 is already far from truth right at the edge.** For pixels with
+   DE < 1e-3 px it differs from truth by up to 236 levels on 23k–88k pixel-looks per depth.
+   These pixels are chaotic, and the current contract already exempts them. Everywhere else
+   binary64 is within 1 level of truth.
+2. **The DE/normal errors of float-float** (nu held at truth) change colours by:
+
+   | distance from edge | change |
+   |---|---|
+   | ≥ 0.01 px | at most **1 level** at every depth |
+   | 0.001–0.01 px | up to 3 levels (5 at 2e-49) |
+
+   1-level flips also appear between binary64 and truth (8-bit rounding), so 1 level is the
+   noise floor.
+3. **The notch.** With float-float's DE/normal errors amplified, the farthest band that shows
+   more than 1 level is:
+
+   | error amplification | changes > 1 level reach out to |
+   |---|---|
+   | ×1 | 0.01 px |
+   | ×3 | 0.1 px |
+   | ×10 | 0.1 px (≥ 0.1 px stays at 1 level) |
+   | ×30 | 1 px |
+
+   So DE/normal errors only become visible within about 0.01 px of an edge. **A gate at 0.1 px
+   keeps 10x headroom:** pixels ≥ 0.1 px from an edge stay at most 1 level even if the errors
+   were 10x larger. The current gate is 1e-3 px; the earlier "contract B" option was 1 px.
+4. **The bigger visible effect is nu, not DE.**
+   - With plain float-float, nu errors change colours by up to **51–57 levels** on
+     0.01–0.02% of pixel-looks (1e-46 and 2e-48), for pixels 1e-3 to 0.1 px from the edge.
+   - These pixels pass the existing 1e-3 px nu rule, because Δν = displacement / (DE·ln2/2)
+     is large when DE is small.
+   - Binary64 stays within 1 level there.
+   - **No rule in the current contract catches this.** Single pixels next to filaments
+     flipping by about 50 levels could twinkle in a film.
+5. **Fix: float-float plus a targeted re-run.**
+   - Float-float carries a variance error model (z rounding about 2^-47 per step, propagated
+     with |2z|²) and estimates its own position error σ.
+   - It re-runs a pixel at higher precision when 16σ > 0.01·DE·ln2/2 (Δν could exceed 0.01
+     iterations), only for pixels with DE > 1e-3 px.
+   - Binary64 stood in for the re-run precision. On f32-only devices that would be
+     triple-float; this assumes triple-float matches binary64 here, which is not yet measured.
+   - The result, with re-run shares of **0 / 0.008 / 0.19 / 0.55 / 0.84 / 0.16%** across the six
+     depths:
+
+     | distance from edge | change against truth |
+     |---|---|
+     | ≥ 0.01 px | at most **1 level** at every depth |
+     | 0.001–0.01 px | 1–5 levels (DE-driven) |
+
+   - That is about production quality, at under 1% re-run cost.
+6. **The two-level tile hybrid is visibly worse.** Even on pixels ≥ 1 px from an edge it
+   changes up to 61 levels (1e-40) and 42 levels (2e-48). Its kept float32 pixels pass the
+   1e-3 px nu rule but not the eye. This is one more reason it stays parked.
+
+### Recommendation (plain)
+
+- **DE gate.** Relax it from 1e-3 px to **0.1 px**. Pixels at least 0.1 px from an edge keep
+  the strict 0.2% DE and normal rule. Closer pixels can carry small DE errors, measured at
+  ≤ 1–5 colour levels. This has 10x headroom on everything ≥ 0.1 px from an edge. The owner
+  decides; the contract is unchanged here.
+- **GPU-05/GPU-09.** Ship **float-float plus the targeted re-run** (λ = 16, Δν ≤ 0.01), not
+  plain float-float. Plain float-float passes every written rule but visibly twinkles on about
+  0.01–0.02% of near-edge pixels at the deepest frames.
+- **Consider a "visible-colour" check in the test gate.** The nu rule (1e-3 px displacement)
+  lets about 50-level changes through near edges. A check like this one (shade both, compare
+  levels by DE band) would catch them.

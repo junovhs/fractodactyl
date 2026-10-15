@@ -1,0 +1,18 @@
+== 1e-37
+ff guard: rerun share 0.0076%
+  ff+rerun  vs truth, all columns                       <1e-3 160244/236 | 1e-3..1e-2 28/1 | 1e-2..0.1 19/1 | 0.1..1 34/1 | >=1 145/1
+== 1e-40
+ff guard: rerun share 0.0000%
+  ff+rerun  vs truth, all columns                       <1e-3 51848/236 | 1e-3..1e-2 2/1 | 1e-2..0.1 10/1 | 0.1..1 27/1 | >=1 60/1
+== 1e-43
+ff guard: rerun share 0.1935%
+  ff+rerun  vs truth, all columns                       <1e-3 168719/236 | 1e-3..1e-2 73/1 | 1e-2..0.1 48/1 | 0.1..1 59/1 | >=1 121/1
+== 1e-46
+ff guard: rerun share 0.5529%
+  ff+rerun  vs truth, all columns                       <1e-3 194379/236 | 1e-3..1e-2 111/1 | 1e-2..0.1 130/1 | 0.1..1 101/1 | >=1 155/1
+== 2e-48
+ff guard: rerun share 0.8428%
+  ff+rerun  vs truth, all columns                       <1e-3 178875/236 | 1e-3..1e-2 180/3 | 1e-2..0.1 172/1 | 0.1..1 131/1 | >=1 190/1
+== 2e-49
+ff guard: rerun share 0.1598%
+  ff+rerun  vs truth, all columns                       <1e-3 104776/235 | 1e-3..1e-2 71/5 | 1e-2..0.1 47/1 | 0.1..1 48/1 | >=1 81/1

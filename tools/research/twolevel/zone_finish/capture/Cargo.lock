@@ -19,9 +19,17 @@ name = "fd-samples"
 version = "0.1.0"
 
 [[package]]
+name = "fd-shade"
+version = "0.1.0"
+dependencies = [
+ "fd-samples",
+]
+
+[[package]]
 name = "zone-finish-capture"
 version = "0.0.0"
 dependencies = [
  "fd-kernel",
  "fd-samples",
+ "fd-shade",
 ]
