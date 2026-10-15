@@ -93,27 +93,45 @@ on ≥ 99.9% of pixels, no extra flicker, nothing visible skipped. Exact renders
 
 Both are now part of Q2.
 
-**Read through DEC-29, these results change meaning:**
-- **Films now judge the GPU-09/GPU-05 float-float failures by eye, not by the per-pixel
-  rule.** The DE/normal failures are invisible (≤ 1 level beyond 0.01 px from an edge). The
-  ν jumps of plain float-float touch 0.01–0.02% of pixel-looks, which is inside DEC-29's
-  0.1% allowance. DEC-29 also forbids extra flicker, though, and single near-filament pixels
-  jumping by 50 levels could twinkle. So the open test for GPU-05 is a **flicker
-  measurement on a film**, plain float-float against float-float plus the re-run.
-- **The "exact render" DEC-29 compares against needs pinning down.** Near edges, production
-  binary64 itself differs from a double-double finish by up to 236 levels. Per look that is
-  roughly 0.1–0.4% of pixels per depth (23k–88k of 20.7M pixel-looks over 10 looks), which
-  is at or above the 0.1% allowance. If the exact render is binary64 exact mode, nothing
-  changes. If it is truth, binary64 films themselves need checking.
-- **Q4 stays dead under DEC-29.** The two-level hybrid's errors are visible (up to 61 levels
-  ≥ 1 px from an edge), so the looser film bar does not rescue it.
+**Decided from north star v4 (2026-10-15, Claude; record as Ishoo decisions when Ishoo is available):**
 
-**Owner decisions still open (not research):**
-- The DE/normal gate question is now mostly moot for films (DEC-29). It remains open only
-  for exact mode and research acceptance (DEC-17).
-- Plain float-float or float-float plus the targeted re-run, decided by the flicker
-  measurement above.
-- Which render "exact" means in DEC-29 at depth: binary64 or higher-precision truth.
+1. **The "exact render" in DEC-29 is the exact-mode render (DEC-17), not a higher-precision
+   truth.**
+   - Near edges, binary64 differs from a double-double finish by up to 236 levels: roughly
+     0.1–0.4% of pixels per depth (23k–88k of 20.7M pixel-looks over 10 looks).
+   - Every one of those pixels lies within 1e-3 px of the set. There, an orbit is chaotic at
+     sub-pixel scale: moving the sample by 1e-3 px changes its colour as much as the
+     precision does. The "true" colour of the exact sample point is therefore not something
+     a viewer can see; it is noise either way.
+   - The north star says precision a viewer cannot see is a cost. So exact mode stays
+     DEC-17 as written, and binary64 films need no re-check against truth.
+2. **The film default for the f32-only finish is plain float-float. The targeted re-run tier
+   is built only if a measured flicker test fails.**
+   - DE/normal failures are invisible (≤ 1 level beyond 0.01 px from an edge).
+   - The ν jumps of plain float-float touch 0.01–0.02% of pixel-looks, inside DEC-29's 0.1%
+     allowance.
+   - What DEC-29 can still catch is flicker: single near-filament pixels jumping about 50
+     levels between frames. Building the re-run tier before that is measured would buy
+     precision nobody may see.
+   - GPU-05 is already gated by film equivalence. Its gate must include a frame-to-frame
+     flicker measurement on a deep film (v0 down to 2e-49), comparing the film from the
+     float-float finish with the exact-mode film. If float-float adds flicker, build the
+     re-run (λ = 16, Δν ≤ 0.01; triple-float on f32-only devices) and measure again.
+3. **The DE/normal gate is not relaxed.**
+   - Films do not use it any more (DEC-29).
+   - Exact stills keep DEC-17's 1e-3 px gate unchanged, because "full numerical accuracy"
+     is what exact mode promises.
+   - The 0.1 px proposal from the shading proof is withdrawn.
+4. **Q4's reopen option (notes §8.0) is closed: not reopened.** The two-level hybrid's
+   errors are visible (up to 61 levels ≥ 1 px from an edge), so even the film bar rejects
+   it.
+5. **A race against the best existing renderers is needed, but as a benchmark, not a
+   frontier question.**
+   - "Faster than anything else can" is a claim the north star makes, and nothing measures
+     it yet. BENC-10 races our own GPU against our own CPU.
+   - It should be filed as a benchmark issue: the same films in Kalles Fraktaler,
+     FractalShark and Imagina against `fd film`, timed on the owner's machines and checked
+     against DEC-29.
 
 ---
 
