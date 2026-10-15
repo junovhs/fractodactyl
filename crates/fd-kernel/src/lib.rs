@@ -29,13 +29,13 @@ mod zone;
 
 pub use bla::{Bla, Block, EPS_MAX as BLA_EPS_MAX};
 pub use grid::{
-    bla_dc_max, reference, reference_bits, render, render_bla, render_stats, render_with, BlaStats,
-    Params, Stats,
+    bla_dc_max, reference, reference_bits, render, render_bla, render_bla_masked, render_stats,
+    render_with, render_with_masked, BlaStats, Params, Stats,
 };
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};
-pub use zone::{render_zone, zone_covers, Zone, ZoneStats};
+pub use zone::{render_zone, render_zone_masked, zone_covers, Zone, ZoneStats};
 
 #[cfg(feature = "gpu-route-probe")]
 pub use zone::FinishCheckpoint;

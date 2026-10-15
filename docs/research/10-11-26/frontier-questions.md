@@ -32,9 +32,9 @@ on ≥ 99.9% of pixels, no extra flicker, nothing visible skipped. Exact renders
 | 3 | Deep minibrot interiors in O(1) | **merged into Q2** | partial answer below |
 | 4 | Two-level references for float32 pixels | **killed** (GPU follow-up measured) | [notes](../2026-10-14-q4-two-level-float32-references-notes.md): fallback 1.3–6% > 1% (kept error ≤ 3.1e-4 px); on real zone inputs the two-level hybrid is visibly worse than float-float and is parked; float-float alone is kept on the RTX 3050 Ti |
 | 5 | Compiling ahead of a live dive | **retired** (outside north star v4; build cost moved to Q2) | — |
-| 6 | Supersampling from jets | **open, rewritten**, do first | pending |
+| 6 | Supersampling from jets | **passed, built** (FILM-15: `fd film --jet-aa on`) | [q6-supersampling-from-jets.md](q6-supersampling-from-jets.md): DEC-29 met everywhere, no added flicker; 2.1 samples/px over a v0 dive (2.9–3.6 on the densest frames); 1.84x faster on a BLA film; zone frames stay exact |
 
-**Suggested order: Q6, then Q2.**
+**Suggested order: Q6 (done, 2026-10-15), then Q2.**
 - Q6 is CPU-only and cheap to probe, and it would cut the fractal samples of every film
   frame by up to 4x.
 - Q2 is the biggest gap: today's fast path works for one spiral-centre ladder, not for the

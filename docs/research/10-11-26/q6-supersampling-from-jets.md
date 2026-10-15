@@ -3,8 +3,15 @@
 # Q6: supersampling from jets
 
 **Verdict:**
-- **Kept, as a lead.**
-- **Killed under the kill criterion as literally written, on the densest frames only.**
+- **Passes.** The kill line is read per film (§6). DEC-29 is met everywhere, and a v0 dive
+  averages 2.1 samples per pixel.
+- **Built** as `fd film --jet-aa on` (FILM-15, §10): **1.84x faster** on a BLA film, same
+  frames within DEC-29, no added flicker.
+- Zone frames stay exact, because their samples are already too cheap for jet-AA to pay.
+- Stills are untouched (DEC-17).
+
+The rest of this file is the research as run. The per-frame kill reading discussed below was
+settled by §6.
 
 Jet-AA rebuilds three of a pixel's four ss 2 samples from one real sample. It passes DEC-29
 against the exact ss 2 render on every probed view and on every full 1080p v0 zone frame:
@@ -34,10 +41,8 @@ columns. That is a 1.6–4x cut in film fractal samples, measured by frame, not 
 1. Set row 6 of the table in `frontier-questions.md` to: "**kept as a lead; literal kill on
    the densest frames** (eff 2.9–3.6 on v0 5e-49 and 2e-49 / p764 spiral, 1.0–2.5 elsewhere; DEC-29
    met everywhere, no added flicker), see q6 answer".
-2. Owner decision needed (§6): read the kill criterion per frame or per film, and/or make
-   DEC-29 noise-aware in dense regions.
-3. File the ranked leads in §7 as issues. Lead 1 (FILM: jet-AA corner scheme as a refine
-   pass) is the build candidate.
+2. Record the decisions of §6 (taken from north star v4) as Ishoo decisions.
+3. File FILM-15 (jet-AA in `fd film`, built: §10) and the remaining leads in §7 as issues.
 4. Add the METHOD.md results-log entry (text in §8).
 
 ## 1. What was built and how it was scored
@@ -311,17 +316,19 @@ Under the literal reading, Q6 is killed on those frames. It is kept as a lead be
 - it saves 1.6–4x on most of a deep film;
 - it never costs more than ss 2.
 
-## 6. Owner decisions
+## 6. Decisions (from north star v4, 2026-10-15, Claude; record in Ishoo)
 
-1. **Per frame or per film?** A film's cost is the sum over its frames. On the v0 dive the
-   frame eff rises from 1.6 (1e-29) to 3.2 (2e-49) (§3.2). Read the kill line per frame or
-   per film average?
-2. **A noise-aware DEC-29 in dense regions** (decision-1 style). Where two exact 4-sample
-   patterns disagree, the exact render is not a reproducible reference. The proposal: score
-   such pixels against the spread of equally exact renders, not one draw.
-   - **Speculation:** no arm here exploits this. A cheaper estimator of a dense pixel's
-     colour statistics would still have to be built and measured for flicker.
-   - Jet-AA itself needs no change: it is already exact there.
+1. **The kill line is read per film.** A film's cost is the sum over its frames, and the
+   north star measures films. The v0 dive averages 2.1 samples per pixel (§3.2), under
+   2.5, so **Q6 passes**. The densest single frames (2.9–3.6) are reported, not disqualifying.
+2. **DEC-29 stays as written.** Jet-AA meets it on every frame, with no added flicker. No
+   higher-sample reference (8x8, competitors' 49 spp) is adopted: the north star counts
+   precision a viewer cannot see as a cost. The noise-floor result (§5) is recorded so that
+   no future method is held to reproducing a noise draw it cannot see.
+3. **Films only.** Stills keep exact rendering (DEC-17) with every sample computed; the
+   owner restated on 2026-10-15 that stills should be as accurate as possible and may take
+   as long as they need. Jet-AA is a `fd film` option and never touches `fd render`.
+4. **Build it (§10).**
 
 ## 7. Ranked leads
 
@@ -372,6 +379,39 @@ Under the literal reading, Q6 is killed on those frames. It is kept as a lead be
 > pixels, so the exact render is noise. The literal kill line (eff < 2.5) fails on those
 > frames; kept as a lead (FILM jet-AA refine pass). The exact order-3 recurrences cost 2x
 > per iteration and are not needed.
+
+## 10. FILM-15: jet-AA built into `fd film` (2026-10-15)
+
+- **Kernel:** `render_with_masked`, `render_bla_masked` and `render_zone_masked`
+  (fd-kernel) compute only the samples a mask selects. The unmasked functions are unchanged
+  wrappers, and `Reference` is now `Clone`.
+- **`fd film --jet-aa on`** (default off; needs `--ss 2`, no keyframes, no GPU kernel):
+  1. builds the reference orbit and BLA table once;
+  2. pass 1 computes each pixel's top-left ss 2 sample;
+  3. `crates/fd-cli/src/jetaa.rs` rebuilds the other three from stored columns
+     (neighbour stencil, consistency check m = 3, all cores);
+  4. pass 2 computes the rejected samples.
+- **Zone frames are rendered exactly** (see below).
+- The film report gains `jet_aa_samples_per_pixel` and `jet_aa_stage_seconds` (pass 1,
+  rebuild, pass 2).
+
+**Real-path results** (CPU, 4 cores, 960x540, studio ice look with film defaults, frames
+compared losslessly against the same film with `--jet-aa off`):
+
+| film | path | exact ss 2 render | jet-AA render | samples/px | worst frame > 1 lvl | added flicker |
+|---|---|---|---|---|---|---|
+| tendril, 2e-54 → 2.2e-57, 30 frames | BLA | 719.7 s | **390.5 s (1.84x)** | 2.01 | 0.0033% | 0.0018% |
+| v0 dive, 1e-29 → 2e-49, 60 frames, jet in zone frames | zone | 45.0–46.5 s | 46.2 s (after rebuild optimisation; 53 s before) | 2.23 | 0.017% | 0.0022% |
+
+- **Zone frames are not worth it.**
+  - A zone sample costs about 1.6 µs of CPU.
+  - The rebuild costs about 1 µs per pixel (0.13 s per 960x540 frame on 4 cores).
+  - The samples it rejects are the long ones near the set.
+  - Net result: break-even at best. So `--jet-aa on` renders zone frames exactly, and
+    jet-AA applies to BLA and perturbation frames, where a sample costs thousands of
+    iterations and the rebuild is 1.4% of render time.
+- On GPU zone frames the balance differs. Untested.
+- Stills (`fd render`) are unaffected.
 
 ## 9. Reproduction
 
