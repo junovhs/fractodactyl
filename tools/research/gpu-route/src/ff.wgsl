@@ -45,6 +45,21 @@ fn ff_mul(x: FF, y: FF) -> FF {
     e = fma(x.lo, y.hi, e);
     return fast_two_sum(p, e);
 }
+// Dekker/Veltkamp TwoProd without fma (Vulkan lets drivers split fma into a
+// multiply and an add). Selected by FD_GPU_ROUTE_FF_TWOPROD=dekker.
+fn veltkamp(a: f32) -> FF {
+    let c = opq(4097.0 * a);
+    let h = opq(c - opq(c - a));
+    return FF(h, a - h);
+}
+fn ff_mul_dekker(x: FF, y: FF) -> FF {
+    let p = opq(x.hi * y.hi);
+    let a = veltkamp(x.hi);
+    let b = veltkamp(y.hi);
+    var e = opq(opq(opq(a.hi * b.hi - p) + a.hi * b.lo) + a.lo * b.hi) + a.lo * b.lo;
+    e += x.hi * y.lo + x.lo * y.hi;
+    return fast_two_sum(p, e);
+}
 
 // 2^k from the IEEE bits (no ldexp/frexp; GPU-19); 0 below the normal range.
 fn pow2(k: i32) -> f32 {

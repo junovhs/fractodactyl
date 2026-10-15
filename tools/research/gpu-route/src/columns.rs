@@ -516,10 +516,10 @@ pub fn benchmark(
             let ff = if precision == "ff" {
                 let runner = super::ff::Runner::new()?;
                 println!(
-                    "ff_adapter={:?} shader_f64={} kernel_f64=NONE reassociation_guard={}",
+                    "ff_adapter={:?} shader_f64={} kernel_f64=NONE {}",
                     runner.adapter,
                     runner.shader_f64,
-                    if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() { "OFF" } else { "ON" }
+                    super::ff::variant()
                 );
                 Some(runner)
             } else {
@@ -564,6 +564,27 @@ pub fn benchmark(
                     .run_measured(input, iterations, camera, timing),
             };
             let warm = run(false)?;
+            if std::env::var_os("FD_GPU_ROUTE_DUMP_CLASS").is_some() {
+                // Diagnostic: every class mismatch with its frozen landing state.
+                for (i, &index) in indices.iter().enumerate() {
+                    let want = if reference.class[index].kind() == Some(Kind::Escaped) { 0 } else { 2 };
+                    if warm.words[2 * i + 1] != want {
+                        eprintln!(
+                            "class_mismatch index={index} x={} y={} want={want} got={} start_n={} z=({:e},{:e}) dzdc=({:e},{:e}) ref_nu={:?} ref_de={:?}",
+                            index % nx as usize,
+                            index / nx as usize,
+                            warm.words[2 * i + 1],
+                            iterations[i],
+                            input[4 * i],
+                            input[4 * i + 1],
+                            input[4 * i + 2],
+                            input[4 * i + 3],
+                            reference.nu.as_ref().map(|v| v[index]),
+                            reference.de.as_ref().map(|v| v[index]),
+                        );
+                    }
+                }
+            }
             let mut verdict = gate(
                 reference,
                 indices,
