@@ -100,7 +100,18 @@ pub fn render_with(
     p: &Params,
     supplied: Option<(Reference, u32)>,
 ) -> Result<(Header, Samples, Stats), String> {
-    run(view, p, supplied, None).map(|(h, s, st, _)| (h, s, st))
+    run(view, p, supplied, None, None).map(|(h, s, st, _)| (h, s, st))
+}
+
+/// [`render_with`] computing only the samples whose `mask` entry (row-major over the
+/// sample grid) is true; the others are left unset (FILM-15 jet-AA passes).
+pub fn render_with_masked(
+    view: &View,
+    p: &Params,
+    supplied: Option<(Reference, u32)>,
+    mask: &[bool],
+) -> Result<(Header, Samples, Stats), String> {
+    run(view, p, supplied, None, Some(mask)).map(|(h, s, st, _)| (h, s, st))
 }
 
 /// [`render_with`] a supplied orbit and a BLA table built over it (ACC-01): valid blocks
@@ -114,6 +125,18 @@ pub fn render_bla(
     p: &Params,
     orbit: (Reference, u32),
     bla: &Bla,
+) -> Result<(Header, Samples, Stats, BlaStats), String> {
+    render_bla_masked(view, p, orbit, bla, None)
+}
+
+/// [`render_bla`] computing only the samples whose `mask` entry is true (see
+/// [`render_with_masked`]).
+pub fn render_bla_masked(
+    view: &View,
+    p: &Params,
+    orbit: (Reference, u32),
+    bla: &Bla,
+    mask: Option<&[bool]>,
 ) -> Result<(Header, Samples, Stats, BlaStats), String> {
     let (plane, tier) = setup(view, p)?;
     if tier == Tier::Scaled {
@@ -145,7 +168,7 @@ pub fn render_bla(
             bla.dc_max
         ));
     }
-    run(view, p, Some(orbit), Some(bla))
+    run(view, p, Some(orbit), Some(bla), mask)
 }
 
 /// Upper bound on `|dc|` over the samples of a view; refused on the scaled tier, which
@@ -167,7 +190,11 @@ fn run(
     p: &Params,
     supplied: Option<(Reference, u32)>,
     bla: Option<&Bla>,
+    mask: Option<&[bool]>,
 ) -> Result<(Header, Samples, Stats, BlaStats), String> {
+    if mask.is_some_and(|m| m.len() != p.nx as usize * p.ny as usize) {
+        return Err("sample mask must cover the sample grid".into());
+    }
     let (mut plane, tier) = setup(view, p)?;
     let t = Instant::now();
     let need = precision(&plane, tier);
@@ -201,6 +228,7 @@ fn run(
         let queue = Mutex::new(Row::split(&mut s, nx).into_iter());
         let mut job = Job::new(&reference, &plane, tier, p, cols);
         job.bla = bla;
+        job.mask = mask;
         let (deriv, bounded, blas) = (job.deriv, !job.q.is_empty(), job.bla.is_some());
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
@@ -283,6 +311,9 @@ pub(crate) struct Job<'a> {
     deriv: bool,
     /// BLA table over `r`, if blocks may replace steps (never with bounds).
     bla: Option<&'a Bla>,
+    /// Samples to compute (row-major over the grid of width `nx`); `None` computes all.
+    mask: Option<&'a [bool]>,
+    nx: usize,
 }
 
 impl<'a> Job<'a> {
@@ -311,6 +342,8 @@ impl<'a> Job<'a> {
             q,
             deriv,
             bla: None,
+            mask: None,
+            nx: p.nx as usize,
         }
     }
 
@@ -387,6 +420,9 @@ impl<'a> Job<'a> {
     ) -> u64 {
         let mut its = 0;
         for i in 0..row.class.len() {
+            if self.mask.is_some_and(|m| !m[row.j * self.nx + i]) {
+                continue;
+            }
             let mut skip = Skip::default();
             let o = self.one::<D, B, L>(i, row.j, &mut skip);
             its += o.iterations(self.max_iter);
