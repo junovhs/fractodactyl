@@ -123,7 +123,9 @@ impl Runner {
             adapters
                 .into_iter()
                 .find(|a| a.get_info().name.to_lowercase().contains(&want))
-                .ok_or(format!("no hardware Vulkan adapter matches FD_GPU_ROUTE_ADAPTER={want}"))?
+                .ok_or(format!(
+                    "no hardware Vulkan adapter matches FD_GPU_ROUTE_ADAPTER={want}"
+                ))?
         } else {
             adapters.sort_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu);
             adapters
@@ -410,7 +412,11 @@ fn selftest_source(two_prod: TwoProd) -> String {
     let source = source(two_prod);
     let start = source.find("var<private> KEY").unwrap();
     let end = source.find("@compute").unwrap();
-    format!("{}\n{}", &source[start..end], include_str!("ff_selftest.wgsl"))
+    format!(
+        "{}\n{}",
+        &source[start..end],
+        include_str!("ff_selftest.wgsl")
+    )
 }
 
 /// `ff-selftest`: checks on the device that TwoSum, FastTwoSum, the fma error
@@ -426,7 +432,10 @@ pub fn selftest() -> Result<(), String> {
         let (adapter, bad, step_worst) = selftest_run(two_prod)?;
         // The raw fma error term only matters when TwoProd uses fma.
         let used = if two_prod == TwoProd::Fma { 0 } else { 2 };
-        let pass = bad.iter().enumerate().all(|(i, &b)| b == 0 || (used == 2 && i == 2));
+        let pass = bad
+            .iter()
+            .enumerate()
+            .all(|(i, &b)| b == 0 || (used == 2 && i == 2));
         println!(
             "ff_selftest adapter={adapter:?} reassociation_guard={} two_prod={two_prod:?} cases={} two_sum_wrong={} fast_two_sum_wrong={} fma_error_term_wrong={} two_prod_wrong={} ff_step_over_2^-44={} ff_step_worst_relative={step_worst:e} verdict={}",
             if guarded() { "ON" } else { "OFF" },
@@ -469,11 +478,20 @@ fn selftest_run(two_prod: TwoProd) -> Result<(String, [usize; 5], f64), String> 
         let (zrh, zrl) = split(next() * 4.0 - 2.0);
         let (zih, zil) = split(next() * 4.0 - 2.0);
         cases.extend([a, b, zrh, zrl, zih, zil, 0.0, 0.0]);
-        wide.extend([f64::from(zrh) + f64::from(zrl), f64::from(zih) + f64::from(zil)]);
+        wide.extend([
+            f64::from(zrh) + f64::from(zrl),
+            f64::from(zih) + f64::from(zil),
+        ]);
     }
     let (crh, crl) = split(CR);
     let (cih, cil) = split(CI);
-    let key = [0u32, crh.to_bits(), crl.to_bits(), cih.to_bits(), cil.to_bits()];
+    let key = [
+        0u32,
+        crh.to_bits(),
+        crl.to_bits(),
+        cih.to_bits(),
+        cil.to_bits(),
+    ];
     let device = &runner.device;
     let inputs = runner.input(f32::as_bytes(&cases))?;
     let key = runner.input(u32::as_bytes(&key))?;

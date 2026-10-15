@@ -567,7 +567,11 @@ pub fn benchmark(
             if std::env::var_os("FD_GPU_ROUTE_DUMP_CLASS").is_some() {
                 // Diagnostic: every class mismatch with its frozen landing state.
                 for (i, &index) in indices.iter().enumerate() {
-                    let want = if reference.class[index].kind() == Some(Kind::Escaped) { 0 } else { 2 };
+                    let want = if reference.class[index].kind() == Some(Kind::Escaped) {
+                        0
+                    } else {
+                        2
+                    };
                     if warm.words[2 * i + 1] != want {
                         eprintln!(
                             "class_mismatch index={index} x={} y={} want={want} got={} start_n={} z=({:e},{:e}) dzdc=({:e},{:e}) ref_nu={:?} ref_de={:?}",
