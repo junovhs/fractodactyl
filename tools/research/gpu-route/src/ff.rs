@@ -11,16 +11,34 @@ pub struct Runner {
     pub shader_f64: bool,
 }
 
+fn dekker() -> bool {
+    std::env::var("FD_GPU_ROUTE_FF_TWOPROD").is_ok_and(|v| v == "dekker")
+}
+
+/// Variants for diagnosis: FD_GPU_ROUTE_FF_NOGUARD=1 strips the reassociation
+/// guard; FD_GPU_ROUTE_FF_TWOPROD=dekker swaps the fma TwoProd for Dekker's.
 fn source() -> String {
-    let source = include_str!("ff.wgsl").to_owned();
+    let mut source = include_str!("ff.wgsl").to_owned();
     if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() {
-        source.replace(
+        source = source.replace(
             "fn opq(x: f32) -> f32 { return bitcast<f32>(bitcast<u32>(x) ^ KEY); }",
             "fn opq(x: f32) -> f32 { return x; }",
-        )
-    } else {
-        source
+        );
     }
+    if dekker() {
+        source = source
+            .replace("fn ff_mul(x: FF", "fn ff_mul_fma(x: FF")
+            .replace("fn ff_mul_dekker(x: FF", "fn ff_mul(x: FF");
+    }
+    source
+}
+
+pub fn variant() -> String {
+    format!(
+        "reassociation_guard={} two_prod={}",
+        if std::env::var_os("FD_GPU_ROUTE_FF_NOGUARD").is_some() { "OFF" } else { "ON" },
+        if dekker() { "dekker" } else { "fma" }
+    )
 }
 
 /// Float-float pair: hi = f32(x), lo = f32(x - hi).
@@ -52,6 +70,10 @@ impl Runner {
     /// `FD_GPU_ROUTE_ADAPTER` picks a hardware adapter by name substring
     /// (case-insensitive); otherwise a discrete GPU is preferred.
     pub fn new() -> Result<Self, String> {
+        Self::build(source(), "GPU-09 float-float finish")
+    }
+
+    fn build(source: String, label: &'static str) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::VULKAN,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -90,11 +112,11 @@ impl Runner {
             .map_err(|e| format!("WGSL ff device: {e}"))?;
         let errors = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("GPU-09 float-float finish"),
-            source: wgpu::ShaderSource::Wgsl(source().into()),
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("GPU-09 float-float finish"),
+            label: Some(label),
             layout: None,
             module: &module,
             entry_point: Some("main"),
@@ -346,9 +368,148 @@ impl Runner {
     }
 }
 
+/// The ff helpers (TwoSum, TwoProd, float-float add/mul) without the finish
+/// kernel's bindings, followed by the self-test entry point.
+fn selftest_source() -> String {
+    let source = source();
+    let start = source.find("var<private> KEY").unwrap();
+    let end = source.find("@compute").unwrap();
+    format!("{}\n{}", &source[start..end], include_str!("ff_selftest.wgsl"))
+}
+
+/// `ff-selftest`: checks on the device that TwoSum, FastTwoSum, the fma error
+/// term and TwoProd are exact, and one float-float z^2 + C step is within
+/// 2^-44, scored on the host in binary64. Compiler rewrites that break the
+/// error-free transformations show up here directly.
+pub fn selftest() -> Result<(), String> {
+    let runner = Runner::build(selftest_source(), "GPU-09 ff self-test")?;
+    println!(
+        "ff_selftest_adapter={:?} {}",
+        runner.adapter,
+        variant()
+    );
+    const N: usize = 1 << 16;
+    const CR: f64 = -0.743_291_890_852_430_2;
+    const CI: f64 = 0.131_240_552_308_797_6;
+    // Deterministic xorshift cases: a, b within 2^20 of each other (so a + b
+    // is exact in binary64), and float-float states with |z| < 2.
+    let mut state = 0x2545_f491_4f6c_dd1du64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let mut cases = Vec::<f32>::with_capacity(N * 8);
+    let mut wide = Vec::<f64>::with_capacity(N * 2);
+    for _ in 0..N {
+        let a = ((next() * 2.0 - 1.0) * 2f64.powi((next() * 40.0) as i32 - 20)) as f32;
+        let b = ((next() * 2.0 - 1.0) * f64::from(a.abs()) * 2f64.powi(-((next() * 20.0) as i32)))
+            as f32;
+        let (zrh, zrl) = split(next() * 4.0 - 2.0);
+        let (zih, zil) = split(next() * 4.0 - 2.0);
+        cases.extend([a, b, zrh, zrl, zih, zil, 0.0, 0.0]);
+        wide.extend([f64::from(zrh) + f64::from(zrl), f64::from(zih) + f64::from(zil)]);
+    }
+    let (crh, crl) = split(CR);
+    let (cih, cil) = split(CI);
+    let key = [0u32, crh.to_bits(), crl.to_bits(), cih.to_bits(), cil.to_bits()];
+    let device = &runner.device;
+    let inputs = runner.input(f32::as_bytes(&cases))?;
+    let key = runner.input(u32::as_bytes(&key))?;
+    let out_bytes = (N * 12 * 4) as u64;
+    let out = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("GPU-09 self-test out"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("GPU-09 self-test readback"),
+        size: out_bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let entries = [&inputs, &key, &out]
+        .iter()
+        .enumerate()
+        .map(|(binding, buffer)| wgpu::BindGroupEntry {
+            binding: binding as u32,
+            resource: buffer.as_entire_binding(),
+        })
+        .collect::<Vec<_>>();
+    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &runner.pipeline.get_bind_group_layout(0),
+        entries: &entries,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&runner.pipeline);
+        pass.set_bind_group(0, &group, &[]);
+        pass.dispatch_workgroups((N as u32).div_ceil(64), 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&out, 0, &staging, 0, out_bytes);
+    runner.queue.submit([encoder.finish()]);
+    let (tx, rx) = std::sync::mpsc::channel();
+    staging.map_async(wgpu::MapMode::Read, .., move |r| {
+        let _ = tx.send(r);
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .map_err(|e| format!("self-test poll: {e}"))?;
+    rx.recv()
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("self-test map: {e}"))?;
+    let bytes = staging.get_mapped_range(..).map_err(|e| e.to_string())?;
+    let o = bytes
+        .chunks_exact(4)
+        .map(|b| f64::from(f32::from_le_bytes(b.try_into().unwrap())))
+        .collect::<Vec<_>>();
+    drop(bytes);
+    let mut bad = [0usize; 5];
+    let mut step_worst = 0f64;
+    for i in 0..N {
+        let (a, b) = (f64::from(cases[8 * i]), f64::from(cases[8 * i + 1]));
+        let r = &o[12 * i..12 * i + 12];
+        // Every f32 sum here and every f32 product is exact in binary64.
+        bad[0] += usize::from(r[0] + r[1] != a + b || r[0] != f64::from((a + b) as f32));
+        bad[1] += usize::from(r[2] + r[3] != a + b);
+        bad[2] += usize::from(r[4] != a * b - f64::from((a * b) as f32));
+        bad[3] += usize::from(r[5] + r[6] != a * b);
+        let (zr, zi) = (wide[2 * i], wide[2 * i + 1]);
+        let (er, ei) = (zr * zr - zi * zi + CR, 2.0 * zr * zi + CI);
+        let scale = zr * zr + zi * zi + CR.abs();
+        let err = (r[7] + r[8] - er).abs().max((r[9] + r[10] - ei).abs()) / scale;
+        step_worst = step_worst.max(err);
+        bad[4] += usize::from(err > 2f64.powi(-44));
+    }
+    println!(
+        "ff_selftest cases={N} two_sum_wrong={} fast_two_sum_wrong={} fma_error_term_wrong={} two_prod_wrong={} ff_step_over_2^-44={} ff_step_worst_relative={step_worst:e}",
+        bad[0], bad[1], bad[2], bad[3], bad[4]
+    );
+    println!(
+        "ff_selftest={}",
+        if bad.iter().all(|&b| b == 0) { "PASS" } else { "FAIL" }
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ff_selftest_wgsl_validates_without_f64() {
+        use naga::valid::{Capabilities, ValidationFlags, Validator};
+        let source = selftest_source();
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        Validator::new(ValidationFlags::all(), Capabilities::empty())
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+    }
 
     /// CPU-only: naga validates the kernel with no capabilities at all, which
     /// proves it uses no f64, int64 or subgroups.

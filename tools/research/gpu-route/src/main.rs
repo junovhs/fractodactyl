@@ -315,6 +315,7 @@ fn main() {
         Some("smoke") => smoke(),
         Some("capture") => capture(),
         Some("zone-smoke") => columns::smoke(),
+        Some("ff-selftest") => ff::selftest(),
         Some("capture-frame") | Some("frame") | Some("capture-grid") | Some("grid") => {
             (|| {
                 let width = args.get(1).ok_or("specify a listed width")?;
