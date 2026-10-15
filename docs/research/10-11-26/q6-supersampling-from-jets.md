@@ -1,4 +1,4 @@
-<!-- Research answer to question 6 of frontier-questions.md, 2026-10-15. Claude, a cloud session with a compute sandbox (4 CPU cores, no GPU). Code: tools/research/jetaa/ (README there).  DRAFT: the minibrot x10 and seahorse-valley rows of §3.1 are still pending. -->
+<!-- Research answer to question 6 of frontier-questions.md, 2026-10-15. Claude, a cloud session with a compute sandbox (4 CPU cores, no GPU). Code: tools/research/jetaa/ (README there).  -->
 
 # Q6: supersampling from jets
 
@@ -171,10 +171,16 @@ centre scheme's DE flag.
 | galaxy (3.6e-57) | 34% | 43% | 2.51 / 0 | 2.43 / 0.0031% | 2.35 / 0.011% |
 | p764 spiral (1.6e-49) | 55% | 77% | 3.81 / 0.0008% | 3.64 / 0.010% | 3.49 / 0.12% (fails) |
 | p8007 interior (3.6e-32) | all interior | 0 | 1.00 / 0 | 1.00 / 0 | 1.00 / 0 |
-| minibrots at 10x size | (pending) | | | | |
-| seahorse valley 1e-28 | (pending) | | | | |
+| p764 minibrot at 10x (4e-49), 46% interior | 95% (with interior) | 54% | 2.67 / 0.0023% (work 2.06) | 2.67 / 0.0023% (work 2.06) | 2.66 / 0.010% (work 2.05) |
+| p2217 minibrot at 10x (3.9e-36), 72% interior | 99% (with interior) | 28% | 1.85 / 0 (work 1.76) | 1.85 / 0 (work 1.76) | 1.84 / 0.0008% (work 1.76) |
+| p1111 minibrot at 10x (4.4e-59), 47% interior | 98% (with interior) | 53% | 2.63 / 0 (work 2.23) | 2.63 / 0 (work 2.23) | 2.63 / 0.0031% (work 2.23) |
+| seahorse valley 1e-28 (crop all interior at 20000 iter) | all interior | 0 | 1.00 / 0 | 1.00 / 0 | 1.00 / 0 |
 
-- The iteration-weighted work is within +0.05 of eff everywhere.
+- The iteration-weighted work is within +0.05 of eff on escaping views. On minibrot views
+  it is lower than eff (2.06 against 2.67 at p764): an unresolved sample costs the full
+  iteration budget, and the rebuild predicts deep-interior subsamples from unresolved
+  neighbours without computing them. Interiors are matched with no error. The cost there
+  is the minibrot rim and the dense halo around it.
 - ss 1 (the real sample copied) fails by 0.5% (hook) up to 94% (p764 spiral) of
   pixel-looks.
 - **Centre scheme**, for comparison:
