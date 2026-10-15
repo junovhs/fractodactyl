@@ -59,6 +59,7 @@ static inline double ff_d(ff x) { return (double)x.hi + (double)x.lo; }
 typedef struct {
     int32_t n;       // escape iteration or -1
     double nu, de, ang;
+    double sig;      // float-float arm only: error-model sigma of the position, px
 } Out;
 
 static void encode(double zr, double zi, double dr, double di, int n, Out *o) {
@@ -78,6 +79,25 @@ static void fin64(double zr, double zi, double dr, double di, int n, Out *o, lon
         zi = 2 * zr * zi + CI; zr = nzr; dr = ndr; di = ndi;
         n++; (*steps)++;
         if (zr * zr + zi * zi > ESC2) { encode(zr, zi, dr, di, n, o); return; }
+    }
+    o->n = -1;
+}
+
+// ---- double-double finish (~106 bits): ground truth for the shading proof ----
+typedef struct { double hi, lo; } dd;
+static inline dd dd_two_sum(double a, double b) { double s = a + b, bb = s - a; return (dd){s, (a - (s - bb)) + (b - bb)}; }
+static inline dd dd_fast(double a, double b) { double s = a + b; return (dd){s, b - (s - a)}; }
+static inline dd dd_add(dd x, dd y) { dd s = dd_two_sum(x.hi, y.hi), t = dd_two_sum(x.lo, y.lo); s.lo += t.hi; s = dd_fast(s.hi, s.lo); s.lo += t.lo; return dd_fast(s.hi, s.lo); }
+static inline dd dd_mul(dd x, dd y) { double p = x.hi * y.hi, e = fma(x.hi, y.hi, -p); e = fma(x.hi, y.lo, e); e = fma(x.lo, y.hi, e); return dd_fast(p, e); }
+static void findd(double zr0, double zi0, double dr, double di, int n, Out *o) {
+    dd zr = {zr0, 0}, zi = {zi0, 0}, cr = {CR, 0}, ci = {CI, 0};
+    while (n < MAXIT) {
+        double t = 2 * (zr.hi * dr - zi.hi * di) + 1; di = 2 * (zr.hi * di + zi.hi * dr); dr = t;
+        dd r2 = dd_mul(zr, zr), i2 = dd_mul(zi, zi), ri = dd_mul(zr, zi);
+        dd nzr = dd_add(dd_add(r2, (dd){-i2.hi, -i2.lo}), cr);
+        zi = dd_add((dd){2 * ri.hi, 2 * ri.lo}, ci); zr = nzr;
+        n++;
+        if (zr.hi * zr.hi + zi.hi * zi.hi > ESC2) { encode(zr.hi + zr.lo, zi.hi + zi.lo, dr, di, n, o); return; }
     }
     o->n = -1;
 }
@@ -108,7 +128,13 @@ static void finff(double zr0, double zi0, double dr0, double di0, int n, Out *o,
     int kd = 0; float Dr = (float)dr0, Di = (float)di0;
     { int e; frexp(fmax(fabs(dr0), fabs(di0)), &e); Dr = (float)ldexp(dr0, -e); Di = (float)ldexp(di0, -e); kd = e; }
     double Dd_r = dr0, Dd_i = di0; int d64 = getenv("FFD64") != NULL;
+    // variance of the absolute error on z: landing rounding to float-float, then per-step
+    // rounding (~2^-47 relative on z^2 and C) propagated with |2z|^2
+    const double UF = ldexp(1.0, -47);
+    double s2 = UF * UF * (zr0 * zr0 + zi0 * zi0);
     while (n < MAXIT) {
+        {   double a = ff_d(zr), b = ff_d(zi), z2 = a * a + b * b;
+            s2 = 4 * z2 * s2 + 2 * UF * UF * (z2 * z2 + CR * CR + CI * CI); }
         if (d64) { double zR = ff_d(zr), zI = ff_d(zi); double t = 2 * (zR * Dd_r - zI * Dd_i) + 1; Dd_i = 2 * (zR * Dd_i + zI * Dd_r); Dd_r = t; }
         else dstep(zr.hi, zi.hi, &Dr, &Di, &kd);
         ff r2 = ff_mul(zr, zr), i2 = ff_mul(zi, zi), ri = ff_mul(zr, zi);
@@ -118,6 +144,7 @@ static void finff(double zr0, double zi0, double dr0, double di0, int n, Out *o,
         n++; (*steps)++;
         if (zr.hi * zr.hi + zi.hi * zi.hi > (float)ESC2) {
             if (d64) encode(ff_d(zr), ff_d(zi), Dd_r, Dd_i, n, o); else encode(ff_d(zr), ff_d(zi), ldexp((double)Dr, kd), ldexp((double)Di, kd), n, o);
+            o->sig = sqrt(s2) / hypot(ldexp((double)Dr, kd), ldexp((double)Di, kd)) / H;
             return;
         }
     }
@@ -410,6 +437,36 @@ int main(int argc, char **argv) {
             if ((ct ? r->de >= gate : r->de > gate)) { *de += rl > 2e-3; *nm += aa > ang_lim; }
         }
         (void)keptA_deov;
+    }
+    long ffg_flag = 0;
+    if (getenv("DUMPOUT")) {
+        // per captured pixel, capture order: 4 arms x {n (as double), nu, de, angle}: binary64, ff, hybrid-B, double-double
+        FILE *fo = fopen(getenv("DUMPOUT"), "wb");
+        for (uint32_t i = 0; i < cnt; i++) {
+            TL *c = &ttl[i];
+            double ls = lam * c->sigma, dist = 0.5 * c->o.de;
+            int ce = c->o.n >= 0;
+            int nu_ok = ce ? (ls <= 1e-3 && ls <= dist) : (c->zrat >= lam * lam);
+            int deB_ok = !ce || !(c->o.de >= 0.5) || ls <= 2e-3 * dist;
+            Out *h = (nu_ok && deB_ok) ? &c->o : &tff[i];
+            if (getenv("FFGUARD")) {
+                // rerun if the float-float error could shift nu by more than DNU iterations,
+                // for pixels outside the already-exempt <1e-3 px band (production itself is unstable there)
+                double lamf = atof(getenv("FFGUARD")), dnu = getenv("DNU") ? atof(getenv("DNU")) : 0.01;
+                Out *f = &tff[i];
+                int flag = f->n >= 0 && f->de * 0.5 > 1e-3 * 0.5 && lamf * f->sig > dnu * f->de * M_LN2 / 2;
+                h = flag ? &t64[i] : f;
+                ffg_flag += flag;
+            }
+            Out tdd; findd(R[i].zr, R[i].zi, R[i].dr, R[i].di, R[i].it, &tdd);
+            Out *arms[4] = {&t64[i], &tff[i], h, &tdd};
+            for (int a = 0; a < 4; a++) {
+                double v[4] = {arms[a]->n, arms[a]->nu, arms[a]->de, arms[a]->ang};
+                fwrite(v, sizeof v, 1, fo);
+            }
+        }
+        fclose(fo);
+        if (getenv("FFGUARD")) printf("ff guard: rerun share %.4f%%\n", 100.0 * ffg_flag / cnt);
     }
     double mean64 = (double)st64 / cnt;
     // ---- cost model (issue slots per lane per step; see notes) ----

@@ -10,3 +10,4 @@ publish = false
 [dependencies]
 fd-kernel = { path = "../../../../../crates/fd-kernel", features = ["gpu-route-probe"] }
 fd-samples = { path = "../../../../../crates/fd-samples" }
+fd-shade = { path = "../../../../../crates/fd-shade" }
