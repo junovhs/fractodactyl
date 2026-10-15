@@ -10,8 +10,20 @@ file per question (Q4's answer is the notes file linked below).
 
 **Revision of 2026-10-15.** Q1 and Q4 are answered. Q3 is folded into Q2, because the
 interior test it asked for comes from the same return operator and already works for one
-level. Q5 and Q6 are rewritten from what the project learned since 2026-10-11. Numbering is
-kept so that answer files stay matched to their questions.
+level. Numbering is kept so that answer files stay matched to their questions.
+
+The remaining questions were then re-read against **north star v4** (`docs/spec/NORTH-STAR.md`,
+set 2026-10-15) and **DEC-29**. Video is the main product: the fastest real deep-zoom films,
+much longer and deeper, that viewers cannot tell from an exact render. Precision a viewer
+cannot see is a cost. Films are judged by shaded frames: within 1 level of the exact render
+on ≥ 99.9% of pixels, no extra flicker, nothing visible skipped. Exact renders (DEC-17,
+1e-3 px) stay available for stills. Consequences:
+- **Q6** is the purest test of "precision a viewer cannot see": it is now first, and is
+  scored by DEC-29 directly.
+- **Q2** is what makes films "much deeper and longer" beyond the one v0 ladder. It now also
+  owns build cost per decade of film.
+- **Q5** (live steering) is retired. The north star is films on a path known in advance,
+  not interactive diving, and the build-cost part of Q5 moved into Q2.
 
 | # | Question | Status | Answer |
 |---|---|---|---|
@@ -19,15 +31,14 @@ kept so that answer files stay matched to their questions.
 | 2 | Nested minibrots: one operator hierarchy, interiors included | **open, rewritten** (absorbs Q3) | pending |
 | 3 | Deep minibrot interiors in O(1) | **merged into Q2** | partial answer below |
 | 4 | Two-level references for float32 pixels | **killed** (GPU follow-up measured) | [notes](../2026-10-14-q4-two-level-float32-references-notes.md): fallback 1.3–6% > 1% (kept error ≤ 3.1e-4 px); on real zone inputs the two-level hybrid is visibly worse than float-float and is parked; float-float alone is kept on the RTX 3050 Ti |
-| 5 | Compiling ahead of a live dive | **open, rewritten**, after Q2 | pending |
+| 5 | Compiling ahead of a live dive | **retired** (outside north star v4; build cost moved to Q2) | — |
 | 6 | Supersampling from jets | **open, rewritten**, do first | pending |
 
-**Suggested order: Q6, then Q2, then Q5.**
+**Suggested order: Q6, then Q2.**
 - Q6 is CPU-only and cheap to probe, and it would cut the fractal samples of every film
   frame by up to 4x.
 - Q2 is the biggest gap: today's fast path works for one spiral-centre ladder, not for the
   nested-minibrot dives that real zooms and our variety planner make.
-- Q5 needs Q2's build costs before its budget can be judged.
 
 ---
 
@@ -82,20 +93,39 @@ kept so that answer files stay matched to their questions.
 
 Both are now part of Q2.
 
-**Owner decisions these results are waiting on (not research):**
-- Relax the DE/normal gate from 1e-3 px to 0.1 px (10x headroom per the shading proof).
-- Ship float-float plus a targeted re-run, rather than plain float-float, as the f32-only
-  finish.
-- Add a visible-colour check to the test gate. The ν rule lets about 50-level changes
-  through near edges.
+**Read through DEC-29, these results change meaning:**
+- **Films now judge the GPU-09/GPU-05 float-float failures by eye, not by the per-pixel
+  rule.** The DE/normal failures are invisible (≤ 1 level beyond 0.01 px from an edge). The
+  ν jumps of plain float-float touch 0.01–0.02% of pixel-looks, which is inside DEC-29's
+  0.1% allowance. DEC-29 also forbids extra flicker, though, and single near-filament pixels
+  jumping by 50 levels could twinkle. So the open test for GPU-05 is a **flicker
+  measurement on a film**, plain float-float against float-float plus the re-run.
+- **The "exact render" DEC-29 compares against needs pinning down.** Near edges, production
+  binary64 itself differs from a double-double finish by up to 236 levels. Per look that is
+  roughly 0.1–0.4% of pixels per depth (23k–88k of 20.7M pixel-looks over 10 looks), which
+  is at or above the 0.1% allowance. If the exact render is binary64 exact mode, nothing
+  changes. If it is truth, binary64 films themselves need checking.
+- **Q4 stays dead under DEC-29.** The two-level hybrid's errors are visible (up to 61 levels
+  ≥ 1 px from an edge), so the looser film bar does not rescue it.
+
+**Owner decisions still open (not research):**
+- The DE/normal gate question is now mostly moot for films (DEC-29). It remains open only
+  for exact mode and research acceptance (DEC-17).
+- Plain float-float or float-float plus the targeted re-run, decided by the flicker
+  measurement above.
+- Which render "exact" means in DEC-29 at depth: binary64 or higher-precision truth.
 
 ---
 
 **Shared context (paste first)**
 
-> You are a research mathematician and numerical engineer with a compute sandbox (Python with mpmath/numpy/gmpy2, C/Rust if you like). The project is **Fractodactyl** (github.com/junovhs/fractodactyl): a Mandelbrot deep-zoom renderer. The goal is real-time diving into the set at 1080p, 0.05–0.5 decades of zoom per second, continuing ever deeper, where every pixel is the true set at that location (shortcuts must be exact or carry an error bound ≤1e-3 px).
+> You are a research mathematician and numerical engineer with a compute sandbox (Python with mpmath/numpy/gmpy2, C/Rust if you like). The project is **Fractodactyl** (github.com/junovhs/fractodactyl): the fastest deep-zoom generator that shows the real Mandelbrot set and looks visually perfect to humans. Video is the main product: much longer and much deeper zoom films, made much faster than anything else can. Depth is never faked. Precision a viewer cannot see is a cost, not a feature.
 >
-> **Before anything else, read `docs/research/` and `docs/spec/METHOD.md` in that repo.** About 30 reports already cover standard deep-zoom prior art, certification, near-parabolic transits, transfer maps, the cycle compiler, factored ladders, exterior fields and GPU precision. Do not re-derive or re-summarise them. Start where they stop.
+> **The bars:**
+> - **Films (DEC-29):** shaded frames within one 8-bit level of the exact render on ≥ 99.9% of pixels, with no extra flicker and nothing visible skipped, measured.
+> - **Exact stills (DEC-17):** every pixel within 1e-3 px.
+>
+> **Before anything else, read `docs/spec/NORTH-STAR.md`, `docs/research/` and `docs/spec/METHOD.md` in that repo.** About 30 reports already cover standard deep-zoom prior art, certification, near-parabolic transits, transfer maps, the cycle compiler, factored ladders, exterior fields and GPU precision. Do not re-derive or re-summarise them. Start where they stop.
 >
 > **What already works:**
 > - Perturbation plus skip tables.
@@ -135,8 +165,7 @@ Both are now part of Q2.
 **6. Supersampling from jets: one exact sample plus derivatives instead of 4 samples per pixel.**
 Films render 2×2 supersamples per pixel (ss 2) plus 2x-oversized keyframes. Shading is no
 longer the bottleneck: GPU-06 shades a 1080p frame in 7.4 ms on the RX 5700 XT. So that 4x
-factor is now paid almost entirely in fractal samples, on every frame of every film and on
-every live keyframe.
+factor is now paid almost entirely in fractal samples, on every frame of every film.
 
 **Lead:** each sample carries its Taylor jet in c:
 - ν, ∇ν, and second derivatives from the d²z/dc² recurrence, which is cheap alongside z and
@@ -164,16 +193,16 @@ finish by up to 236 colour levels within 1e-3 px of the set. Use a double-double
 there, as the 2026-10-15 shading proof did
 (`tools/research/twolevel/zone_finish/capture/src/bin/shadecmp.rs`).
 
-**Scoring:** use that same visible-colour check: 8-bit levels by DE band over the 10 looks.
-Also use the film check: at most one 8-bit level of difference on 99.9% of pixels outside
-noise, with no added flicker. Report:
+**Scoring is DEC-29's film bar**: within one 8-bit level of the ground truth on ≥ 99.9% of
+pixels, with no added flicker. Also break the result down with the visible-colour check
+(8-bit levels by DE band over the 10 looks), so that failures can be located. Report:
 - the fraction of pixels resolved from jets;
 - the effective sample count per pixel;
 - the error and flicker metrics;
 - the extra cost of the jet in the zone path.
 
-**Kill if** fewer than 70% of pixels pass on boundary-heavy deep views, or the effective
-sample count stays above 2.5 per pixel.
+**Kill if** jet-AA fails DEC-29 on boundary-heavy deep views at any flag threshold that
+keeps the effective sample count below 2.5 per pixel.
 
 **2. Nested minibrots: one operator hierarchy for tuning chains, interiors included.**
 The zone fast path wins on v0 because v0 is a spiral-centre dive: 89% of its orbit is 341
@@ -186,6 +215,12 @@ laps of one repelling 2-cycle. That is not the general case.
   reports deep minibrot interiors as Unresolved.
 
 Nested minibrots are what deep zooms are made of, and the compiler builds one loop level.
+
+This is also what limits how deep and long a film can go. Zone builds take 10–14 s per
+ladder rung at 1e-50 and 1e-100, but 158 s at 1e-1000 (PROB-17/19). If build cost grows
+with depth like that, it becomes the film's cost. Interiors matter for the same reason:
+interior pixels that are not classified run to the iteration cap, and they are the most
+expensive pixels in a deep minibrot frame.
 
 **Lead:** under renormalization, a child minibrot's return map is the parent copy's own
 period-m return in renormalized coordinates. Build the child's bivariate return operator
@@ -224,53 +259,22 @@ Report per level:
 - the share of interior pixels certified, and the rim left Unresolved, with misclassifications
   (must be zero).
 
-Compare whole 1080p frames against fd per-frame BLA at the same centre and width.
+Also report **build cost per decade of film**, against the 10–158 s per-rung zone builds.
+
+Compare whole 1080p frames against fd per-frame BLA at the same centre and width. Score
+operators against DEC-17 (exact mode), and score shaded frames against DEC-29 (film mode).
 
 **Kill if** any of these holds:
 - building a child costs O(P_child) raw steps anyway;
 - the composed operators lose more than 10 digits by level 4;
-- a 3-level frame is not faster than per-frame BLA.
+- a 3-level frame, build cost included and amortised over a film's frames, is not faster
+  than per-frame BLA.
 
 The interior part alone is killed if certification covers less than 80% of interior pixels.
 
-**5. Compiling ahead of a live dive, inside the frame budget.**
-The planner and the zone compiler work offline, along a known path. Live steering means the
-user may head anywhere in the view, so the next octave's operators must already be ready or
-quick to finish. That covers nucleus references, Koenigs charts and return maps for every
-minibrot and spiral that could become the target.
-
-What is measured so far says compile cost is the constraint:
-- **A zone build takes 10–14 s per ladder rung at 1e-50 and 1e-100, and 158 s at 1e-1000**
-  (PROB-17/19). At 0.5 decades per second an octave lasts about 0.6 s, so even the cheap
-  builds are 17–23x over budget.
-- **The blind automatic-compiler corpus (AUTO-02) failed on speed** with no wrong pixel:
-  discovery and build cost more than they saved.
-- **The variety planner found 34 deep targets in 50 s.**
-
-**Quantify on real locations:**
-- How many distinct structures per octave are large enough to matter, for example an atom
-  domain over 8 px or a Misiurewicz domain over 8 px, at depths 1e-5 to 1e-100?
-- What does it cost to discover and compile each one, using Q2's hierarchy where it applies?
-- How much of octave k+1's catalogue is derivable from octave k's? Children of known nuclei,
-  rungs of known ladders, and incrementally extended references all count.
-- Does a per-octave budget hold: about 0.6 s at 0.5 decades per second, on 12 CPU cores plus
-  the GPU?
-- If it does not, what is the fallback during the build (per-frame BLA, a coarser keyframe),
-  and how often does the user see it?
-
-**Raid:** atom-domain and box-period scans, Misiurewicz domains, speculative execution and
-branch prediction, game-engine streaming, and anytime algorithms.
-
-**Invent** the incremental catalogue update rule. Then measure the catalogue size and compile
-cost on 5 dives of 30 decades each, including the Eye of the Universe path and two variety
-planner films.
-
-**Kill if** the catalogue grows faster than linearly in depth, or a full octave's compile
-exceeds 3x the budget even with inheritance.
-
 ---
 
-## Answered or merged (original text, kept for the record)
+## Answered, merged or retired (kept for the record)
 
 **1. Parallel-in-time reference orbits: can a million-step, million-bit orbit be computed in log time?**
 The high-precision reference orbit is strictly sequential, and at extreme depth it becomes the bottleneck. FractalShark reports it dominating from about 1e10000 down.
@@ -293,3 +297,13 @@ Already measured in the project: naive float32 fails the 1e-3 px bar, and a guar
 **Lead:** compute one FP64 (or exponent-extended) secondary reference per tile, say 16×16 pixels, as a perturbation off the global high-precision reference. Then pixels run in float32-with-exponent relative to their tile reference. Their deltas are about 1/100 of the view, so absolute rounding error shrinks proportionally, while the FP64 work is amortized over 256 pixels.
 
 **Kill if** more than 1% of pixels need the FP64 fallback or the worst error exceeds 1e-3 px. *Killed; see the notes file.*
+
+
+**5. Compiling ahead of a live dive, inside the frame budget.** *Retired 2026-10-15.*
+It asked whether every structure a steering user might dive toward could be discovered and
+compiled within one octave of a live dive (about 0.6 s at 0.5 decades per second). North
+star v4 makes films on a path known in advance the product, not interactive diving, so the
+per-octave live budget no longer applies. The part that still matters, build cost per
+decade of film and inheritance between nesting levels, is now in Q2. The evidence it would
+have started from: zone builds of 10–14 s per rung (158 s at 1e-1000), AUTO-02 failing on
+speed with no wrong pixel, and the variety planner finding 34 deep targets in 50 s.
