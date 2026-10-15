@@ -37,7 +37,7 @@ PY
   if grep -Eq 'Validation Error|VUID-' "$dir/raw-$start-on.stderr"; then fail "raw Vulkan validation $range"; fi
 done
 echo "GPU-06 stage 2/3: full-resolution raw RGB, 1200-frame encoded SSIM and shade rate"
-# DEC-18: compare actual 1920x1080 RGB24 before x264, at both times.
+# DEC-29: compare actual 1920x1080 RGB24 before x264, at both times.
 for range in 0..3 600..603; do
   start=${range%%..*}
   for gpu in off on; do

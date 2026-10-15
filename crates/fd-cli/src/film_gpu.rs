@@ -109,7 +109,7 @@ fn shade_push(
 }
 
 /// Pack exactly the f64 phase base evaluated by PreparedStudio; do not cast
-/// it to f32 before adding the animated palette phase (DEC-18).
+/// it to f32 before adding the animated palette phase (DEC-29).
 /// Words 0..1 store the bitwise f64; word 2 stores DE and word 3 packs
 /// u16 normal + class kind, preserving the 16-byte/sample SSBO layout.
 fn pack_samples(s: &Samples, density: f64, out: &mut [u32]) -> Result<(), String> {
@@ -1099,7 +1099,7 @@ mod tests {
             .expect("Vulkan synthetic phase-boundary frame")
             .to_vec();
 
-        // DEC-18 diagnostic: compare shaded keyframe texels BEFORE the tent.
+        // DEC-29 diagnostic: compare shaded keyframe texels BEFORE the tent.
         // A one-sample palette discontinuity must not be confused with a
         // resampler or encoding error.
         let capture = gpu

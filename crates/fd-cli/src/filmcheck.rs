@@ -1,4 +1,4 @@
-//! DEC-18 film equivalence on shaded RGB24 frames, before x264 when available.
+//! DEC-29 film equivalence on shaded RGB24 frames, before x264 when available.
 //! Exclude pixels with a reference RGB step >= 16 levels to a direct neighbour.
 
 use crate::args::Args;
