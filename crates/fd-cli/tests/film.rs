@@ -1,4 +1,5 @@
-//! FILM-14: decoded CPU keyframe spins track direct rotated film frames.
+//! FILM-14: decoded keyframe spins track direct rotated film frames; SHAD-11: the studio
+//! film matches the frozen CPU studio film.
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
@@ -149,122 +150,22 @@ fn film_spin_keyframes() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-/// Render a rotating keyframed studio film with `look` twice (--gpu on, --gpu off) and
-/// require every raw RGB24 channel within 1 level. Skips only without a wgpu adapter.
-fn gpu_film_matches_cpu_with(name: &str, look_text: &str) {
+/// SHAD-11: a rotating keyframed studio film (haze, terrain lines, breathing, flow and a
+/// 40-stop palette) matches the CPU studio's film, frozen before that was deleted, in
+/// every raw RGB24 channel within one level. tests/fixtures/film-full-look.rgb holds the
+/// five frames of `fd film ... --gpu off` at fcab2b5.
+#[test]
+fn film_matches_frozen_reference() {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("fd-{name}-{}-{stamp}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fd-film-frozen-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let speed = dir.join("speed.txt");
     let spins = dir.join("spins.txt");
     fs::write(&speed, format!("{:.16} 4\n", 4f64.log10())).unwrap();
     fs::write(&spins, "0 1.2 0.25\n").unwrap();
-    let look = dir.join(format!("{name}.look"));
-    fs::write(&look, look_text).unwrap();
-    let mut frames = Vec::new();
-    for gpu in ["on", "off"] {
-        let raw = dir.join(format!("raw-{gpu}"));
-        let out = Command::new(env!("CARGO_BIN_EXE_fd"))
-            .args(["film", "-0.75", "0.1", "--from", "4", "--to", "2"])
-            .arg("--speed")
-            .arg(&speed)
-            .arg("--spins")
-            .arg(&spins)
-            .arg("--preset")
-            .arg(&look)
-            .args([
-                "--fps",
-                "4",
-                "--size",
-                "320x180",
-                "--iter",
-                "128",
-                "--threads",
-                "2",
-                "--keyframes",
-                "2",
-                "--crf",
-                "30",
-                "--x264",
-                "ultrafast",
-                "--gpu",
-                gpu,
-            ])
-            .arg("--raw-dir")
-            .arg(&raw)
-            .arg("--mp4")
-            .arg(dir.join(format!("{gpu}.mp4")))
-            .output()
-            .unwrap();
-        let out = checked(out, "film");
-        let log = String::from_utf8_lossy(&out.stderr);
-        if gpu == "on" {
-            if log.contains("no wgpu") {
-                assert!(
-                    std::env::var_os("FD_REQUIRE_GPU").is_none(),
-                    "no wgpu adapter, but FD_REQUIRE_GPU is set: {log}"
-                );
-                eprintln!("skipped: no wgpu adapter ({log})");
-                return;
-            }
-            assert!(
-                log.contains("GPU shading on") && !log.contains("using CPU"),
-                "--gpu on did not shade on the GPU: {log}"
-            );
-            eprintln!(
-                "{}",
-                log.lines().find(|l| l.contains("GPU shading on")).unwrap()
-            );
-        }
-        let mut names: Vec<_> = fs::read_dir(&raw)
-            .unwrap()
-            .map(|e| e.unwrap().path())
-            .filter(|p| p.extension().is_some_and(|e| e == "rgb"))
-            .collect();
-        names.sort();
-        frames.push(
-            names
-                .iter()
-                .map(|p| fs::read(p).unwrap())
-                .collect::<Vec<_>>(),
-        );
-    }
-    assert_eq!(frames[0].len(), 5);
-    assert_eq!(frames[0].len(), frames[1].len());
-    let mut worst = 0;
-    for (i, (g, c)) in frames[0].iter().zip(&frames[1]).enumerate() {
-        assert_eq!(g.len(), 320 * 180 * 3);
-        for (k, (&a, &b)) in g.iter().zip(c).enumerate() {
-            worst = worst.max(a.abs_diff(b));
-            assert!(
-                a.abs_diff(b) <= 1,
-                "frame {i} pixel ({},{}) channel {}: GPU {a}, CPU {b}",
-                k / 3 % 320,
-                k / 3 / 320,
-                k % 3
-            );
-        }
-    }
-    eprintln!("{name}: 5 rotating frames, GPU within {worst} level(s) of CPU");
-}
-
-/// SHAD-07: a rotating keyframed studio film on the wgpu GPU path matches the CPU film.
-#[test]
-fn gpu_film_matches_cpu() {
-    // The ice palette with terraces and relief but no lines.
-    gpu_film_matches_cpu_with(
-        "ice-plain",
-        "stops #08152e #0b3d91 #1e7fe0 #7cc4ff #eef6fc #c9c3bc #7d7a78 #2a3140\n\
-         interior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\nlines 0\n",
-    );
-}
-
-/// SHAD-05: haze, terrain lines, breathing, flow and a 40-stop palette on the GPU path.
-#[test]
-fn gpu_film_full_look_matches_cpu() {
     let stops: Vec<String> = (0..40u32)
         .map(|i| {
             let r = (i * 97 + 30) % 256;
@@ -273,10 +174,76 @@ fn gpu_film_full_look_matches_cpu() {
             format!("#{r:02x}{g:02x}{b:02x}")
         })
         .collect();
-    let look = format!(
-        "stops {}\ninterior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\n\
-         lines 1\nline_px 2.2\nhaze #1e7fe0\nflow 0.11\nbreathe 0.08\nbrate 0.5\n",
-        stops.join(" ")
-    );
-    gpu_film_matches_cpu_with("full-look", &look);
+    let look = dir.join("full-look.look");
+    fs::write(
+        &look,
+        format!(
+            "stops {}\ninterior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\n\
+             lines 1\nline_px 2.2\nhaze #1e7fe0\nflow 0.11\nbreathe 0.08\nbrate 0.5\n",
+            stops.join(" ")
+        ),
+    )
+    .unwrap();
+    let raw = dir.join("raw");
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(["film", "-0.75", "0.1", "--from", "4", "--to", "2"])
+        .arg("--speed")
+        .arg(&speed)
+        .arg("--spins")
+        .arg(&spins)
+        .arg("--preset")
+        .arg(&look)
+        .args([
+            "--fps",
+            "4",
+            "--size",
+            "128x72",
+            "--iter",
+            "128",
+            "--threads",
+            "2",
+            "--keyframes",
+            "2",
+            "--crf",
+            "30",
+            "--x264",
+            "ultrafast",
+        ])
+        .arg("--raw-dir")
+        .arg(&raw)
+        .arg("--mp4")
+        .arg(dir.join("film.mp4"))
+        .output()
+        .unwrap();
+    let out = checked(out, "film");
+    let log = String::from_utf8_lossy(&out.stderr);
+    let device = log.lines().find(|l| l.contains("GPU shading on"));
+    eprintln!("{}", device.expect("fd film names its wgpu adapter"));
+    let mut names: Vec<_> = fs::read_dir(&raw)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "rgb"))
+        .collect();
+    names.sort();
+    let frozen = include_bytes!("fixtures/film-full-look.rgb");
+    let size = 128 * 72 * 3;
+    assert_eq!(names.len(), 5);
+    assert_eq!(frozen.len(), 5 * size);
+    let mut worst = 0;
+    for (i, (name, want)) in names.iter().zip(frozen.chunks_exact(size)).enumerate() {
+        let got = fs::read(name).unwrap();
+        assert_eq!(got.len(), size);
+        for (k, (&a, &b)) in got.iter().zip(want).enumerate() {
+            worst = worst.max(a.abs_diff(b));
+            assert!(
+                a.abs_diff(b) <= 1,
+                "frame {i} pixel ({},{}) channel {}: WGSL {a}, frozen CPU {b}",
+                k / 3 % 128,
+                k / 3 / 128,
+                k % 3
+            );
+        }
+    }
+    eprintln!("5 rotating frames within {worst} level(s) of the frozen CPU studio");
+    fs::remove_dir_all(dir).unwrap();
 }

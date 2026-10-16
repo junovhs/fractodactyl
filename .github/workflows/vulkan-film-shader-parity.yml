@@ -1,7 +1,8 @@
 name: Vulkan film shader parity
-# Manual: the wgpu studio passes (f32 only, no float64 needed) against the CPU on
-# lavapipe with the Khronos validation layer, failing on any validation message. The ci
-# workflow runs the same tests on every push without the layer.
+# Manual: the wgpu studio passes (f32 only, no float64 needed) against the frozen CPU
+# studio output on lavapipe with the Khronos validation layer, failing on any
+# validation message. The ci workflow runs the same tests on every push without the
+# layer.
 on:
   workflow_dispatch:
 jobs:
@@ -23,6 +24,6 @@ jobs:
           export VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation
           export FD_REQUIRE_GPU=1
           sudo apt-get install -y -qq ffmpeg
-          cargo test -p fd-cli -- wgsl_ gpu_ --nocapture 2>&1 | tee /tmp/film-shader-parity.log
+          cargo test -p fd-cli -p fd-shade -- wgsl_ gpu_ frozen --nocapture 2>&1 | tee /tmp/film-shader-parity.log
           grep -q 'test result: ok.' /tmp/film-shader-parity.log
           ! grep -Eq 'skipped|Validation Error|VUID-' /tmp/film-shader-parity.log

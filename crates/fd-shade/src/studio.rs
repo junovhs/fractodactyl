@@ -2,6 +2,10 @@
 //! reference stills. Reads `Class`, `Nu`, `De` and `Normal`; no fractal math (DEC-07).
 //! Prototyped and compared in tools/research/looks/proto.py.
 //!
+//! The look exists once, as WGSL (`shaders/film_prepare.wgsl` and `film_shade.wgsl`, run
+//! by [`crate::gpu`]; SHAD-11): [`Studio`] shades through it on the hardware GPU, else a
+//! software adapter. What it draws:
+//!
 //! - Bands are linear in `nu`: palette index `t = density * nu + phase`. Bands in log
 //!   `nu` (umber) are far too sparse at depth: `nu` spans ~0.24 log units across a
 //!   2.7e-38 frame.
@@ -19,35 +23,16 @@
 //!   sub-sample filaments (their normals are noise).
 //! - `aa` also band-limits the palette (FX-03): where bands are finer than a sample, the
 //!   colour (and terrace ramp) fades toward its cycle mean with the Gaussian response
-//!   `exp(-2 pi² σ² s²)` (`s` = cycles per sample, σ = [`BAND_SIGMA`] samples), so dense
-//!   regions settle to a steady average instead of jumping to a random stop every frame.
+//!   `exp(-2 pi² σ² s²)` (`s` = cycles per sample, σ = 0.5 samples), so dense regions
+//!   settle to a steady average instead of jumping to a random stop every frame.
+//! - Haze (FX-07): where the palette is finer than a sample, an optional tint shaded by
+//!   `de` keeps structure instead of a flat mean.
 //!
 //! A look is data: [`Look`] reads and writes the `.look` text format (one `key values`
 //! line each, `#` comments), so presets saved by the explorer render identically here.
-use crate::resolve::{resolve, Rgb8};
+use crate::resolve::Rgb8;
 use crate::{Appearance, Pass};
-use fd_samples::{Column, ColumnSet, Header, Kind, Samples};
-
-/// Steepness (palette cycles per pixel) at which the slope light is about half on.
-const S0: f32 = 0.02;
-/// Width (in samples) of the Gaussian that band-limits the palette under `aa`.
-pub const BAND_SIGMA: f32 = 0.5;
-/// Contour lines fade out where band edges are closer than this many pixels.
-const LINE_SPACE: f32 = 3.0;
-/// Dark-seam depth next to the set.
-const CREVICE: f32 = 0.6;
-/// Non-periodic DE structure where the nu palette is below Nyquist.
-/// Invalid/zero DE declines to the original band-limited shading.
-fn haze_terms(d: f32, cycles: f32, ss: f32) -> (f32, f32) {
-    if !(d > 0.0 && d.is_finite() && cycles.is_finite()) {
-        return (0.0, 0.0);
-    }
-    // Ease in from one to two cycles per sample, with zero slope at both ends.
-    let t = (cycles / ss - 1.0).clamp(0.0, 1.0);
-    let weight = t * t * (3.0 - 2.0 * t);
-    let x = d * ss;
-    (weight, 0.2 + 2.8 * x / (x + 0.02))
-}
+use fd_samples::{Column, ColumnSet, Header, Samples};
 
 /// Built-in looks, modelled on the owner's reference stills (2026-10-08).
 pub const BUILTIN: [(&str, &str); 5] = [
@@ -291,332 +276,12 @@ impl Pass for Studio {
         ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal])
     }
 
+    /// Shades on the shared wgpu studio device ([`crate::gpu::shade_still`]). Panics
+    /// when no adapter, not even a software one, exists; commands check first with
+    /// [`crate::gpu::shared_adapter`].
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8 {
-        let nu = s.nu.as_deref().expect("studio look needs the Nu column");
-        let de = s.de.as_deref().expect("studio look needs the De column");
-        let nm = s
-            .normal
-            .as_deref()
-            .expect("studio look needs the Normal column");
-        let l = &self.0;
-        let stops: Vec<[f32; 3]> = l.stops.iter().map(|&c| linear(c)).collect();
-        let n = stops.len();
-        let inside = linear(l.interior);
-        let density = l.density * f64::from(a.density());
-        let phase = f64::from(a.phase());
-        let (ls, lc) = l.light.to_radians().sin_cos();
-        let (lx, ly) = (lc, -ls); // screen y points down
-        let ss = h.ss as f32;
-        // Cycle means: the cosine-eased palette averages to the mean stop, the terrace
-        // ramp 1 - terrace (1 - fr)^1.5 to 1 - terrace / 2.5.
-        let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
-        let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
-        let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
-        let haze = l.haze.map(linear);
-        resolve(h, a.dither, |i| match s.class[i].kind() {
-            Some(Kind::Escaped) => {
-                let t = density * nu[i] + phase;
-                let x = (t.rem_euclid(1.0) * n as f64) as f32;
-                let k = (x as usize).min(n - 1);
-                let fr = x - k as f32;
-                let f = 0.5 - 0.5 * (std::f32::consts::PI * fr).cos();
-                let (c0, c1) = (stops[k], stops[(k + 1) % n]);
-                let mut col = [0, 1, 2].map(|j| c0[j] + (c1[j] - c0[j]) * f);
-                if l.terrace > 0.0 {
-                    let ramp = 1.0 - l.terrace * (1.0 - fr).powf(1.5);
-                    col = col.map(|c| c * ramp);
-                }
-                let d = de[i].max(0.0);
-                let (ux, uy) = Samples::unit(nm[i]);
-                let facing = -(ux * lx + uy * ly); // uphill (increasing nu) is -normal
-                let cycles = density as f32 * 2.0 / (d.max(1e-30) * std::f32::consts::LN_2);
-                if a.aa {
-                    let s = cycles / ss;
-                    let g = (band_k * s * s).exp();
-                    let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
-                    col = [0, 1, 2].map(|j| g * col[j] + (1.0 - g) * mean[j] * m);
-                }
-                if let Some(tint) = haze {
-                    let (weight, tone) = haze_terms(d, cycles, ss);
-                    if weight > 0.0 {
-                        col = [0, 1, 2].map(|j| (1.0 - weight) * col[j] + weight * tint[j] * tone);
-                    }
-                }
-                let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
-                let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
-                let mut v = (1.0 + l.slope * facing * steep * fade)
-                    * (1.0 - CREVICE * (-d * ss * 1.5).exp());
-                if l.lines > 0.0 {
-                    let c = t * n as f64;
-                    let per_px = (cycles * n as f32).max(1e-30);
-                    let dpx = (c - c.round()).abs() as f32 / per_px;
-                    let line = (l.line_px / 2.0 + 0.5 - dpx).clamp(0.0, 1.0);
-                    let vis = ((1.0 / per_px - LINE_SPACE) / LINE_SPACE).clamp(0.0, 1.0);
-                    v *= 1.0 - l.lines * line * vis;
-                }
-                col.map(|c| c * v)
-            }
-            Some(Kind::Interior) => inside,
-            _ if a.unresolved_interior => inside,
-            _ => [0.25, 0.0, 0.25],
-        })
-    }
-}
-
-/// Static per-sample studio terms for flowing, non-breathing looks without lines.
-/// Those looks change only the palette phase; geometry and lighting do not.
-pub struct PreparedStudio {
-    w: usize,
-    h: usize,
-    stops: Vec<[f32; 3]>,
-    inside: [f32; 3],
-    mean: [f32; 3],
-    haze: Option<[f32; 3]>,
-    ramp_mean: f32,
-    terrace: f32,
-    aa: bool,
-    unresolved_interior: bool,
-    points: Vec<PreparedPoint>,
-    static_rgb: Vec<[u8; 4]>,
-}
-
-struct PreparedPoint {
-    t: f64,
-    light: f32,
-    band: f32,
-    haze_weight: f32,
-    haze_tone: f32,
-    kind: u8,
-}
-
-impl PreparedStudio {
-    /// Decline when time changes anything but phase, or the source is not one sample/pixel.
-    pub fn new(l: &Look, h: &Header, s: &Samples, a: &Appearance) -> Option<Self> {
-        if h.ss != 1 || l.lines != 0.0 || a.breathe != 0.0 {
-            return None;
-        }
-        let nu = s.nu.as_deref()?;
-        let de = s.de.as_deref()?;
-        let nm = s.normal.as_deref()?;
-        let stops: Vec<[f32; 3]> = l.stops.iter().map(|&c| linear(c)).collect();
-        let n = stops.len();
-        let mean = [0, 1, 2].map(|j| stops.iter().map(|c| c[j]).sum::<f32>() / n as f32);
-        let ramp_mean = 1.0 - l.terrace.max(0.0) * 0.4;
-        let density = l.density * f64::from(a.density());
-        let (ls, lc) = l.light.to_radians().sin_cos();
-        let (lx, ly) = (lc, -ls);
-        let ss = h.ss as f32;
-        let band_k = -2.0 * (std::f32::consts::PI * BAND_SIGMA).powi(2);
-        let haze = l.haze.map(linear);
-        let points: Vec<PreparedPoint> = s
-            .class
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                if c.kind() != Some(Kind::Escaped) {
-                    return PreparedPoint {
-                        t: 0.0,
-                        light: 0.0,
-                        band: 0.0,
-                        haze_weight: 0.0,
-                        haze_tone: 0.0,
-                        kind: if c.kind() == Some(Kind::Interior) {
-                            1
-                        } else {
-                            2
-                        },
-                    };
-                }
-                let d = de[i].max(0.0);
-                let (ux, uy) = Samples::unit(nm[i]);
-                let facing = -(ux * lx + uy * ly);
-                let cycles = density as f32 * 2.0 / (d.max(1e-30) * std::f32::consts::LN_2);
-                let band = if a.aa {
-                    let s = cycles / ss;
-                    (band_k * s * s).exp()
-                } else {
-                    1.0
-                };
-                let steep = (0.6 * (cycles / S0).ln_1p()).tanh();
-                let fade = if a.aa { a.relief_gain(d, h.ss) } else { 1.0 };
-                let light = (1.0 + l.slope * facing * steep * fade)
-                    * (1.0 - CREVICE * (-d * ss * 1.5).exp());
-                let (haze_weight, haze_tone) = if haze.is_some() {
-                    haze_terms(d, cycles, ss)
-                } else {
-                    (0.0, 0.0)
-                };
-                PreparedPoint {
-                    t: density * nu[i],
-                    light,
-                    band,
-                    haze_weight,
-                    haze_tone,
-                    kind: 0,
-                }
-            })
-            .collect();
-        let (w, h) = h.pixels();
-        // Reuse already encoded bytes only for samples whose palette is
-        // provably phase-independent. Film always dithers source samples.
-        let inside = linear(l.interior);
-        let static_rgb: Vec<[u8; 4]> = points
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                let col = match p.kind {
-                    0 if a.aa && p.band == 0.0 && p.t.is_finite() && p.light.is_finite() => {
-                        let m = if l.terrace > 0.0 { ramp_mean } else { 1.0 };
-                        [0, 1, 2].map(|j| {
-                            let base = mean[j] * m;
-                            let v = if p.haze_weight > 0.0 {
-                                if let Some(tint) = haze {
-                                    (1.0 - p.haze_weight) * base
-                                        + p.haze_weight * tint[j] * p.haze_tone
-                                } else {
-                                    base
-                                }
-                            } else {
-                                base
-                            };
-                            v * p.light
-                        })
-                    }
-                    1 => inside,
-                    2 if a.unresolved_interior => inside,
-                    2 => [0.25, 0.0, 0.25],
-                    _ => return [0; 4],
-                };
-                let px = i % w;
-                let py = i / w;
-                let mut rgb = [0u8; 4];
-                rgb[3] = 1;
-                for j in 0..3 {
-                    let d = crate::resolve::DITHER_LEVELS
-                        * crate::resolve::tpdf((py as u32) << 16 ^ (px as u32) << 2 ^ j as u32);
-                    rgb[j] = (col[j].clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5 + d)
-                        .clamp(0.0, 255.0) as u8;
-                }
-                rgb
-            })
-            .collect();
-        Some(Self {
-            w,
-            h,
-            stops,
-            inside,
-            mean,
-            haze,
-            ramp_mean,
-            terrace: l.terrace,
-            aa: a.aa,
-            unresolved_interior: a.unresolved_interior,
-            points,
-            static_rgb,
-        })
-    }
-
-    /// Shade just the requested sample rectangle, retaining global dither coordinates.
-    /// Caller must keep the non-time appearance flags used in new().
-    pub fn shade_rect_into(
-        &self,
-        rect: (usize, usize, usize, usize),
-        a: &Appearance,
-        out: &mut Rgb8,
-    ) {
-        self.shade_rect(rect, a, out);
-    }
-
-    /// Film source shading shares the exact arithmetic with all studio looks.
-    pub fn shade_rect_film_into(
-        &self,
-        rect: (usize, usize, usize, usize),
-        a: &Appearance,
-        out: &mut Rgb8,
-    ) {
-        self.shade_rect(rect, a, out);
-    }
-
-    fn shade_rect(&self, rect: (usize, usize, usize, usize), a: &Appearance, out: &mut Rgb8) {
-        let (x0, y0, w, h) = rect;
-        assert!(x0 + w <= self.w && y0 + h <= self.h);
-        assert_eq!(self.aa, a.aa);
-        assert_eq!(self.unresolved_interior, a.unresolved_interior);
-        out.w = w;
-        out.h = h;
-        out.data.resize(w * h * 3, 0);
-        let phase = f64::from(a.phase());
-        let n = self.stops.len();
-        let threads = std::thread::available_parallelism()
-            .map_or(1, |n| n.get())
-            .clamp(1, h);
-        let rows_per = h.div_ceil(threads);
-        std::thread::scope(|sc| {
-            for (c, chunk) in out.data.chunks_mut(rows_per * w * 3).enumerate() {
-                sc.spawn(move || {
-                    for (r, row) in chunk.chunks_mut(w * 3).enumerate() {
-                        let py = y0 + c * rows_per + r;
-                        for (dx, rgb) in row.chunks_mut(3).enumerate() {
-                            let px = x0 + dx;
-                            let i = py * self.w + px;
-                            if a.dither && self.static_rgb[i][3] != 0 {
-                                rgb.copy_from_slice(&self.static_rgb[i][..3]);
-                                continue;
-                            }
-                            let p = &self.points[i];
-                            let col = if p.kind == 0 {
-                                let x = ((p.t + phase).rem_euclid(1.0) * n as f64) as f32;
-                                let k = (x as usize).min(n - 1);
-                                let fr = x - k as f32;
-                                let f = 0.5 - 0.5 * (std::f32::consts::PI * fr).cos();
-                                let (c0, c1) = (self.stops[k], self.stops[(k + 1) % n]);
-                                let mut col = [0, 1, 2].map(|j| c0[j] + (c1[j] - c0[j]) * f);
-                                if self.terrace > 0.0 {
-                                    let ramp = 1.0 - self.terrace * (1.0 - fr).powf(1.5);
-                                    col = col.map(|c| c * ramp);
-                                }
-                                if self.aa {
-                                    let m = if self.terrace > 0.0 {
-                                        self.ramp_mean
-                                    } else {
-                                        1.0
-                                    };
-                                    col = [0, 1, 2].map(|j| {
-                                        p.band * col[j] + (1.0 - p.band) * self.mean[j] * m
-                                    });
-                                }
-                                if p.haze_weight > 0.0 {
-                                    if let Some(tint) = self.haze {
-                                        col = [0, 1, 2].map(|j| {
-                                            (1.0 - p.haze_weight) * col[j]
-                                                + p.haze_weight * tint[j] * p.haze_tone
-                                        });
-                                    }
-                                }
-                                col.map(|c| c * p.light)
-                            } else if p.kind == 1 || self.unresolved_interior {
-                                self.inside
-                            } else {
-                                [0.25, 0.0, 0.25]
-                            };
-                            for (channel, (&v, dst)) in col.iter().zip(rgb.iter_mut()).enumerate() {
-                                let t = if a.dither {
-                                    crate::resolve::DITHER_LEVELS
-                                        * crate::resolve::tpdf(
-                                            (py as u32) << 16 ^ (px as u32) << 2 ^ channel as u32,
-                                        )
-                                } else {
-                                    0.0
-                                };
-                                let v = v.clamp(0.0, 1.0);
-                                *dst =
-                                    (v.powf(1.0 / 2.2) * 255.0 + 0.5 + t).clamp(0.0, 255.0) as u8;
-                            }
-                        }
-                    }
-                });
-            }
-        });
+        crate::gpu::shade_still(&self.0, h, s, a)
+            .unwrap_or_else(|e| panic!("studio look on wgpu: {e}"))
     }
 }
 
@@ -624,95 +289,20 @@ impl PreparedStudio {
 mod tests {
     use super::*;
 
-    #[test]
-    fn prepared_rect_matches_full_studio_at_every_pixel() {
-        let (mut h, s) = crate::tests::fixture();
-        h.ss = 1;
-        let mut l = Look::builtin("ice").unwrap();
-        l.lines = 0.0;
-        for aa in [false, true] {
-            let a = Appearance {
-                flow: 0.11,
-                aa,
-                dither: true,
-                unresolved_interior: true,
-                ..Appearance::STILL
-            };
-            let prepared = PreparedStudio::new(&l, &h, &s, &a).unwrap();
-            for time in [0.0, 0.033333, 3.7, 22.0] {
-                let at = Appearance { time, ..a };
-                let full = Studio(l.clone()).shade_with(&h, &s, &at);
-                for rect in [(0, 0, full.w, full.h), (7, 5, 25, 17)] {
-                    let mut got = Rgb8 {
-                        w: 0,
-                        h: 0,
-                        data: Vec::new(),
-                    };
-                    prepared.shade_rect_into(rect, &at, &mut got);
-                    for y in 0..rect.3 {
-                        let a = &got.data[y * rect.2 * 3..(y + 1) * rect.2 * 3];
-                        let i = ((rect.1 + y) * full.w + rect.0) * 3;
-                        assert_eq!(
-                            a,
-                            &full.data[i..i + rect.2 * 3],
-                            "time {time} rect {rect:?} row {y}"
-                        );
-                    }
-                }
-            }
-        }
-        assert!(
-            PreparedStudio::new(&Look::builtin("ice").unwrap(), &h, &s, &Appearance::STILL)
-                .is_none(),
-            "lines need full shader"
-        );
-        let a = Appearance {
-            breathe: 0.1,
-            ..Appearance::STILL
-        };
-        assert!(
-            PreparedStudio::new(&l, &h, &s, &a).is_none(),
-            "breathing needs full shader"
-        );
+    /// Haze weight is zero up to one palette cycle per sample (FX-07), so a hazed look
+    /// draws exactly the plain look's pixels wherever the bands are resolved.
+    fn hazed(d: f32, cycles: f32) -> bool {
+        d > 0.0 && d.is_finite() && cycles > 1.0
     }
 
     #[test]
-    fn film_tables_match_every_source_pixel_of_master_ice() {
-        let (mut h, s) = crate::tests::fixture();
-        h.ss = 1;
-        let l = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
-        let a = Appearance {
-            flow: l.flow,
-            aa: true,
-            dither: true,
-            unresolved_interior: true,
-            ..Appearance::STILL
-        };
-        let prepared = PreparedStudio::new(&l, &h, &s, &a).unwrap();
-        for time in [0.0, 1.0 / 30.0, 3.7, 22.0] {
-            let at = Appearance { time, ..a };
-            let exact = Studio(l.clone()).shade_with(&h, &s, &at);
-            let mut fast = Rgb8 {
-                w: 0,
-                h: 0,
-                data: Vec::new(),
-            };
-            prepared.shade_rect_film_into((0, 0, exact.w, exact.h), &at, &mut fast);
-            assert_eq!(fast.data, exact.data, "time {time}: byte drift");
-        }
-    }
-
-    #[test]
-    fn haze_is_per_sample_continuous_and_matches_prepared_film() {
-        use fd_samples::{Class, Evidence};
+    fn haze_changes_only_fine_band_samples() {
+        use fd_samples::{Class, Evidence, Kind};
         let (mut h, mut s) = crate::tests::fixture();
         h.ss = 1;
         let look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
         let mut old = look.clone();
         old.haze = None;
-        assert_eq!(haze_terms(0.1, 1.0, 1.0).0, 0.0);
-        assert!(haze_terms(0.1, 1.001, 1.0).0 < 0.00001);
-        assert_eq!(haze_terms(0.1, 2.0, 1.0).0, 1.0);
         for c in &mut s.class {
             *c = Class::new(Kind::Escaped, Evidence::Heuristic);
         }
@@ -761,7 +351,7 @@ mod tests {
                 let cycles = look.density as f32 * 2.0 / (d * std::f32::consts::LN_2);
                 let old_rgb = &baseline.data[3 * i..3 * i + 3];
                 let new_rgb = &updated.data[3 * i..3 * i + 3];
-                if haze_terms(d, cycles, 1.0).0 == 0.0 {
+                if !hazed(d, cycles) {
                     assert_eq!(old_rgb, new_rgb, "outside haze {i}");
                     unchanged += 1;
                 } else if old_rgb != new_rgb {
@@ -769,14 +359,6 @@ mod tests {
                 }
             }
             assert!(changed > 0 && unchanged > 0);
-            let prepared = PreparedStudio::new(&look, &h, &s, &a).unwrap();
-            let mut fast = Rgb8 {
-                w: 0,
-                h: 0,
-                data: Vec::new(),
-            };
-            prepared.shade_rect_film_into((0, 0, updated.w, updated.h), &a, &mut fast);
-            assert_eq!(fast.data, updated.data, "film parity aa {aa}");
         }
     }
 
@@ -810,7 +392,7 @@ mod tests {
 
     #[test]
     fn aa_fades_sub_sample_bands_to_the_palette_mean_and_keeps_coarse_ones() {
-        use fd_samples::{Class, Evidence, View, MINOR};
+        use fd_samples::{Class, Evidence, Kind, View, MINOR};
         let cols = ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]);
         let mut s = Samples::alloc(2, cols);
         for i in 0..2 {
@@ -852,10 +434,17 @@ mod tests {
         };
         let (on, off) = (shade(true), shade(false));
         assert_eq!(on[3..], off[3..], "coarse bands are untouched");
-        // Mean of pure R, G, B is 1/3 each in linear light, times the crevice darkening.
-        let want = ((1.0f32 / 3.0 * (1.0 - CREVICE * (-1.5e-6f32).exp())).powf(1.0 / 2.2) * 255.0
-            + 0.5) as u8;
-        assert_eq!(on[..3], [want; 3]);
-        assert_ne!(off[..3], [want; 3]);
+        // Mean of pure R, G, B is 1/3 each in linear light, times the crevice darkening
+        // (depth 0.6); GPU exp and pow may land one level either side.
+        let want =
+            ((1.0f32 / 3.0 * (1.0 - 0.6 * (-1.5e-6f32).exp())).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+        assert!(
+            on[..3].iter().all(|v| v.abs_diff(want) <= 1),
+            "{on:?} vs {want}"
+        );
+        assert!(
+            off[..3].iter().any(|v| v.abs_diff(want) > 1),
+            "{off:?} vs {want}"
+        );
     }
 }

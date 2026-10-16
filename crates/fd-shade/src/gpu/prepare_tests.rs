@@ -1,5 +1,9 @@
-//! Studio prepare pass on wgpu (SHAD-03/05): runs film_prepare.wgsl alone, plus the CPU
-//! mirror of fd-shade Studio's per-sample terms it is checked against.
+//! Studio prepare pass on wgpu (SHAD-03/05): runs film_prepare.wgsl alone, plus a CPU
+//! restatement of its per-sample terms it is checked against.
+//!
+//! [`reference`] is a deliberate test-only second copy (DEC-24 rule 5): it pins each
+//! prepared word to within a few ulp, far tighter than the frozen RGB references can
+//! (one 8-bit level hides hundreds of ulp). No product path shades with it.
 
 use super::testkit::{bytes, dispatch, words, Binding};
 use super::{shade_push, unit_table, PREPARE};
@@ -40,7 +44,7 @@ pub(super) fn run(
     Ok((name, cooked))
 }
 
-/// CPU mirror of fd-shade Studio's per-sample terms at one sample per pixel, in its f32
+/// The per-sample terms at one sample per pixel, in the deleted CPU studio's f32
 /// operation order: t = density * nu (f64), band weight, light, haze weight and tone,
 /// cycles.
 pub(super) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[u32; 8]> {

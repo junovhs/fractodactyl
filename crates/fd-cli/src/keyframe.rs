@@ -11,13 +11,15 @@
 //! The inner keyframe fades in over the first quarter of each octave and across a thin
 //! margin at its edge, so switching to the next keyframe pair is continuous.
 //! Keyframe shading is dithered per sample, so the filtered result keeps sub-level
-//! precision and the output needs no second dither.
+//! precision and the output needs no second dither. The studio look shades, and tent
+//! resamples, only on wgpu ([`fd_shade::gpu::StudioGpu`], SHAD-11); other looks shade
+//! whole keyframes on the CPU and resample here.
 use crate::film::{render_frame_kernel, Used};
 use crate::path::sig6;
 use fd_kernel::{zone_covers, Params, Zone};
 use fd_samples::{Header, Samples, View};
 use fd_shade::gpu::Resample;
-use fd_shade::{Appearance, Look, Pass, PreparedStudio, Rgb8};
+use fd_shade::{Appearance, Look, Pass, Rgb8};
 
 /// Tent half-width in output pixels. Probe (FILM-04, 2 s spiral-on-spiral clip vs direct
 /// ss 3): 1.0 px is visibly soft (Laplacian 7.0 vs 11.2); 0.5 px matches ss 3 (11.2) and
@@ -37,15 +39,15 @@ pub(crate) struct Keyframes<'a> {
     zone: Option<&'a Zone>,
     zone_renderer: Option<crate::zone_gpu::Renderer>,
     /// Rendered keyframes still needed: (index, width, header, samples).
-    cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
+    cache: Vec<(usize, f64, Header, Samples)>,
     studio: Option<Look>,
     gpu: Option<fd_shade::gpu::StudioGpu>,
-    #[cfg(test)]
-    reference_shading: bool,
     shaded: [Rgb8; 2],
     output: Rgb8,
     lut: [f32; 256],
-    /// Stage timings for the film JSON report.
+    /// Stage timings for the film JSON report. Prepare stays 0 since SHAD-11: the
+    /// studio look prepares on the device, inside sample shade; the field keeps the
+    /// fd-film/1 report's shape.
     pub prepare_seconds: f64,
     pub sample_shade_seconds: f64,
     pub resample_seconds: f64,
@@ -84,8 +86,6 @@ impl<'a> Keyframes<'a> {
             cache: Vec::new(),
             studio,
             gpu: None,
-            #[cfg(test)]
-            reference_shading: false,
             shaded: std::array::from_fn(|_| Rgb8 {
                 w: 0,
                 h: 0,
@@ -124,7 +124,7 @@ impl<'a> Keyframes<'a> {
         Ok(())
     }
 
-    /// Try GPU shading; unsupported devices and looks retain the CPU film path.
+    /// Open the studio look's wgpu device (SHAD-11: the only studio shading).
     pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
         let multiple = self.p.nx as usize / self.out.0;
         let gpu = fd_shade::gpu::StudioGpu::new(look, a, self.out, multiple)?;
@@ -151,7 +151,7 @@ impl<'a> Keyframes<'a> {
     }
 
     /// Render keyframe `j` unless cached; drop keyframes shallower than `keep`.
-    fn ensure(&mut self, j: usize, keep: usize, a: &Appearance) -> Result<(), String> {
+    fn ensure(&mut self, j: usize, keep: usize) -> Result<(), String> {
         self.cache.retain(|c| c.0 >= keep);
         if self.cache.iter().any(|c| c.0 == j) {
             return Ok(());
@@ -179,18 +179,7 @@ impl<'a> Keyframes<'a> {
             None => render_frame_kernel(&view, &self.p, self.zone, false)?,
         };
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
-        let t_prepare = std::time::Instant::now();
-        let prepared = if self.gpu.is_some() {
-            // Vulkan prepares time-invariant geometry on the device at first upload.
-            // Preparing it again on the CPU costs seconds at 4K.
-            None
-        } else {
-            self.studio
-                .as_ref()
-                .and_then(|l| PreparedStudio::new(l, &h, &s, a))
-        };
-        self.prepare_seconds += t_prepare.elapsed().as_secs_f64();
-        self.cache.push((j, self.width(j), h, s, prepared));
+        self.cache.push((j, self.width(j), h, s));
         Ok(())
     }
 
@@ -224,8 +213,12 @@ impl<'a> Keyframes<'a> {
         } else {
             req
         });
-        self.ensure(k, k, a)?;
-        self.ensure(k + 1, k, a)?;
+        self.ensure(k, k)?;
+        self.ensure(k + 1, k)?;
+        if let (Some(l), None) = (self.studio.clone(), &self.gpu) {
+            self.enable_gpu(&l, a)
+                .map_err(|e| format!("studio look needs a wgpu adapter: {e}"))?;
+        }
         let cache = &self.cache;
         let get = |j: usize| cache.iter().find(|c| c.0 == j).expect("ensured");
         let (outer, inner) = (get(k), get(k + 1));
@@ -248,23 +241,20 @@ impl<'a> Keyframes<'a> {
         let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
         let (owidth, oheight) = outer.2.pixels();
         let (iwidth, iheight) = inner.2.pixels();
-        // Shade only the texels the tent filter can read, with extra edge padding.
-        // Non-studio and animated-density/lines looks retain the original full-frame path.
-        #[cfg(test)]
-        let reference_shading = self.reference_shading;
-        #[cfg(not(test))]
-        let reference_shading = false;
-        let ro = if (outer.4.is_some() || self.gpu.is_some()) && !reference_shading {
+        // The studio look shades only the texels the tent filter can read, with extra
+        // edge padding; other looks shade whole keyframes.
+        let studio = self.gpu.is_some();
+        let ro = if studio {
             needed_rect((ow, oh), (owidth, oheight), zo, oxo, oyo, sin, cos)
         } else {
             (0, 0, owidth, oheight)
         };
-        let ri = if (inner.4.is_some() || self.gpu.is_some()) && !reference_shading {
+        let ri = if studio {
             needed_rect((ow, oh), (iwidth, iheight), zi, oxi, oyi, sin, cos)
         } else {
             (0, 0, iwidth, iheight)
         };
-        let mut r = Resample {
+        let r = Resample {
             out: self.out,
             sin,
             cos,
@@ -278,56 +268,25 @@ impl<'a> Keyframes<'a> {
         };
         if let Some(gpu) = &mut self.gpu {
             let t = std::time::Instant::now();
-            match gpu.frame(
-                k,
-                (&outer.3, (owidth, oheight), ro),
-                k + 1,
-                (&inner.3, (iwidth, iheight), ri),
-                &sa,
-                &r,
-            ) {
-                Ok(rgb) => {
-                    self.output.data.copy_from_slice(rgb);
-                    self.sample_shade_seconds += t.elapsed().as_secs_f64();
-                    return Ok(&self.output);
-                }
-                Err(e) => {
-                    eprintln!("fd film: GPU shading failed ({e}); falling back to CPU");
-                    self.gpu = None;
-                }
-            }
+            let rgb = gpu
+                .frame(
+                    k,
+                    (&outer.3, (owidth, oheight), ro),
+                    k + 1,
+                    (&inner.3, (iwidth, iheight), ri),
+                    &sa,
+                    &r,
+                )
+                .map_err(|e| format!("studio shading on wgpu: {e}"))?;
+            self.output.data.copy_from_slice(rgb);
+            self.sample_shade_seconds += t.elapsed().as_secs_f64();
+            return Ok(&self.output);
         }
-        // If the GPU failed after disabling CPU preparation, use the original
-        // uncropped CPU shade; gather coordinates must match that full image.
-        let ro = if outer.4.is_none() {
-            (0, 0, owidth, oheight)
-        } else {
-            ro
-        };
-        let ri = if inner.4.is_none() {
-            (0, 0, iwidth, iheight)
-        } else {
-            ri
-        };
         let t_shade = std::time::Instant::now();
-        if reference_shading {
-            self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
-        } else if let Some(prepared) = &outer.4 {
-            prepared.shade_rect_film_into(ro, &sa, &mut self.shaded[0]);
-        } else {
-            self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
-        }
-        if reference_shading {
-            self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
-        } else if let Some(prepared) = &inner.4 {
-            prepared.shade_rect_film_into(ri, &sa, &mut self.shaded[1]);
-        } else {
-            self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
-        }
+        self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
+        self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
         self.sample_shade_seconds += t_shade.elapsed().as_secs_f64();
         let t_resample = std::time::Instant::now();
-        r.outer.1 = ro;
-        r.inner.1 = ri;
         resample(&r, &self.shaded, &self.lut, &mut self.output);
         self.resample_seconds += t_resample.elapsed().as_secs_f64();
         Ok(&self.output)
@@ -567,55 +526,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    #[test]
-    fn real_target_film_frames_match_exact_source_shading() {
-        let look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
-        let pass = fd_shade::Studio(look.clone());
-        let p = Params {
-            nx: 160,
-            ny: 90,
-            ss: 1,
-            max_iter: 4000,
-            escape_radius: 1e10,
-            columns: crate::render::columns("nu,de,normal").unwrap(),
-            threads: 2,
-            tier: None,
-        };
-        let mk = || {
-            Keyframes::new(
-                "-0.8296874999999996981089858669738646984522311568651036619209",
-                "0.1859374999999989417838556112859064221737945709381783514212",
-                1e-20,
-                (80, 45),
-                2,
-                &p,
-                None,
-                Some(look.clone()),
-            )
-        };
-        let mut cached = mk();
-        let mut reference = mk();
-        reference.reference_shading = true;
-        for (u, frame) in [(0.0, 0), (0.1, 30), (0.26, 120), (0.5, 600), (0.9, 1000)] {
-            let w = 1e-20 * 2f64.powf(-u);
-            let appearance = Appearance {
-                time: frame as f64 / 30.0,
-                flow: look.flow,
-                aa: true,
-                unresolved_interior: true,
-                dither: true,
-                ..Appearance::STILL
-            };
-            let a = cached
-                .frame(w, (0.0, 0.0), 0.0, &pass, &appearance)
-                .unwrap();
-            let b = reference
-                .frame(w, (0.0, 0.0), 0.0, &pass, &appearance)
-                .unwrap();
-            assert_eq!(a.data, b.data, "real-centre frame {frame}, octave {u}");
         }
     }
 
