@@ -2833,3 +2833,57 @@ the 67,046 cases then fail, so the guard is load-bearing on both. On DX12 WARP
 the error terms. The guard stays for Mesa, NVIDIA and Intel. A float-float alone
 covers |x| in 2^±100. Below that its low word is subnormal and GPUs flush it, which
 is why FE exists.
+
+### GPU-28: f32-only zone kernel on the RX 5700 XT and lavapipe (2026-10-16)
+
+`--gpu-kernel f32only` runs `crates/fd-cli/shaders/zone32.wgsl`, zone.wgsl's four
+stages with no f64 or i64 anywhere. It is built on GPU-27's `ff.wgsl`, plus fd-shade's
+`soft_f64.wgsl` to write the f64 nu column the host reads. The device request asks for
+no features. Software adapters are allowed (DEC-28). When no f64-capable GPU exists,
+mixed, f32 and f64 fall back to it.
+
+**Representations**, chosen from the zone constants' magnitudes on v0 (1e-37..2e-49):
+- The biseries coefficients span 1e-51..1e25 and the return-map parameter is about
+  1e-24, so the return map, approach offset and Koenigs jump use `CE` (complex
+  float-float with one shared exponent).
+- dz/dc reaches about 1/width, and with every factor that only feeds it is `CF` (f32
+  mantissa, shared exponent). DE and the normal need only relative precision.
+- z in the escape finish is a plain float-float.
+
+Two traps found on the way:
+- On the escaping step |z|^2 reaches about 1e40. The float-float square's error term
+  is then inf - inf = NaN, and the escape test never fired (5% of samples ran to the
+  iteration cap). Escape is now tested in plain f32, where overflow gives inf; within
+  1e-6 of the radius the exact float-float decides. nu and DE use z rescaled by 2^-k.
+- The escape radius is limited to <= 1e18 (radius^2 < 1e36). Larger radii decline to
+  the CPU zone.
+
+**Film-equivalence gate (DEC-29)**, `gpu_zone_f32only_parity`: 480x270, master-ice at
+film settings, studio frames shaded from f32only samples against the CPU zone's.
+
+| width | shaded px > 1 level | class mismatches | worst nu position | samples > 1e-3 px (any column) | ms/keyframe f32only / mixed (RX 5700 XT) |
+|---|---|---|---|---|---|
+| 1e-37 | 0 / 129,600 | 0 | 4.6e-7 px | 57 | 1721 (incl. compile) / 47.5 |
+| 1e-38 | 0 | 0 | 5.3e-5 px | 160 | 22.2 / 11.2 |
+| 6e-39 | 0 | 0 | 4.9e-4 px | 184 | 22.1 / 11.3 |
+| 3e-39 | 0 | 0 | 2.2e-3 px | 191 | 22.0 / 13.8 |
+| 1e-39 | 0 | 0 | 5.1e-10 px | 97 | 18.5 / 5.5 |
+| 1e-41 | 0 | 0 | 1.0e-9 px | 90 | 20.1 / 10.8 |
+| 1e-42 | 0 | 0 | 1.2e-6 px | 99 | 20.9 / 7.9 |
+| 1e-45 | 0 | 0 | 9.2e-8 px | 41 | 19.6 / 11.2 |
+| 2e-49 | 0 | 753 | 9.7e-6 px | 0 | 30.1 / 14.0 |
+
+Lavapipe gives the same verdict: 0 shaded pixels over one level at every width, 738
+class differences at 2e-49, and 72-142 ms per keyframe.
+
+What the reported counts mean:
+- The samples over 1e-3 px are DE/normal differences on samples whose DE is
+  1e-8..1e-15 px, chaotic points whose last bits even binary64 does not settle (as
+  GPU-24 found).
+- The 2e-49 class differences are samples the CPU leaves unresolved at the 100,000
+  cap that f32only finds interior. Films draw unresolved as interior, so the frames
+  are identical.
+
+No targeted re-run (GPU-26) was needed at these widths: re-run and CPU-handoff rates
+are 0. On the RX 5700 XT, native f64 (mixed) stays about 2x faster, as GPU-24
+measured, so mixed remains the default there. f32only is the no-f64 path.

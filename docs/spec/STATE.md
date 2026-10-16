@@ -46,6 +46,12 @@ ash/GLSL code deleted.
   `crates/fd-cli/tests/fixtures`). BENC-10 (METHOD.md): on the RX 5700 XT the GPU-02 film
   takes 36.6 s with GPU zone + GPU shading against 183.6 s all-CPU (5.0x).
 
+- GPU-21, GPU-27, GPU-28 (2026-10-16): GPU zone keyframes stay on the device into
+  studio shading. `--gpu-kernel f32only` (zone32.wgsl on GPU-27's float-float library)
+  renders zone keyframes with no f64 at all. It passes DEC-29 film-equivalence (0 of
+  129,600 shaded pixels over one level at all GPU-02 widths) on the RX 5700 XT and on
+  lavapipe, and is chosen automatically without an f64-capable GPU.
+
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
 BENC-11 (BENC-10's race on the RTX 3050 Ti laptop), GPU-21 (zone output stays on the GPU
 into shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
