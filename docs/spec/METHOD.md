@@ -2689,3 +2689,59 @@ parity identical to the 3050 Ti.
 The contract and gate are unchanged. The notes' §22 (shading proof) already
 recommends float-float plus a targeted higher-precision re-run. That tier would
 also have to cover the near-cap chaotic pixel found here; it is not built here.
+
+### BENC-10: whole-film race, GPU against all-core CPU, RX 5700 XT (2026-10-16)
+
+**Setup.** The GPU-02 gate film (`scripts/check/GPU-02.sh` arguments: 10 s,
+1920x1080, 60 fps, master-ice, `--keyframes 2`, iter 100000, v0 path 1e-29 to
+2e-49, `bench/zones/v0-core.zone`), release build of main at b8d7354, on the
+owner's desktop: Ryzen 9 3900X (12 cores, 24 threads), RX 5700 XT (RADV NAVI10),
+Linux 7.1.1. Arms:
+
+- **A:** all CPU, `--gpu off`, `fd film`'s default 24 threads (every logical CPU).
+- **B:** `--gpu-kernel mixed`, CPU shading.
+- **C:** `--gpu-kernel mixed --gpu on`.
+
+Each arm ran three times, interleaved A B C, with no other load on the box. The
+owner authorised the all-core arm outside the runner's one-CPU scope. The
+seconds below are the medians of the three fd-film/1 reports. Shading's
+sub-stages are prepare, sample shade and resample; encode wait is time spent
+blocked on the encoder.
+
+| RX 5700 XT box | A: all CPU | B: GPU zone | C: GPU zone + GPU shading |
+|---|---|---|---|
+| wall | 183.6 s | 149.3 s | **36.6 s** |
+| wall, three runs | 180.5 / 183.6 / 184.3 | 148.6 / 149.3 / 149.9 | 36.4 / 36.6 / 36.7 |
+| keyframe render (67 zone keyframes) | 46.2 s (25%) | 12.4 s (8%) | 12.5 s (34%) |
+| shading total | 131.2 s (71%) | 130.8 s (88%) | 9.8 s (27%) |
+| - prepare | 57.9 s (32%) | 58.1 s (39%) | in sample shade |
+| - sample shade | 57.4 s (31%) | 56.9 s (38%) | 9.0 s (25%) |
+| - resample | 13.7 s (7%) | 13.6 s (9%) | in sample shade |
+| encode wait | 2.1 s (1%) | 2.1 s (1%) | 10.3 s (28%) |
+| speed-up over A | 1x | 1.23x | **5.0x** |
+| `fd filmcheck` against A | (reference) | PASS, 600 frames | PASS, 600 frames |
+
+Percentages are shares of that arm's wall time. In arm C the GPU runs prepare,
+shade and resample as one pass, so the report books them all as sample shade.
+
+**Findings.**
+- **GPU shading is the win.** The GPU zone kernel alone saves 34 s (keyframes
+  3.7x faster), but shading at 0.22 s per frame is 88% of arm B. GPU shading
+  takes shading from 131 s to 9.8 s (13x).
+- **Arm C has three near-equal costs:** keyframe render (12.5 s), shading
+  (9.8 s) and waiting on the x264 encoder (10.3 s). Encode wait was hidden
+  behind CPU shading in A and B. At 600 frames in 36.6 s the film runs at
+  16.4 fps.
+- **CPU keyframes.** The all-core CPU zone render takes 46.2 s, within 2% of
+  GPU-13's 45.6 s under the runner's "one CPU" scope. A 60-frame probe of arm A
+  ran at 1144% CPU, so this run did use every core. The agreement suggests the
+  runner scope did not hold the zone render to one core either. GPU-13's
+  3.7x keyframe ratio stands as an all-core figure.
+- **Equivalence.** filmcheck PASS for B and C: every frame at least 99.9998%
+  within one level and 100% outside reference noise, no excess flicker. Worst
+  frames: B 000000, C 000320.
+
+Evidence: local films, reports and filmcheck logs in `out/benc10/`, kept
+locally and not committed. Each arm has one extra `--raw-dir` run for
+filmcheck, so raw-frame writing is not in the timing runs. The RTX 3050 Ti
+laptop rows are BENC-11.
