@@ -14,14 +14,17 @@ mod shade_tests;
 pub mod testkit;
 
 const GROUP: u32 = 8;
+/// The prepare pass source: per-sample palette base, relief, band AA, haze and line terms.
 pub const PREPARE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
     include_str!("../../shaders/film_prepare.wgsl")
 );
+/// The shade pass source: colour per sample (`main`, films) or per ss x ss block (`still`).
 pub const SHADE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
     include_str!("../../shaders/film_shade.wgsl")
 );
+/// The tent resample source: two shaded keyframes into one (possibly rotated) frame.
 pub const RESAMPLE: &str = include_str!("../../shaders/film_resample.wgsl");
 
 type Rect = (usize, usize, usize, usize);
@@ -241,6 +244,7 @@ pub struct StudioGpu {
 }
 
 impl StudioGpu {
+    /// Whether the GPU path renders look `l` at appearance `a` exactly as the CPU does.
     pub fn supported(l: &Look, a: &Appearance) -> bool {
         // The band select multiplies by the stop count exactly up to 2047.
         (2..=64).contains(&l.stops.len())
@@ -249,6 +253,8 @@ impl StudioGpu {
             && f64::from(a.density()).is_finite()
     }
 
+    /// Open the device and pipelines for look `l`, with an `out` sized output image;
+    /// `multiple` is the keyframe oversampling (1 for stills).
     pub fn new(
         l: &Look,
         a: &Appearance,

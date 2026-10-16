@@ -41,6 +41,8 @@ jobs:
       CARGO_BUILD_JOBS: 1
       CMAKE_BUILD_PARALLEL_LEVEL: 1
       RUST_TEST_THREADS: 1
+      # No Vulkan driver here: the wgpu studio tests run on DX12 WARP and must not skip.
+      FD_REQUIRE_GPU: 1
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.90.0
@@ -69,6 +71,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked --jobs 1 -- -D warnings
       - name: workspace tests
         run: cargo test --workspace --locked --jobs 1 -- --test-threads=1
+      - name: GPU studio tests (adapter names)
+        run: cargo test -p fd-shade --locked --jobs 1 -- wgsl_ --nocapture --test-threads=1
 
   locations:
     needs: check
