@@ -273,6 +273,10 @@ fn gpu_still_matches_cpu() {
         assert!(run.status.success(), "fd shade --gpu {gpu}: {log}");
         if gpu == "on" {
             if log.contains("no wgpu") {
+                assert!(
+                    std::env::var_os("FD_REQUIRE_GPU").is_none(),
+                    "no wgpu adapter, but FD_REQUIRE_GPU is set: {log}"
+                );
                 eprintln!("skipped: no wgpu adapter ({log})");
                 return;
             }

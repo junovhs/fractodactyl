@@ -64,16 +64,13 @@ Read the full record with `ishoo_decision op:show` before relying on one.
 
 ## How to use (Windows and Linux)
 
-Prerequisites: Rust (stable), FFmpeg on PATH for `--mp4`, and, until GPU-14 removes
-the GLSL film shaders, CMake, Ninja and Python on PATH: shaderc-sys builds shaderc from
-source when no system shaderc is found. `fd` below means `<target>/release/fd`
-(`fd.exe` on Windows).
+Prerequisites: Rust (stable) and FFmpeg on PATH for `--mp4`. `--gpu on` needs a Vulkan
+driver (any GPU's, or Mesa's lavapipe on a machine without one); no SDK or shader
+compiler is needed to build (the film shaders are WGSL, compiled by wgpu at run time).
+`fd` below means `<target>/release/fd` (`fd.exe` on Windows).
 
-- Build: `cargo build --release -p fd-cli`. On Windows, keep the target directory
-  short (for example `CARGO_TARGET_DIR=%USERPROFILE%\.fdt`): shaderc's source build
-  exceeds the path-length limit under a deep target such as
-  `target/ishoo-worktrees/shared` (`fatal error C1083: Cannot open compiler generated
-  file`). `viewer\explore.cmd` expects `target\release\fd.exe`.
+- Build: `cargo build --release -p fd-cli`. `viewer\explore.cmd` expects
+  `target\release\fd.exe`.
 - Explorer: `viewer\explore.cmd` (Windows, double-click) or `viewer/explore.sh`
   (Linux); `viewer/explore-v2.sh` opens the V2 UI (Linux, see `viewer/README-v2.md`).
 - A short v0 zone film using the committed zone file (the GPU-02 gate's arguments):

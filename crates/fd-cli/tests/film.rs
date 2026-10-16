@@ -203,6 +203,10 @@ fn gpu_film_matches_cpu_with(name: &str, look_text: &str) {
         let log = String::from_utf8_lossy(&out.stderr);
         if gpu == "on" {
             if log.contains("no wgpu") {
+                assert!(
+                    std::env::var_os("FD_REQUIRE_GPU").is_none(),
+                    "no wgpu adapter, but FD_REQUIRE_GPU is set: {log}"
+                );
                 eprintln!("skipped: no wgpu adapter ({log})");
                 return;
             }

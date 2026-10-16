@@ -153,6 +153,25 @@ pub(crate) fn dispatch(
     Ok((name, bytes))
 }
 
+/// A GPU test's result, or `None` after printing a skip when this machine has no wgpu
+/// Vulkan adapter (CI's Windows runner). With FD_REQUIRE_GPU set (CI's Linux runner,
+/// on lavapipe) a missing adapter fails instead; any other error always fails.
+#[cfg(test)]
+pub(crate) fn or_skip<T>(result: Result<T, String>, what: &str) -> Option<T> {
+    match result {
+        Ok(v) => Some(v),
+        Err(e) if e.contains("no wgpu Vulkan adapter") => {
+            assert!(
+                std::env::var_os("FD_REQUIRE_GPU").is_none(),
+                "{what}: {e}, but FD_REQUIRE_GPU is set"
+            );
+            eprintln!("{what} skipped: {e}");
+            None
+        }
+        Err(e) => panic!("{what}: {e}"),
+    }
+}
+
 /// Native-endian bytes of a word slice, for upload.
 #[cfg(test)]
 pub(crate) fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {

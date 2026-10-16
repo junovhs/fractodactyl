@@ -40,6 +40,7 @@ pub(crate) fn run(
 mod tests {
     use super::*;
     use crate::keyframe::{needed_rect, resample};
+    use crate::wgpu_compute::or_skip;
     use fd_shade::Rgb8;
 
     /// A smooth gradient with per-texel hash noise, so a misplaced tap or weight shows.
@@ -138,13 +139,17 @@ mod tests {
                         data: vec![0; out.0 * out.1 * 3],
                     };
                     resample(&r, &shaded, &lut, &mut cpu);
-                    let (adapter, gpu) = run(
-                        &r,
-                        &packed(&outer_img, outer_size.0, ro),
-                        &packed(&inner_img, inner_size.0, ri),
-                        &lut,
-                    )
-                    .unwrap_or_else(|e| panic!("wgsl resample: {e}"));
+                    let Some((adapter, gpu)) = or_skip(
+                        run(
+                            &r,
+                            &packed(&outer_img, outer_size.0, ro),
+                            &packed(&inner_img, inner_size.0, ri),
+                            &lut,
+                        ),
+                        "wgsl resample",
+                    ) else {
+                        return;
+                    };
                     name = adapter;
                     for (i, &word) in gpu.iter().enumerate() {
                         let (px, py) = (i % out.0, i / out.0);
