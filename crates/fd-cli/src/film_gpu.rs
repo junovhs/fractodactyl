@@ -57,6 +57,12 @@ impl ShadePush {
     fn density(&self) -> u64 {
         u64::from(self.density64[0]) | u64::from(self.density64[1]) << 32
     }
+
+    /// Samples per output pixel side (stills); films shade one sample per pixel.
+    fn with_ss(mut self, ss: u32) -> Self {
+        self.rect[2] = ss;
+        self
+    }
 }
 
 pub(crate) fn linear(rgb: u32) -> [f32; 3] {
@@ -105,7 +111,7 @@ pub(crate) fn shade_push(
             u8::from(a.unresolved_interior) as f32,
         ],
         density64: [bits as u32, (bits >> 32) as u32, 0, 0],
-        lines: [l.lines, l.line_px, 0.0, 0.0],
+        lines: [l.lines, l.line_px, u8::from(a.dither) as f32, 0.0],
         haze,
     }
 }
@@ -154,6 +160,7 @@ fn pack_range(s: &Samples, first: usize, out: &mut [u32]) -> Result<(), String> 
 struct Key {
     id: usize,
     full: (usize, usize),
+    ss: u32,
     samples: wgpu::Buffer,
     prepared: wgpu::Buffer,
     density: Option<u64>,
@@ -167,6 +174,7 @@ pub(crate) struct FilmGpu {
     prepare: wgpu::ComputePipeline,
     shade: wgpu::ComputePipeline,
     resample: wgpu::ComputePipeline,
+    still: wgpu::ComputePipeline,
     keys: Vec<Key>,
     shaded: [Option<wgpu::Buffer>; 2],
     palette: wgpu::Buffer,
@@ -201,7 +209,7 @@ impl FilmGpu {
         }
         let (name, device, queue) = crate::wgpu_compute::open_device("fd film")?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let pipeline = |source: &str| {
+        let pipeline = |source: &str, entry: &str| {
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("fd film"),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -210,12 +218,13 @@ impl FilmGpu {
                 label: Some("fd film"),
                 layout: None,
                 module: &module,
-                entry_point: Some("main"),
+                entry_point: Some(entry),
                 compilation_options: Default::default(),
                 cache: None,
             })
         };
-        let (prepare, shade, resample) = (pipeline(PREPARE), pipeline(SHADE), pipeline(RESAMPLE));
+        let (prepare, shade) = (pipeline(PREPARE, "main"), pipeline(SHADE, "main"));
+        let (resample, still) = (pipeline(RESAMPLE, "main"), pipeline(SHADE, "still"));
         let colors: Vec<u8> = l
             .stops
             .iter()
@@ -247,6 +256,7 @@ impl FilmGpu {
             prepare,
             shade,
             resample,
+            still,
             keys: Vec::new(),
             shaded: [None, None],
             palette,
@@ -291,7 +301,13 @@ impl FilmGpu {
     }
 
     /// Upload one keyframe's raw samples, once.
-    fn ensure_key(&mut self, id: usize, s: &Samples, full: (usize, usize)) -> Result<(), String> {
+    fn ensure_key(
+        &mut self,
+        id: usize,
+        s: &Samples,
+        full: (usize, usize),
+        ss: u32,
+    ) -> Result<(), String> {
         if self.keys.iter().any(|k| k.id == id) {
             return Ok(());
         }
@@ -322,6 +338,7 @@ impl FilmGpu {
         self.keys.push(Key {
             id,
             full,
+            ss,
             samples,
             prepared,
             density: None,
@@ -332,8 +349,8 @@ impl FilmGpu {
     /// Run the prepare pass for keyframe `id` unless it is current for this density.
     fn prepare_key(&mut self, id: usize, a: &Appearance) {
         let k = self.keys.iter().position(|k| k.id == id).expect("uploaded");
-        let full = self.keys[k].full;
-        let push = shade_push(&self.look, a, full, (0, 0, full.0, full.1));
+        let (full, ss) = (self.keys[k].full, self.keys[k].ss);
+        let push = shade_push(&self.look, a, full, (0, 0, full.0, full.1)).with_ss(ss);
         if self.keys[k].density == Some(push.density()) {
             return;
         }
@@ -369,8 +386,8 @@ impl FilmGpu {
             return Err("GPU output size differs from the film".into());
         }
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        self.ensure_key(outer_id, outer.0, outer.1)?;
-        self.ensure_key(inner_id, inner.0, inner.1)?;
+        self.ensure_key(outer_id, outer.0, outer.1, 1)?;
+        self.ensure_key(inner_id, inner.0, inner.1, 1)?;
         self.keys.retain(|k| k.id >= outer_id);
         self.prepare_key(outer_id, a);
         self.prepare_key(inner_id, a);
@@ -419,6 +436,62 @@ impl FilmGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.dispatch_workgroups(groups(r.out.0 as u32), groups(r.out.1 as u32), 1);
         }
+        self.finish(encoder, scope, "film frame")
+    }
+
+    /// Bytes of one packed RGB8 output image.
+    pub(crate) fn output_len(&self) -> usize {
+        self.host_output.len()
+    }
+
+    /// Shade a whole still: `s` holds `ss x ss` samples per output pixel on a
+    /// `grid`, averaged in linear light and encoded as fd-shade's resolve does.
+    pub(crate) fn still(
+        &mut self,
+        s: &Samples,
+        grid: (usize, usize),
+        ss: u32,
+        a: &Appearance,
+    ) -> Result<&[u8], String> {
+        if !Self::supported(&self.look, a) {
+            return Err("GPU look is unsupported".into());
+        }
+        let ss_px = ss as usize;
+        if ss == 0 || !grid.0.is_multiple_of(ss_px) || !grid.1.is_multiple_of(ss_px) {
+            return Err("still grid is not whole pixels".into());
+        }
+        let out = (grid.0 / ss_px, grid.1 / ss_px);
+        if out.0 * out.1 * 3 != self.host_output.len() {
+            return Err("GPU output size differs from the still".into());
+        }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        // One still at a time: a fresh key, prepared for this appearance.
+        self.keys.clear();
+        self.ensure_key(0, s, grid, ss)?;
+        self.prepare_key(0, a);
+        let push = shade_push(&self.look, a, grid, (0, 0, grid.0, grid.1)).with_ss(ss);
+        let params = self.uniform(&push.bytes());
+        let group = self.group(
+            &self.still,
+            &[&self.keys[0].prepared, &self.output, &self.palette, &params],
+        );
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.still);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(groups(out.0 as u32), groups(out.1 as u32), 1);
+        }
+        self.finish(encoder, scope, "still")
+    }
+
+    /// Copy the output to the host after `encoder`'s passes, as packed RGB8.
+    fn finish(
+        &mut self,
+        mut encoder: wgpu::CommandEncoder,
+        scope: wgpu::ErrorScopeGuard,
+        what: &str,
+    ) -> Result<&[u8], String> {
         encoder.copy_buffer_to_buffer(&self.output, 0, &self.readback, 0, self.readback.size());
         self.queue.submit([encoder.finish()]);
         let (tx, rx) = mpsc::channel();
@@ -433,7 +506,7 @@ impl FilmGpu {
             .map_err(|e| format!("wgpu map: {e}"))?;
         if let Some(e) = pollster::block_on(scope.pop()) {
             self.readback.unmap();
-            return Err(format!("wgpu film frame: {e}"));
+            return Err(format!("wgpu {what}: {e}"));
         }
         {
             let view = self

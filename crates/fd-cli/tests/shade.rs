@@ -219,3 +219,94 @@ fn preset_survives_removed_build_worktree() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// SHAD-08: `fd shade --gpu on` writes the CPU's studio still (ss 2, lines, haze,
+/// breathing, flow) within one level per channel.
+#[test]
+fn gpu_still_matches_cpu() {
+    let dir = std::env::temp_dir().join(format!("fd-shade-gpu-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fds = dir.join("still.fds");
+    fd(&[
+        "render",
+        "--re",
+        "-0.7453",
+        "--im",
+        "0.1127",
+        "--width",
+        "0.0065",
+        "--size",
+        "160x90",
+        "--ss",
+        "2",
+        "--iter",
+        "5000",
+        "--threads",
+        "2",
+        "-o",
+        fds.to_str().unwrap(),
+    ]);
+    let look = dir.join("full.look");
+    std::fs::write(
+        &look,
+        "stops #08152e #0b3d91 #1e7fe0 #7cc4ff #eef6fc #c9c3bc #7d7a78 #2a3140\n\
+         interior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\nlines 1\n\
+         line_px 2.2\nhaze #1e7fe0\nflow 0.11\nbreathe 0.08\nbrate 0.5\n",
+    )
+    .unwrap();
+    let mut images = Vec::new();
+    for gpu in ["on", "off"] {
+        let out = dir.join(gpu);
+        let run = Command::new(env!("CARGO_BIN_EXE_fd"))
+            .arg("shade")
+            .arg(&fds)
+            .arg("--preset")
+            .arg(&look)
+            .args([
+                "--aa", "on", "--dither", "on", "--time", "0.7", "--gpu", gpu, "-o",
+            ])
+            .arg(&out)
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&run.stderr);
+        assert!(run.status.success(), "fd shade --gpu {gpu}: {log}");
+        if gpu == "on" {
+            if log.contains("no wgpu") {
+                eprintln!("skipped: no wgpu adapter ({log})");
+                return;
+            }
+            assert!(
+                log.contains("GPU shading on") && !log.contains("using CPU"),
+                "--gpu on did not shade on the GPU: {log}"
+            );
+            eprintln!(
+                "{}",
+                log.lines().find(|l| l.contains("GPU shading on")).unwrap()
+            );
+        }
+        let png = out.join("still.studio.png");
+        let rgb = Command::new("ffmpeg")
+            .args(["-loglevel", "error", "-i"])
+            .arg(&png)
+            .args(["-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .output()
+            .expect("ffmpeg is required to decode the stills");
+        assert!(rgb.status.success(), "decode {}", png.display());
+        images.push(rgb.stdout);
+    }
+    assert_eq!(images[0].len(), 160 * 90 * 3);
+    assert_eq!(images[0].len(), images[1].len());
+    let mut worst = 0;
+    for (k, (&a, &b)) in images[0].iter().zip(&images[1]).enumerate() {
+        worst = worst.max(a.abs_diff(b));
+        assert!(
+            a.abs_diff(b) <= 1,
+            "pixel ({},{}) channel {}: GPU {a}, CPU {b}",
+            k / 3 % 160,
+            k / 3 / 160,
+            k % 3
+        );
+    }
+    eprintln!("ss 2 still: GPU within {worst} level(s) of CPU");
+}

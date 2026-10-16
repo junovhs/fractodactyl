@@ -6,13 +6,13 @@
 
 struct Params {
     dims: vec4<u32>,      // full width, full height, rectangle x, rectangle y
-    rect: vec4<u32>,      // rectangle width, rectangle height
+    rect: vec4<u32>,      // rectangle width, rectangle height, samples per pixel side
     tone: vec4<f32>,      // phase, density (f32), terrace, slope
     light: vec4<f32>,     // light x, light y, inside r, inside g
     color: vec4<f32>,     // inside b, mean r, mean g, mean b
     extra: vec4<f32>,     // ramp mean, stop count, aa, unresolved-as-interior
     density64: vec4<u32>, // density as f64 bits (low, high)
-    lines: vec4<f32>,     // lines, line_px
+    lines: vec4<f32>,     // lines, line_px, 1 to dither the output
     haze: vec4<f32>,      // haze tint r, g, b, 1 when the look has haze
 }
 
@@ -66,7 +66,10 @@ fn tpdf(key: u32) -> f32 {
 fn encode(rgb: vec3<f32>, x: u32, y: u32) -> u32 {
     var out = 0u;
     for (var j = 0u; j < 3u; j++) {
-        let dither = DITHER_LEVELS * tpdf((y << 16u) ^ (x << 2u) ^ j);
+        var dither = 0.0;
+        if (p.lines.z > 0.5) {
+            dither = DITHER_LEVELS * tpdf((y << 16u) ^ (x << 2u) ^ j);
+        }
         let v = clamp(rgb[j], 0.0, 1.0);
         let level = clamp(pow(v, bitcast<f32>(INV_GAMMA_BITS)) * 255.0 + 0.5 + dither, 0.0, 255.0);
         out |= u32(level) << (8u * j);
@@ -74,13 +77,9 @@ fn encode(rgb: vec3<f32>, x: u32, y: u32) -> u32 {
     return out;
 }
 
-@compute @workgroup_size(8, 8)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    if (gid.x >= p.rect.x || gid.y >= p.rect.y) {
-        return;
-    }
-    let xy = gid.xy + p.dims.zw;
-    let i = xy.y * p.dims.x + xy.x;
+// Sample i's linear colour, as fd-shade Studio; w is 0 when its phase base is not
+// finite (every channel NaN on the CPU, which encodes as black).
+fn sample_color(i: u32) -> vec4<f32> {
     let s = prepared[2u * i];
     let terms = prepared[2u * i + 1u];
     let band = bitcast<f32>(s.z);
@@ -89,9 +88,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let n = u32(p.extra.y);
         let xb = band_x(s.x, s.y, bitcast<u32>(p.tone.x), n);
         if (xb == 0x7fc00000u) {
-            // A non-finite phase base turns every channel NaN on the CPU: black.
-            pixels[i] = 0u;
-            return;
+            return vec4<f32>(0.0);
         }
         let x = bitcast<f32>(xb);
         let k = min(u32(x), n - 1u);
@@ -123,7 +120,50 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     } else if (band <= -2.0 && p.extra.w < 0.5) {
         col = vec3<f32>(0.25, 0.0, 0.25);
     }
-    pixels[i] = encode(col, xy.x, xy.y);
+    return vec4<f32>(col, 1.0);
+}
+
+// Film keyframes: one sample per pixel, shaded in place over the rectangle.
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if (gid.x >= p.rect.x || gid.y >= p.rect.y) {
+        return;
+    }
+    let xy = gid.xy + p.dims.zw;
+    let i = xy.y * p.dims.x + xy.x;
+    let c = sample_color(i);
+    if (c.w == 0.0) {
+        pixels[i] = 0u;
+        return;
+    }
+    pixels[i] = encode(c.rgb, xy.x, xy.y);
+}
+
+// Stills: average each ss x ss block of the full sample grid in linear light, as
+// fd-shade's resolve, then encode one output pixel.
+@compute @workgroup_size(8, 8)
+fn still(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let ss = max(p.rect.z, 1u);
+    let w = p.dims.x / ss;
+    if (gid.x >= w || gid.y >= p.dims.y / ss) {
+        return;
+    }
+    var acc = vec3<f32>(0.0);
+    var finite = true;
+    for (var sy = 0u; sy < ss; sy++) {
+        let base = (gid.y * ss + sy) * p.dims.x + gid.x * ss;
+        for (var k = base; k < base + ss; k++) {
+            let c = sample_color(k);
+            finite = finite && c.w != 0.0;
+            acc = acc + c.rgb;
+        }
+    }
+    let out = gid.y * w + gid.x;
+    if (!finite) {
+        pixels[out] = 0u;
+        return;
+    }
+    pixels[out] = encode(acc * (1.0 / f32(ss * ss)), gid.x, gid.y);
 }
 
 // Test entry: case = (t low word, t high word, phase bits, stop count) -> band_x bits.
