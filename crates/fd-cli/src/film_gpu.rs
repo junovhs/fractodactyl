@@ -23,7 +23,7 @@ fn groups(n: u32) -> u32 {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct ShadePush {
+pub(crate) struct ShadePush {
     dims: [u32; 4],
     rect: [u32; 4],
     tone: [f32; 4],
@@ -39,6 +39,19 @@ pub(crate) struct ResamplePush {
     more: [u32; 4],
     zoom: [f32; 4],
     blend: [f32; 4],
+}
+
+#[cfg(test)]
+impl ShadePush {
+    /// The block as native-endian bytes: six vec4s, the same layout as push constants.
+    pub(crate) fn bytes(&self) -> Vec<u8> {
+        let words = self.dims.into_iter().chain(self.rect);
+        let floats = [self.tone, self.light, self.color, self.extra];
+        words
+            .flat_map(u32::to_ne_bytes)
+            .chain(floats.into_iter().flatten().flat_map(f32::to_ne_bytes))
+            .collect()
+    }
 }
 
 impl ResamplePush {
@@ -67,7 +80,7 @@ impl ResamplePush {
     }
 }
 
-fn linear(rgb: u32) -> [f32; 3] {
+pub(crate) fn linear(rgb: u32) -> [f32; 3] {
     [16, 8, 0].map(|shift| {
         let c = ((rgb >> shift) & 255) as f32 / 255.0;
         if c <= 0.04045 {
@@ -78,7 +91,7 @@ fn linear(rgb: u32) -> [f32; 3] {
     })
 }
 
-fn shade_push(
+pub(crate) fn shade_push(
     l: &Look,
     a: &Appearance,
     full: (usize, usize),
@@ -112,7 +125,7 @@ fn shade_push(
 /// it to f32 before adding the animated palette phase (DEC-29).
 /// Words 0..1 store the bitwise f64; word 2 stores DE and word 3 packs
 /// u16 normal + class kind, preserving the 16-byte/sample SSBO layout.
-fn pack_samples(s: &Samples, density: f64, out: &mut [u32]) -> Result<(), String> {
+pub(crate) fn pack_samples(s: &Samples, density: f64, out: &mut [u32]) -> Result<(), String> {
     let nu = s.nu.as_deref().ok_or("GPU needs nu")?;
     let de = s.de.as_deref().ok_or("GPU needs de")?;
     let normal = s.normal.as_deref().ok_or("GPU needs normal")?;

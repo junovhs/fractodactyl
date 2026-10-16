@@ -11,6 +11,8 @@ mod film;
 mod film_gpu;
 #[cfg(test)]
 mod film_prepare_wgpu;
+#[cfg(test)]
+mod film_shade_wgpu;
 mod filmcheck;
 mod jetaa;
 mod keyframe;
@@ -25,6 +27,8 @@ mod render;
 mod reuse;
 mod schedule;
 mod shade;
+#[cfg(test)]
+mod wgpu_compute;
 mod zone_gpu;
 
 const USAGE: &str = "\
