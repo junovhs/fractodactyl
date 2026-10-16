@@ -14,7 +14,7 @@ mod umber;
 pub use looks::{looks_dir, save_look};
 pub use png::encode as png;
 pub use resolve::Rgb8;
-pub use studio::{Look, PreparedStudio, Studio, BUILTIN};
+pub use studio::{Look, Studio, BUILTIN};
 
 use fd_samples::{ColumnSet, Header, Samples};
 
@@ -169,6 +169,52 @@ mod tests {
         (h, s)
     }
 
+    /// The studio stills frozen from the CPU studio (SHAD-11) on [`fixture`]: name, look
+    /// and appearance. Lines, terraces, haze, breathing, flow, AA, dither and unresolved
+    /// drawn both ways.
+    pub(crate) fn frozen_stills() -> Vec<(&'static str, crate::Look, Appearance)> {
+        let ice = crate::Look::builtin("ice").unwrap();
+        let master = crate::Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let film = Appearance {
+            aa: true,
+            dither: true,
+            unresolved_interior: true,
+            ..Appearance::STILL
+        };
+        vec![
+            ("ice", ice.clone(), Appearance::STILL),
+            (
+                "ice-animated",
+                ice,
+                Appearance {
+                    time: 0.7,
+                    flow: 0.11,
+                    breathe: 0.08,
+                    brate: 0.5,
+                    ..film
+                },
+            ),
+            (
+                "master-ice",
+                master.clone(),
+                Appearance {
+                    time: 1.3,
+                    flow: master.flow,
+                    ..film
+                },
+            ),
+            (
+                "coral-aa",
+                crate::Look::builtin("coral").unwrap(),
+                Appearance {
+                    aa: true,
+                    ..Appearance::STILL
+                },
+            ),
+            ("smoke", crate::Look::builtin("smoke").unwrap(), film),
+        ]
+    }
+
     /// FNV-1a of an image.
     pub(crate) fn fnv(b: &[u8]) -> u64 {
         b.iter().fold(0xcbf29ce484222325u64, |h, &x| {
@@ -199,6 +245,41 @@ mod tests {
                 want,
                 "{name}: time alone must not change a still look"
             );
+        }
+    }
+
+    /// Every channel of `got` within one level of `want` (GPU exp, pow and cos are not
+    /// correctly rounded); returns the worst difference.
+    pub(crate) fn within_one_level(what: &str, got: &[u8], want: &[u8], w: usize) -> u8 {
+        assert_eq!(got.len(), want.len(), "{what}: size");
+        let mut worst = 0;
+        for (k, (&g, &c)) in got.iter().zip(want).enumerate() {
+            worst = worst.max(g.abs_diff(c));
+            assert!(
+                g.abs_diff(c) <= 1,
+                "{what}: pixel ({},{}) channel {}: WGSL {g}, frozen CPU {c}",
+                k / 3 % w,
+                k / 3 / w,
+                k % 3
+            );
+        }
+        worst
+    }
+
+    /// SHAD-11: the studio still matches the CPU studio's output, frozen before that
+    /// was deleted (src/gpu/frozen, written by the then-CPU studio at fcab2b5).
+    #[test]
+    fn studio_matches_frozen_reference() {
+        use crate::Pass as _;
+        let (h, s) = fixture();
+        let adapter = crate::gpu::shared_adapter().expect("studio look needs a wgpu adapter");
+        for (name, look, a) in frozen_stills() {
+            let img = crate::Studio(look).shade_with(&h, &s, &a);
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("src/gpu/frozen/still-{name}.rgb"));
+            let want = std::fs::read(&path).unwrap();
+            let worst = within_one_level(name, &img.data, &want, img.w);
+            eprintln!("{adapter}: still {name} within {worst} level(s) of the frozen CPU");
         }
     }
 

@@ -1,10 +1,12 @@
-//! wgpu compute shading and tent resampling for keyframe films (SHAD-07): the WGSL
-//! prepare, shade and resample passes, f32 and integer arithmetic only (DEC-25, DEC-28).
-//! All camera and fractal arithmetic remains in the CPU renderer.
+//! The studio look's only implementation (SHAD-07, SHAD-11): the WGSL prepare, shade and
+//! tent resample passes on wgpu, f32 and integer arithmetic only (DEC-25, DEC-28), for
+//! stills ([`shade_still`], [`crate::Studio`]) and keyframe films ([`StudioGpu::frame`]).
+//! Machines without a GPU run them on a software adapter (lavapipe, WARP). All camera and
+//! fractal arithmetic remains in the CPU renderer.
 use crate::studio::linear;
-use crate::{Appearance, Look};
-use fd_samples::Samples;
-use std::sync::mpsc;
+use crate::{Appearance, Look, Rgb8};
+use fd_samples::{Header, Samples};
+use std::sync::{mpsc, Mutex};
 
 #[cfg(test)]
 mod prepare_tests;
@@ -214,8 +216,54 @@ impl Resample {
     }
 }
 
-/// (cos, sin) of every stored normal angle, as fd-shade's CPU studio computes them
-/// (`Samples::unit`), for the prepare pass.
+/// The process's studio device for stills: opened on first use, then reused by every
+/// still whatever its look or size, so one run opens one device.
+static SHARED: Mutex<Option<StudioGpu>> = Mutex::new(None);
+
+/// The shared studio device, opened if this is the first use.
+fn shared(slot: &mut Option<StudioGpu>) -> Result<&mut StudioGpu, String> {
+    if slot.is_none() {
+        let look = Look::builtin("ice").expect("ice is built in");
+        *slot = Some(StudioGpu::new(&look, &Appearance::STILL, (1, 1), 1)?);
+    }
+    Ok(slot.as_mut().expect("opened"))
+}
+
+/// Open the shared studio device if needed and name its adapter, so a command can
+/// report it, or fail cleanly, before shading anything.
+pub fn shared_adapter() -> Result<String, String> {
+    let mut slot = SHARED.lock().unwrap_or_else(|e| e.into_inner());
+    shared(&mut slot).map(|g| g.name.clone())
+}
+
+/// Shade a still of look `l` on the shared device: `s` holds `h.ss` x `h.ss` samples
+/// per output pixel, averaged in linear light and encoded (dithered under `a.dither`).
+pub fn shade_still(l: &Look, h: &Header, s: &Samples, a: &Appearance) -> Result<Rgb8, String> {
+    if !StudioGpu::supported(l, a) {
+        return Err("studio look density or stop count is out of range".into());
+    }
+    let (w, ht) = h.pixels();
+    let mut slot = SHARED.lock().unwrap_or_else(|e| e.into_inner());
+    let gpu = shared(&mut slot)?;
+    gpu.retarget(l, (w, ht));
+    let data = gpu
+        .still(s, (h.nx as usize, h.ny as usize), h.ss, a)?
+        .to_vec();
+    Ok(Rgb8 { w, h: ht, data })
+}
+
+/// The palette buffer: up to 64 linear-light stops, one vec4 each.
+const PALETTE_BYTES: u64 = 64 * 16;
+
+fn palette_bytes(l: &Look) -> Vec<u8> {
+    l.stops
+        .iter()
+        .flat_map(|&stop| linear(stop).into_iter().chain([0.0]))
+        .flat_map(f32::to_ne_bytes)
+        .collect()
+}
+
+/// (cos, sin) of every stored normal angle (`Samples::unit`), for the prepare pass.
 pub fn unit_table() -> Vec<u8> {
     (0..=u16::MAX)
         .flat_map(|a| {
@@ -237,7 +285,6 @@ struct Key {
 }
 
 /// A GPU film keeps only the current pair's prepared keyframes resident.
-/// An unavailable device or unsupported look is a normal CPU fallback.
 pub struct StudioGpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -300,14 +347,8 @@ impl StudioGpu {
         };
         let (prepare, shade) = (pipeline(PREPARE, "main"), pipeline(SHADE, "main"));
         let (resample, still) = (pipeline(RESAMPLE, "main"), pipeline(SHADE, "still"));
-        let colors: Vec<u8> = l
-            .stops
-            .iter()
-            .flat_map(|&stop| linear(stop).into_iter().chain([0.0]))
-            .flat_map(f32::to_ne_bytes)
-            .collect();
-        let palette = storage(&device, colors.len() as u64, false);
-        queue.write_buffer(&palette, 0, &colors);
+        let palette = storage(&device, PALETTE_BYTES, false);
+        queue.write_buffer(&palette, 0, &palette_bytes(l));
         // The exact CPU tent gamma-decode table.
         let table: Vec<u8> = (0..256)
             .flat_map(|i| (i as f32 / 255.0).powf(2.2).to_ne_bytes())
@@ -317,14 +358,7 @@ impl StudioGpu {
         let normals = unit_table();
         let unit = storage(&device, normals.len() as u64, false);
         queue.write_buffer(&unit, 0, &normals);
-        let bytes = (out.0 * out.1 * 4) as u64;
-        let output = storage(&device, bytes, true);
-        let readback = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("fd film readback"),
-            size: bytes,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let (output, readback) = outputs(&device, out);
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("wgpu film pipelines: {e}"));
         }
@@ -346,6 +380,20 @@ impl StudioGpu {
             name,
             look: l.clone(),
         })
+    }
+
+    /// Shade look `l` into `out`-sized images from now on, reusing the device and
+    /// pipelines; nothing is rebuilt when neither changed.
+    pub fn retarget(&mut self, l: &Look, out: (usize, usize)) {
+        if self.look != *l {
+            self.queue.write_buffer(&self.palette, 0, &palette_bytes(l));
+            self.look = l.clone();
+            self.keys.clear();
+        }
+        if out.0 * out.1 * 3 != self.host_output.len() {
+            (self.output, self.readback) = outputs(&self.device, out);
+            self.host_output = vec![0; out.0 * out.1 * 3];
+        }
     }
 
     fn group(
@@ -606,6 +654,19 @@ impl StudioGpu {
         self.readback.unmap();
         Ok(&self.host_output)
     }
+}
+
+/// The packed-RGBA output buffer for an `out`-sized image and its host readback.
+fn outputs(device: &wgpu::Device, out: (usize, usize)) -> (wgpu::Buffer, wgpu::Buffer) {
+    let bytes = (out.0 * out.1 * 4).max(4) as u64;
+    let output = storage(device, bytes, true);
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("fd film readback"),
+        size: bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    (output, readback)
 }
 
 /// A storage buffer; `out` buffers are also copy sources.

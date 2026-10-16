@@ -30,7 +30,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (off)] \
+[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
 [--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
@@ -92,11 +92,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         return Err("--gpu-kernel f32|mixed requires --keyframes".into());
     }
     let zone_f64 = zone_kernel == Some(crate::zone_gpu::Kernel::F64);
-    let gpu_on = match a.str("gpu").unwrap_or("off") {
-        "off" => false,
-        "on" => true,
-        v => return Err(format!("--gpu: expected on or off, got {v:?}")),
-    };
+    // The studio look shades only on wgpu (SHAD-11); --gpu stays accepted for old
+    // command lines.
+    if let Some(v) = a.str("gpu").filter(|v| !matches!(*v, "on" | "off")) {
+        return Err(format!("--gpu: expected on or off, got {v:?}"));
+    }
     // `--place NAME` (EXPL-08): a place saved by fd explore gives RE IM and the default --to.
     let place = a.str("place").map(crate::place::load).transpose()?;
     let (re, im, to) = match (&place, a.positional.as_slice()) {
@@ -371,20 +371,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let (Some(mode), Some(k)) = (zone_kernel, keys.as_mut()) {
         k.enable_zone_kernel(mode);
     }
-    if gpu_on {
-        if let Some(k) = keys.as_mut() {
-            if look_name == "studio" {
-                let l = crate::shade::studio_look(&a)?;
-                match k.enable_gpu(&l, &Appearance { time: t0, ..base }) {
-                    Ok(device) => eprintln!("fd film: wgpu GPU shading on {device}"),
-                    Err(e) => eprintln!("fd film: GPU unavailable ({e}); using CPU shading"),
-                }
-            } else {
-                eprintln!("fd film: GPU does not support look {look_name}; using CPU shading");
-            }
-        } else {
-            eprintln!("fd film: GPU shading requires --keyframes; using CPU shading");
+    if look_name == "studio" {
+        let device = match keys.as_mut() {
+            Some(k) => k.enable_gpu(
+                &crate::shade::studio_look(&a)?,
+                &Appearance { time: t0, ..base },
+            ),
+            None => fd_shade::gpu::shared_adapter(),
         }
+        .map_err(|e| format!("studio look needs a wgpu adapter: {e}"))?;
+        eprintln!("fd film: wgpu GPU shading on {device}");
     }
     if keys.is_none() && offset != (0.0, 0.0) {
         return Err("--offset needs --keyframes".into());

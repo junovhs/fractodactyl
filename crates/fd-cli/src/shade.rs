@@ -26,11 +26,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         .collect();
     let a = Args::parse(argv, &known)?;
     let mut base = appearance(&a)?;
-    let gpu_on = match a.str("gpu").unwrap_or("off") {
-        "on" => true,
-        "off" => false,
-        v => return Err(format!("--gpu: expected on or off, got {v:?}")),
-    };
+    // The studio look shades only on wgpu (SHAD-11); --gpu stays accepted for old
+    // command lines.
+    if let Some(v) = a.str("gpu").filter(|v| !matches!(*v, "on" | "off")) {
+        return Err(format!("--gpu: expected on or off, got {v:?}"));
+    }
     let (t0, fps): (f64, f64) = (a.num("time", 0.0)?, a.num("fps", 0.0)?);
     if !t0.is_finite() || !fps.is_finite() || fps < 0.0 {
         return Err("--time must be finite and --fps non-negative".into());
@@ -56,10 +56,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         .iter()
         .fold(ColumnSet::default(), |m, l| ColumnSet(m.0 | l.columns().0));
     let (mut read_s, mut shade_s, mut write_s, mut images) = (0.0, 0.0, 0.0, 0);
-    // Studio looks shade on the wgpu GPU path under --gpu on (SHAD-08), one device for
-    // the whole run; any failure falls back to the CPU look for the rest of it.
-    let mut gpu: Option<fd_shade::gpu::StudioGpu> = None;
-    let mut gpu_off = !gpu_on;
+    // Studio looks shade on one wgpu device for the whole run (SHAD-08, SHAD-11).
+    if names.iter().any(|n| n == "studio") {
+        let device = fd_shade::gpu::shared_adapter()
+            .map_err(|e| format!("studio look needs a wgpu adapter: {e}"))?;
+        eprintln!("fd shade: wgpu GPU shading on {device}");
+    }
     for (k, f) in frames.iter().enumerate() {
         let time = t0 + if fps > 0.0 { k as f64 / fps } else { 0.0 };
         let look_at = Appearance { time, ..base };
@@ -90,15 +92,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         let stem = f.file_stem().and_then(|s| s.to_str()).unwrap_or("frame");
         for (look, pass) in names.iter().zip(&looks) {
             let t = Instant::now();
-            let mut shaded = None;
-            if look == "studio" && !gpu_off {
-                shaded = gpu_still(&mut gpu, &a, h, &samples, &look_at);
-                gpu_off = shaded.is_none();
-            }
-            let img = match shaded {
-                Some(img) => img,
-                None => pass.shade_with(h, &samples, &look_at),
-            };
+            let img = pass.shade_with(h, &samples, &look_at);
             let shade = t.elapsed().as_secs_f64();
             let t = Instant::now();
             let png = format!("{}/{stem}.{look}.png", out.trim_end_matches('/'));
@@ -120,52 +114,6 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         looks.len()
     );
     Ok(())
-}
-
-/// The studio still on the GPU, opening the device (or reopening it for a new image
-/// size) as needed; `None`, after saying why, when the CPU must shade instead.
-fn gpu_still(
-    gpu: &mut Option<fd_shade::gpu::StudioGpu>,
-    a: &crate::args::Args,
-    h: &fd_samples::Header,
-    samples: &fd_samples::Samples,
-    look_at: &Appearance,
-) -> Option<fd_shade::Rgb8> {
-    let (w, ht) = h.pixels();
-    if gpu.as_ref().is_none_or(|g| g.output_len() != w * ht * 3) {
-        let look = match studio_look(a) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("fd shade: GPU look ({e}); using CPU shading");
-                return None;
-            }
-        };
-        match fd_shade::gpu::StudioGpu::new(&look, look_at, (w, ht), 1) {
-            Ok(g) => {
-                if gpu.is_none() {
-                    eprintln!("fd shade: wgpu GPU shading on {}", g.name);
-                }
-                *gpu = Some(g);
-            }
-            Err(e) => {
-                eprintln!("fd shade: GPU unavailable ({e}); using CPU shading");
-                return None;
-            }
-        }
-    }
-    let g = gpu.as_mut()?;
-    let grid = (h.nx as usize, h.ny as usize);
-    match g.still(samples, grid, h.ss, look_at) {
-        Ok(rgb) => Some(fd_shade::Rgb8 {
-            w,
-            h: ht,
-            data: rgb.to_vec(),
-        }),
-        Err(e) => {
-            eprintln!("fd shade: GPU shading failed ({e}); using CPU shading");
-            None
-        }
-    }
 }
 
 /// Flags of [`appearance`].

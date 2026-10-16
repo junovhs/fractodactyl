@@ -38,11 +38,17 @@ ash/GLSL code deleted.
   and line positions reproduce the CPU's f64 exactly via soft f64 in integers. CI runs the
   GPU tests on lavapipe (Linux) and WARP (Windows). The ash/GLSL/shaderc stack and
   `build.rs` are gone.
+- SHAD-11, BENC-10 (2026-10-16): the studio look exists only as that WGSL. `fd shade`,
+  `fd film` (keyframed or not), `fd play` and `fd_shade::Studio` all shade through it on
+  the hardware GPU, else lavapipe/WARP; `--gpu` is accepted and ignored. fd-shade's Rust
+  per-sample studio maths and `PreparedStudio` are deleted; tests compare against the CPU
+  studio's output frozen beforehand (`crates/fd-shade/src/gpu/frozen`,
+  `crates/fd-cli/tests/fixtures`). BENC-10 (METHOD.md): on the RX 5700 XT the GPU-02 film
+  takes 36.6 s with GPU zone + GPU shading against 183.6 s all-CPU (5.0x).
 
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
-SHAD-11 (the studio look exists once: retire fd-shade's CPU studio shading),
-BENC-10 (whole-film GPU vs all-core CPU race), GPU-21 (zone output stays on the GPU into
-shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
+BENC-11 (BENC-10's race on the RTX 3050 Ti laptop), GPU-21 (zone output stays on the GPU
+into shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
 frames on the GPU), GPU-23 (extended-range zones on the GPU) → CLEA-04 (CPU zone copy
 deleted) · PROB-12 (`fd zone` in Rust) → CLEA-02 (retire research copies of the zone
 pipeline).
@@ -73,9 +79,10 @@ Read the full record with `ishoo_decision op:show` before relying on one.
 
 ## How to use (Windows and Linux)
 
-Prerequisites: Rust (stable) and FFmpeg on PATH for `--mp4`. `--gpu on` needs a Vulkan
-driver (any GPU's, or Mesa's lavapipe on a machine without one); no SDK or shader
-compiler is needed to build (the film shaders are WGSL, compiled by wgpu at run time).
+Prerequisites: Rust (stable) and FFmpeg on PATH for `--mp4`. The studio look (the
+default) needs a wgpu adapter: any GPU's Vulkan driver, Mesa's lavapipe on Linux, or
+DX12 (WARP without a GPU) on Windows. No SDK or shader compiler is needed to build (the
+shaders are WGSL, compiled by wgpu at run time).
 `fd` below means `<target>/release/fd` (`fd.exe` on Windows).
 
 - Build: `cargo build --release -p fd-cli`. `viewer\explore.cmd` expects
@@ -88,11 +95,9 @@ compiler is needed to build (the film shaders are WGSL, compiled by wgpu at run 
   fd film -0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502 0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922 --from 1e-29 --to 1e-31 --seconds 2 --fps 30 --size 480x270 --keyframes 2 --zone bench/zones/v0-core.zone --preset master-ice --mp4 out/v0.mp4
   ```
 
-  Add `--gpu-kernel mixed` (zone keyframes on the wgpu zone kernel) and `--gpu on` (GPU
-  shading). Until SHAD-02 lands, GPU shading declines looks with lines, haze, breathing
-  or more than 32 stops (master-ice among them) and shades on the CPU, saying so on
-  stderr.
-  `scripts/check/GPU-02.sh` runs the full CPU-vs-GPU film-equivalence gate.
+  Add `--gpu-kernel mixed` to render zone keyframes on the wgpu zone kernel (shading is
+  always on wgpu). `scripts/check/GPU-02.sh` runs the full CPU-vs-GPU zone
+  film-equivalence gate.
 - Re-shade stored samples without iterating: `fd shade X.fds --preset ice -o DIR`.
 - Other zones: `tools/research/misiurewicz/make_zone.sh` generates zone files (Python
   research generator until PROB-12 lands `fd zone`).

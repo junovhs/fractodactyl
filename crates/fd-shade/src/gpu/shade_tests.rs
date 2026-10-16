@@ -1,5 +1,5 @@
 //! Studio shade pass on wgpu (SHAD-04/05): runs film_shade.wgsl alone (StudioGpu runs
-//! it in the film path), for tests against fd-shade's CPU shading.
+//! it in the film path), for tests against the frozen CPU studio output (SHAD-11).
 
 use super::testkit::{bytes, dispatch, words, Binding};
 use super::{ShadePush, SHADE as SHADER};
@@ -68,10 +68,11 @@ mod tests {
     use super::super::{pack_samples, shade_push};
     use super::*;
     use crate::studio::linear;
-    use crate::{Appearance, Look, PreparedStudio, Rgb8};
+    use crate::{Appearance, Look};
     use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View, MINOR};
 
-    /// PreparedStudio's palette coordinate, the f64 expression the shader emulates.
+    /// The CPU studio's palette coordinate, the f64 expression the shader emulates; the
+    /// test oracle for the band select (DEC-24: a test reference, not a shading path).
     fn cpu_x(t: f64, phase: f32, n: u32) -> f32 {
         ((t + f64::from(phase)).rem_euclid(1.0) * f64::from(n)) as f32
     }
@@ -285,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn wgsl_shade_matches_prepared_studio() {
+    fn wgsl_shade_matches_frozen_reference() {
         let mut look = Look::parse(include_str!("../../../../looks/master-ice.look")).unwrap();
         // Haze is SHAD-05's; terrace stays, so a wrong band is a visible jump.
         look.haze = None;
@@ -301,7 +302,7 @@ mod tests {
                 ..Appearance::STILL
             };
             let phase = a.phase();
-            let (header, samples) = fixture(&look, f64::from(phase), w, h);
+            let (_, samples) = fixture(&look, f64::from(phase), w, h);
             let mut packed = vec![0u32; w * h * 4];
             pack_samples(&samples, &mut packed).unwrap();
             let packed: Vec<[u32; 4]> = packed
@@ -340,29 +341,17 @@ mod tests {
                 }
             }
 
-            // Packed RGB: within one level of PreparedStudio (GPU cos/pow/exp are not
-            // correctly rounded); a wrong band at a terraced edge is tens of levels.
-            let prepared = PreparedStudio::new(&look, &header, &samples, &a).unwrap();
-            let mut cpu = Rgb8 {
-                w: 0,
-                h: 0,
-                data: Vec::new(),
-            };
-            prepared.shade_rect_film_into((0, 0, w, h), &a, &mut cpu);
-            let mut worst = 0;
-            for (i, &word) in gpu.iter().enumerate() {
-                for c in 0..3 {
-                    let got = (word >> (8 * c)) as u8;
-                    let want = cpu.data[i * 3 + c];
-                    worst = worst.max(got.abs_diff(want));
-                    assert!(
-                        got.abs_diff(want) <= 1,
-                        "pixel ({},{}) channel {c}: CPU {want}, WGSL {got}",
-                        i % w,
-                        i / w
-                    );
-                }
-            }
+            // Packed RGB: within one level of the CPU studio's output, frozen before it
+            // was deleted (SHAD-11; GPU cos/pow/exp are not correctly rounded); a wrong
+            // band at a terraced edge is tens of levels.
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(format!("src/gpu/frozen/shade-aa{}.rgb", u8::from(aa)));
+            let frozen = std::fs::read(&path).unwrap();
+            let rgb: Vec<u8> = gpu
+                .iter()
+                .flat_map(|&word| [word as u8, (word >> 8) as u8, (word >> 16) as u8])
+                .collect();
+            let worst = crate::tests::within_one_level("shade pass", &rgb, &frozen, w);
             eprintln!(
                 "aa {aa}: {} pixels within {worst} level(s); {edges} samples within 0.001 of a stop edge",
                 w * h

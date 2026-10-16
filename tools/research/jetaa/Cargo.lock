@@ -203,6 +203,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror",
+ "windows",
 ]
 
 [[package]]
@@ -268,6 +269,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "lhash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "744a4c881f502e98c2241d2e5f50040ac73b30194d64452bb6260393b53f0dc9"
+
+[[package]]
 name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -309,6 +316,15 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "mach-dxcompiler-rs"
+version = "0.1.6+2026.09.16-48d5a66.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "699d5b85d279d172f6ea742c6c47342fdd7c388872cea2e137e2c6721ef2e6d6"
+dependencies = [
+ "lhash",
+]
 
 [[package]]
 name = "naga"
@@ -513,6 +529,12 @@ checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "range-alloc"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
 
 [[package]]
 name = "raw-window-handle"
@@ -799,6 +821,7 @@ dependencies = [
  "android_system_properties",
  "arrayvec",
  "ash",
+ "bit-set",
  "bitflags",
  "bytemuck",
  "cfg-if",
@@ -808,13 +831,16 @@ dependencies = [
  "libc",
  "libloading",
  "log",
+ "mach-dxcompiler-rs",
  "naga",
  "naga-types",
+ "once_cell",
  "ordered-float",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",
  "profiling",
+ "range-alloc",
  "raw-window-handle",
  "raw-window-metal",
  "renderdoc-sys",
@@ -824,6 +850,7 @@ dependencies = [
  "wgpu-naga-bridge",
  "wgpu-types",
  "windows",
+ "windows-core",
 ]
 
 [[package]]
