@@ -28,13 +28,20 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         ])
         .collect();
     let a = Args::parse(argv, &known)?;
-    let gpu_f64 = match a.str("gpu-kernel") {
-        None => false,
-        Some("f64") => true,
-        Some(value) => return Err(format!("--gpu-kernel: expected f64, got {value:?}")),
+    // f64: binary64 zone kernel; f32only: no f64 anywhere, and the only GPU kernel for
+    // extended-range zones (GPU-23).
+    let gpu = match a.str("gpu-kernel") {
+        None => None,
+        Some("f64") => Some(crate::zone_gpu::Kernel::F64),
+        Some("f32only") => Some(crate::zone_gpu::Kernel::F32Only),
+        Some(value) => {
+            return Err(format!(
+                "--gpu-kernel: expected f64 or f32only, got {value:?}"
+            ))
+        }
     };
-    if gpu_f64 && a.str("zone").is_none() {
-        return Err("--gpu-kernel f64 requires --zone".into());
+    if gpu.is_some() && a.str("zone").is_none() {
+        return Err("--gpu-kernel requires --zone".into());
     }
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
@@ -89,11 +96,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let (header, samples, refined) = match (a.str("refine"), table) {
         _ if zone.is_some() => {
             let z = zone.as_ref().unwrap();
-            if gpu_f64 {
-                match crate::zone_gpu::render(&view, &p, z) {
+            if let Some(mode) = gpu {
+                match crate::zone_gpu::Renderer::new(mode).render(&view, &p, z) {
                     Ok((h, s)) => (h, s, None),
                     Err(e) => {
-                        eprintln!("fd: FP64 wgpu zone unavailable ({e}); using CPU zone");
+                        eprintln!("fd: wgpu zone unavailable ({e}); using CPU zone");
                         render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
                     }
                 }

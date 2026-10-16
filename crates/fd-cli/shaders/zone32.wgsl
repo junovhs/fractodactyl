@@ -38,45 +38,62 @@ var<private> g_psi_base: i32;
 var<private> g_node_base: i32;
 var<private> g_leaf_base: i32;
 
-struct Jet { y: CE, d: CF, dd: CF }
+// The interior tests follow the CPU zone's binary64 ones (cycle_basin, settled) in CE
+// with float-float comparisons, so a sample is Interior on the GPU where it is on the
+// CPU (GPU-23): f32 derivatives flipped basin-edge samples both ways.
+struct Jet { y: CE, d: CE, dd: CE }
 fn eval2(x: CE) -> Jet {
     var y = b[DEG];
-    var dy = cf_zero();
-    var ddy = cf_zero();
-    let xf = cf_of(x);
+    var dy = ce_zero();
+    var ddy = ce_zero();
     for (var i = DEG - 1; i >= 0; i -= 1) {
-        ddy = cf_add(cf_mul(ddy, xf), dy);
-        dy = cf_add(cf_mul(dy, xf), cf_of(y));
+        ddy = ce_add(ce_mul(ddy, x), dy);
+        dy = ce_add(ce_mul(dy, x), y);
         y = ce_add(ce_mul(y, x), b[i]);
     }
-    return Jet(y, dy, cf_scale(ddy, 2.0));
+    return Jet(y, dy, ce_mul_f(ddy, 2.0));
 }
 fn compose(x: CE, q: i32) -> Jet {
     var y = x;
-    var d = cf_one();
-    var dd = cf_zero();
+    var d = ce_one();
+    var dd = ce_zero();
     for (var i = 0; i < q; i += 1) {
         let f = eval2(y);
-        dd = cf_add(cf_mul(f.dd, cf_mul(d, d)), cf_mul(f.d, dd));
-        d = cf_mul(f.d, d);
+        dd = ce_add(ce_mul(f.dd, ce_mul(d, d)), ce_mul(f.d, dd));
+        d = ce_mul(f.d, d);
         y = f.y;
     }
     return Jet(y, d, dd);
 }
+// 1e-28 and 1e-24 as float-floats (the CPU's binary64 constants to 2^-48).
+const TOL_NEWTON = FF(1.0000000031710769e-28, -3.171076991842385e-37);
+const TOL_SETTLED = FF(1.0000000195414814e-24, -1.9541481270891064e-32);
 fn attracted(u: CE) -> bool {
-    let tiny = R(0.5, -46); // sqrt(1e-28) ~ 2^-46.5: |st| <= 1e-14 |x|
+    let tol = fe_norm(TOL_NEWTON, 0);
     for (var q = 1; q <= 4; q += 1) {
         var x = u;
         for (var i = 0; i < 16; i += 1) {
             let f = compose(x, q);
-            let st = ce_mul_cf(ce_sub(f.y, x), cf_inv(cf_add(f.d, CF(vec2<f32>(-0.5, 0.0), 1))));
+            let slope = ce_sub(f.d, ce_one());
+            let st = ce_div(ce_sub(f.y, x), slope);
             x = ce_sub(x, st);
             if (ce_bad(x)) { break; }
-            if (r_le(ce_len(st), r_mul(tiny, ce_len(x)))) {
+            // Converged at the CPU's 1e-14, or at float-float's own floor: the residual
+            // B^q(x) - x cancels to ~2^-48 |x|, so steps stall near 2^-48 |x| / |B' - 1|
+            // where binary64 still reaches 1e-14 (GPU-23).
+            let st2 = ce_norm2(st);
+            let x2 = ce_norm2(x);
+            // |st| <= 2^-44 |x| / |B' - 1|, squared.
+            let stalled = fe_le(fe_mul(st2, ce_norm2(slope)), fe_mul(x2, FE(ff(0.5), -87)));
+            if (fe_le(st2, fe_mul(tol, x2)) || stalled) {
                 let g = compose(x, q);
-                let l = r_f32(cf_len(g.d));
-                if (l < 1.0 && r_le(r_mul(ce_len(ce_sub(u, x)), cf_len(g.dd)), R(0.5 * (1.0 - l), 0))) {
-                    return true;
+                let l = fe_sqrt(ce_norm2(g.d));
+                if (fe_le(l, FE(ff(0.5), 1)) && !fe_le(FE(ff(0.5), 1), l)) {
+                    let reach = fe_mul(fe_sqrt(ce_norm2(ce_sub(u, x))), fe_sqrt(ce_norm2(g.dd)));
+                    let room = fe_norm(ff_mul_f(ff_sub(ff(1.0), fe_to_ff(l)), 0.5), 0);
+                    if (fe_le(reach, room)) {
+                        return true;
+                    }
                 }
                 break;
             }
@@ -242,24 +259,24 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     var work = 0;
     let scale = r_fe(fe_at(0));
     let guard = r_fe(fe_at(1));
-    let eps = R(0.5, -39); // sqrt(1e-24) ~ 2^-39.9: |delta| <= 1e-12 |u|
+    let eps = fe_norm(TOL_SETTLED, 0);
     while (r_le(r_mul(ce_len(u), scale), guard)) {
         if (n + period > maxit) {
             output_sample(gid, 2u, ff(0.0), 0.0, 0.0);
             return;
         }
         var s = b[DEG];
-        var su = cf_zero();
+        var su = ce_zero();
         var sv = bv[DEG];
         let uf = cf_of(u);
         for (var i = DEG - 1; i >= 0; i -= 1) {
-            su = cf_add(cf_mul(su, uf), cf_of(s));
+            su = ce_add(ce_mul(su, u), s);
             s = ce_add(ce_mul(s, u), b[i]);
             sv = cf_add(cf_mul(sv, uf), bv[i]);
         }
         let delta = ce_sub(s, u);
-        du = cf_add(cf_mul(su, du), sv);
-        if ((r_f32(cf_len(su)) < 1.0 && r_le(ce_len(delta), r_mul(eps, ce_len(u))))
+        du = cf_add(cf_mul(cf_of(su), du), sv);
+        if ((!fe_le(FE(ff(0.5), 1), ce_norm2(su)) && fe_le(ce_norm2(delta), fe_mul(eps, ce_norm2(u))))
             || (work >= 16 && (work & (work - 1)) == 0 && attracted(u))) {
             output_sample(gid, 1u, ff(0.0), 0.0, 0.0);
             return;

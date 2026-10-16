@@ -560,9 +560,42 @@ impl Zone {
     /// The shader takes scaled offsets, never a rounded deep centre or width (DEC-21).
     /// It declines mid/deep-range operators and retains the CPU fallback (DEC-10).
     pub fn gpu_f64_input(&self, view: &View, p: &Params) -> Result<(Header, Vec<f64>), String> {
+        if self.deep.is_some() {
+            return Err("FP64 Vulkan zone needs a covered, f64-range deep frame".into());
+        }
+        self.gpu_deep_input(view, p).map(|(h, v, _)| (h, v))
+    }
+
+    /// [`Zone::gpu_f64_input`]'s layout for an extended-range zone (GPU-23): the same
+    /// slots, each a binary64 mantissa times `2^exps[slot]`. Scale, guard, the output
+    /// pixel, the biseries and the Koenigs entry offset leave f64's range (k = 7676:
+    /// 2^-3322..2^1666); every other slot has exponent 0. Only kernels that read the
+    /// exponents (f32only) take it.
+    pub fn gpu_extended_input(
+        &self,
+        view: &View,
+        p: &Params,
+    ) -> Result<(Header, Vec<f64>, Vec<i32>), String> {
+        if self.deep.is_none() {
+            return Err("not an extended-range zone".into());
+        }
+        self.gpu_deep_input(view, p)
+    }
+
+    /// Whether the zone's constants leave f64's range (the deep, mantissa + exponent
+    /// tier; GPU-23).
+    pub fn extended(&self) -> bool {
+        self.deep.is_some()
+    }
+
+    fn gpu_deep_input(
+        &self,
+        view: &View,
+        p: &Params,
+    ) -> Result<(Header, Vec<f64>, Vec<i32>), String> {
         let (plane, tier) = setup(view, p)?;
         let off = centre_offset(view, self, &plane)?;
-        if !deep_covers(&plane, p, self, off) || self.deep.is_some() {
+        if !deep_covers(&plane, p, self, off) {
             return Err("FP64 Vulkan zone needs a covered, f64-range deep frame".into());
         }
         if p.columns.has(Column::Bound) {
@@ -571,14 +604,24 @@ impl Zone {
         if p.max_iter > i32::MAX as u64 || self.period > i32::MAX as u64 {
             return Err("FP64 Vulkan zone iteration count exceeds i32".into());
         }
-        let scale = self.scale.to_f64();
-        let guard = self.guard.to_f64();
-        let h = ZoneSize {
-            mant: plane.h_m,
-            exp2: plane.h_e,
-        }
-        .over(self.scale);
-        let px = plane.h();
+        // Values that may leave f64's range, as (mantissa, binary exponent).
+        let deep = self.deep.as_ref();
+        let wide = |m: f64, e: i64| match deep {
+            Some(_) => (m, e),
+            None => (m * exp2i(e), 0),
+        };
+        let (scale, scale_e) = wide(self.scale.mant, self.scale.exp2);
+        let (guard, guard_e) = wide(self.guard.mant, self.guard.exp2);
+        let (h, h_e) = wide(plane.h_m / self.scale.mant, plane.h_e - self.scale.exp2);
+        let (px, px_e) = wide(plane.h_m, plane.h_e);
+        // The centre offset in v units, from the exact offset where it leaves f64.
+        let (offset, offset_e) = match deep {
+            Some(_) => (
+                off.exact.m.scale(1.0 / self.scale.mant),
+                off.exact.e - self.scale.exp2,
+            ),
+            None => (off.scaled, 0),
+        };
         if !(scale > 0.0
             && guard > 0.0
             && h > 0.0
@@ -592,6 +635,7 @@ impl Zone {
         {
             return Err("FP64 Vulkan zone constants outside supported range".into());
         }
+        let z24ma = deep.map_or(Fx::new(self.z24ma, 0), |d| d.z24ma);
         let mut v = vec![
             scale,
             guard,
@@ -601,8 +645,8 @@ impl Zone {
             p.max_iter as f64,
             p.nx as f64,
             p.ny as f64,
-            off.scaled.0,
-            off.scaled.1,
+            offset.0,
+            offset.1,
             h,
             self.c.0,
             self.c.1,
@@ -610,8 +654,8 @@ impl Zone {
             self.alpha.1,
             self.rho.abs().ln(),
             self.rho.1.atan2(self.rho.0),
-            self.z24ma.0,
-            self.z24ma.1,
+            z24ma.m.0,
+            z24ma.m.1,
             self.bias.0,
             self.bias.1,
             p.escape_radius * p.escape_radius,
@@ -627,15 +671,35 @@ impl Zone {
             px * p.ss as f64,
             1.0 / self.rho.abs().ln(),
         ];
+        let mut exps = vec![0i64; v.len()];
+        exps[0] = scale_e;
+        exps[1] = guard_e;
+        exps[8] = offset_e;
+        exps[9] = offset_e;
+        exps[10] = h_e;
+        exps[17] = z24ma.e;
+        exps[18] = z24ma.e;
+        exps[30] = px_e;
+        if deep.is_none() {
+            // The f64 kernels read z24ma as one binary64 per component.
+            v[17] = self.z24ma.0;
+            v[18] = self.z24ma.1;
+            exps[17] = 0;
+            exps[18] = 0;
+        }
         // A fixed 8x8 complex biseries and the 23 orbit points precede the variable data.
         for i in 0..8 {
             for j in 0..8 {
-                let a = if i <= self.deg && j <= self.deg {
-                    self.bis[i][j]
-                } else {
-                    Cx::default()
+                let a = match deep {
+                    _ if i > self.deg || j > self.deg => Fx::default(),
+                    Some(d) => d.bis[i][j],
+                    None => Fx {
+                        m: self.bis[i][j],
+                        e: 0,
+                    },
                 };
-                v.extend([a.0, a.1]);
+                v.extend([a.m.0, a.m.1]);
+                exps.extend([a.e, a.e]);
             }
         }
         for a in &self.orbit {
@@ -656,10 +720,24 @@ impl Zone {
         if !v.iter().all(|x| x.is_finite()) {
             return Err("FP64 Vulkan zone constants are non-finite".into());
         }
+        exps.resize(v.len(), 0);
+        // Leave headroom for products of two extended values in i32 exponents.
+        let Ok(exps) = exps
+            .into_iter()
+            .map(|e| {
+                i32::try_from(e)
+                    .ok()
+                    .filter(|e| e.abs() < 1 << 28)
+                    .ok_or(())
+            })
+            .collect::<Result<Vec<i32>, ()>>()
+        else {
+            return Err("zone constant exponents exceed the GPU's i32 range".into());
+        };
         let cols = p.columns.with(Column::Class);
         let mut hd = header(view, p, cols, &plane, tier);
         hd.kernel = format!("zone-vulkan-f64/1 P={}", self.period);
-        Ok((hd, v))
+        Ok((hd, v, exps))
     }
 
     /// Constants for the wgpu mid-band kernel (GPU-22) when the CPU zone would render
@@ -762,7 +840,8 @@ impl Zone {
     }
 
     /// Bound on the pixel shift from truncating the first return (`u = v`) at the
-    /// biseries degree, for samples out to `r` with spacing `h` (both in `v` units).
+    /// biseries degree, for samples out to `r` with spacing `h` (both in `v` units, given
+    /// as `log2 r` and `log2 h`: at the k = 7676 rung they are ~2^-1650, below f64).
     /// `None` if the zone has no `diag` lines; infinite where the return map's
     /// derivative cannot be bounded away from 0.
     ///
@@ -770,11 +849,10 @@ impl Zone {
     /// bounded below at `|v| = r` by its largest term minus the others. The ratio grows
     /// like `r^4`, so the frame's outer radius is where it is largest. Not certified
     /// (PROB-13); later returns are not covered (their inputs do not depend on the frame).
-    fn truncation_shift(&self, r: f64, h: f64) -> Option<f64> {
+    fn truncation_shift(&self, lr: f64, lh: f64) -> Option<f64> {
         if self.diag.is_empty() {
             return None;
         }
-        let lr = r.log2();
         // log2 of each term's modulus: |S_n| r^n, and n |S_n| r^(n - 1) for dM/dv.
         let rem: Vec<f64> = (self.deg + 1..self.diag.len())
             .map(|n| self.diag[n] + n as f64 * lr)
@@ -789,7 +867,7 @@ impl Zone {
         }
         let rtop = rem.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         let rsum = rtop + rem.iter().map(|&t| (t - rtop).exp2()).sum::<f64>().log2();
-        Some((rsum - top - (1.0 - others).log2() - h.log2()).exp2())
+        Some((rsum - top - (1.0 - others).log2() - lh).exp2())
     }
 }
 
@@ -808,7 +886,11 @@ fn deep_covers(plane: &Plane, p: &Params, zone: &Zone, off: CentreOffset) -> boo
     } else {
         off.scaled.abs() + spacing * diagonal <= zone.max_dc.over(zone.scale)
     };
-    let shift = zone.truncation_shift(off.scaled.abs() + spacing * diagonal, spacing);
+    // log2 of the spacing and outer radius in v units, exact where they underflow f64.
+    let lh = (plane.h_m / zone.scale.mant).log2() + (plane.h_e - zone.scale.exp2) as f64;
+    let (lo, ls) = (off.scaled.abs().log2(), lh + diagonal.log2());
+    let lr = lo.max(ls) + (lo.min(ls) - lo.max(ls)).exp2().ln_1p() / std::f64::consts::LN_2;
+    let shift = zone.truncation_shift(lr, lh);
     inside && shift.is_none_or(|s| s <= SHIFT_PX)
 }
 
@@ -1623,10 +1705,10 @@ mod tests {
         assert!(at("9.3172e-29") && at("2e-49"));
         // Bound at frame 431's outer radius: 2.622e-6 px from the mpmath series.
         let (h, r) = (
-            1.70834e-28 / 1280.0 / 1e-25,
-            1.70834e-28 / 1280.0 * 640f64.hypot(360.0) / 1e-25,
+            1.70834e-28f64 / 1280.0 / 1e-25,
+            1.70834e-28f64 / 1280.0 * 640f64.hypot(360.0) / 1e-25,
         );
-        let s = z.truncation_shift(r, h).unwrap();
+        let s = z.truncation_shift(r.log2(), h.log2()).unwrap();
         assert!((s / 2.622e-6 - 1.0).abs() < 0.01, "{s}");
         // A zone without diag lines keeps the radius-only rule.
         let old: String = include_str!("../../../bench/zones/v0-core.zone")

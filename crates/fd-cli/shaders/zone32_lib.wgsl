@@ -12,7 +12,18 @@
 @group(0) @binding(2) var<storage, read_write> de_out: array<f32>;
 @group(0) @binding(3) var<storage, read_write> word_out: array<u32>;
 
-fn fe_at(i: i32) -> FE { let w = input_data[i]; return fe_from_f64(w.x, w.y); }
+// Extended-range zones (GPU-23): slot i is its binary64 mantissa times 2^exps[i], the
+// exponents packed two per word from slot EXP_BASE on; -1 means every exponent is 0.
+override EXP_BASE: i32 = -1;
+fn fe_at(i: i32) -> FE {
+    let w = input_data[i];
+    var x = fe_from_f64(w.x, w.y);
+    if (EXP_BASE >= 0 && x.m.hi != 0.0) {
+        let pair = input_data[EXP_BASE + i / 2];
+        x.e += bitcast<i32>(select(pair.x, pair.y, (i & 1) == 1));
+    }
+    return x;
+}
 // An O(1) constant as a float-float (zero, or exponents within f32's range).
 fn ff_at(i: i32) -> FF { return fe_to_ff(fe_at(i)); }
 // Small integers and counts.
@@ -35,6 +46,32 @@ fn ce_mul_f(x: CE, s: f32) -> CE { return ce_norm(ff_mul_f(x.re, s), ff_mul_f(x.
 fn ce_re(x: CE) -> FF { return ff_scale(x.re, x.e); }
 fn ce_im(x: CE) -> FF { return ff_scale(x.im, x.e); }
 fn ce_bad(x: CE) -> bool { return !(finite_f32(x.re.hi) && finite_f32(x.im.hi)); }
+fn ce_one() -> CE { return CE(ff(0.5), ff(0.0), 1); }
+fn ce_div(a: CE, b: CE) -> CE {
+    let n = ff_add(ff_mul(b.re, b.re), ff_mul(b.im, b.im));
+    let re = ff_add(ff_mul(a.re, b.re), ff_mul(a.im, b.im));
+    let im = ff_sub(ff_mul(a.im, b.re), ff_mul(a.re, b.im));
+    return ce_norm(ff_div(re, n), ff_div(im, n), a.e - b.e);
+}
+// |x|^2 as an FE, for comparisons that must follow the CPU's binary64 ones.
+fn ce_norm2(x: CE) -> FE {
+    return fe_norm(ff_add(ff_mul(x.re, x.re), ff_mul(x.im, x.im)), 2 * x.e);
+}
+// a <= b for non-negative FEs.
+fn fe_le(a: FE, b: FE) -> bool {
+    if (a.m.hi == 0.0) { return true; }
+    if (b.m.hi == 0.0) { return false; }
+    if (a.e != b.e) { return a.e < b.e; }
+    return ff_sub(a.m, b.m).hi <= 0.0;
+}
+fn fe_sqrt(x: FE) -> FE {
+    if (x.m.hi == 0.0) { return x; }
+    // e even: sqrt(m 2^e) = sqrt(m) 2^(e/2).
+    if ((x.e & 1) != 0) {
+        return fe_norm(ff_sqrt(ff_mul_f(x.m, 2.0)), (x.e - 1) / 2);
+    }
+    return fe_norm(ff_sqrt(x.m), x.e / 2);
+}
 
 // ---- R: a real f32 mantissa times 2^e, for magnitudes and comparisons ----
 struct R { m: f32, e: i32 }
