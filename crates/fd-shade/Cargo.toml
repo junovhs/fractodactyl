@@ -7,3 +7,5 @@ license.workspace = true
 
 [dependencies]
 fd-samples = { path = "../fd-samples" }
+pollster = "0.4"
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "wgsl"] }

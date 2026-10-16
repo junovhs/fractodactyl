@@ -1,7 +1,8 @@
 //! Looks: late appearance passes. Each declares the columns it reads and never
 //! recomputes fractal math: recolouring costs one pass over stored samples (DEC-07).
-//! This crate depends on `fd-samples` only, never on a kernel, so a look cannot
-//! iterate (a test below holds that line).
+//! This crate depends on `fd-samples` (and wgpu for the GPU studio passes), never on a
+//! kernel, so a look cannot iterate (a test below holds that line).
+pub mod gpu;
 mod looks;
 mod palette;
 mod png;
@@ -326,7 +327,7 @@ mod tests {
     }
     /// Looks are late: this crate links no kernel, so shading cannot iterate.
     #[test]
-    fn depends_on_samples_only() {
+    fn depends_on_samples_and_gpu_runtime_only() {
         let toml = include_str!("../Cargo.toml");
         let deps = toml.split("[dependencies]").nth(1).unwrap_or("");
         let names: Vec<&str> = deps
@@ -336,9 +337,11 @@ mod tests {
             .map(str::trim)
             .filter(|n| !n.is_empty())
             .collect();
+        // The only fractodactyl crate allowed is the sample format; wgpu and pollster run
+        // the studio's WGSL passes and cannot reach fractal math.
         assert_eq!(
             names,
-            ["fd-samples"],
+            ["fd-samples", "pollster", "wgpu"],
             "fd-shade must not depend on anything that can iterate"
         );
     }

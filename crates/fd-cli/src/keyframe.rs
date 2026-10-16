@@ -16,6 +16,7 @@ use crate::film::{render_frame_kernel, Used};
 use crate::path::sig6;
 use fd_kernel::{zone_covers, Params, Zone};
 use fd_samples::{Header, Samples, View};
+use fd_shade::gpu::Resample;
 use fd_shade::{Appearance, Look, Pass, PreparedStudio, Rgb8};
 
 /// Tent half-width in output pixels. Probe (FILM-04, 2 s spiral-on-spiral clip vs direct
@@ -38,7 +39,7 @@ pub(crate) struct Keyframes<'a> {
     /// Rendered keyframes still needed: (index, width, header, samples).
     cache: Vec<(usize, f64, Header, Samples, Option<PreparedStudio>)>,
     studio: Option<Look>,
-    gpu: Option<crate::film_gpu::FilmGpu>,
+    gpu: Option<fd_shade::gpu::StudioGpu>,
     #[cfg(test)]
     reference_shading: bool,
     shaded: [Rgb8; 2],
@@ -126,7 +127,7 @@ impl<'a> Keyframes<'a> {
     /// Try GPU shading; unsupported devices and looks retain the CPU film path.
     pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
         let multiple = self.p.nx as usize / self.out.0;
-        let gpu = crate::film_gpu::FilmGpu::new(look, a, self.out, multiple)?;
+        let gpu = fd_shade::gpu::StudioGpu::new(look, a, self.out, multiple)?;
         let name = gpu.name.clone();
         self.gpu = Some(gpu);
         Ok(name)
@@ -330,61 +331,6 @@ impl<'a> Keyframes<'a> {
         resample(&r, &self.shaded, &self.lut, &mut self.output);
         self.resample_seconds += t_resample.elapsed().as_secs_f64();
         Ok(&self.output)
-    }
-}
-
-/// Where one output frame reads its two keyframes: the zoom of each against the frame,
-/// the frame centre in each (keyframe widths/heights), the inner blend ramp, and each
-/// source's full size and the rectangle of it that was shaded.
-pub(crate) struct Resample {
-    pub(crate) out: (usize, usize),
-    pub(crate) sin: f32,
-    pub(crate) cos: f32,
-    pub(crate) zoom: (f32, f32),
-    pub(crate) outer_at: (f32, f32),
-    pub(crate) inner_at: (f32, f32),
-    pub(crate) ramp: f32,
-    pub(crate) margin: f32,
-    pub(crate) outer: ((usize, usize), (usize, usize, usize, usize)),
-    pub(crate) inner: ((usize, usize), (usize, usize, usize, usize)),
-}
-
-impl Resample {
-    /// The WGSL resample parameter block: seven vec4s, 112 bytes (film_resample.wgsl).
-    pub(crate) fn uniform(&self) -> Vec<u8> {
-        let u = |v: usize| v as u32;
-        let rect = |(x, y, w, h): (usize, usize, usize, usize)| [u(x), u(y), u(w), u(h)];
-        let (((ow, oh), ro), ((iw, ih), ri)) = (self.outer, self.inner);
-        let ints = [
-            u(self.out.0),
-            u(self.out.1),
-            u(ow),
-            u(oh),
-            u(iw),
-            u(ih),
-            0,
-            0,
-        ];
-        let floats = [
-            self.zoom.0,
-            self.zoom.1,
-            self.outer_at.0,
-            self.outer_at.1,
-            self.inner_at.0,
-            self.inner_at.1,
-            self.ramp,
-            self.margin,
-            self.sin,
-            self.cos,
-            0.0,
-            0.0,
-        ];
-        let rects = rect(ro).into_iter().chain(rect(ri));
-        ints.into_iter()
-            .flat_map(u32::to_ne_bytes)
-            .chain(floats.into_iter().flat_map(f32::to_ne_bytes))
-            .chain(rects.flat_map(u32::to_ne_bytes))
-            .collect()
     }
 }
 

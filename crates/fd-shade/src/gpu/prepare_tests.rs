@@ -1,16 +1,16 @@
 //! Studio prepare pass on wgpu (SHAD-03/05): runs film_prepare.wgsl alone, plus the CPU
 //! mirror of fd-shade Studio's per-sample terms it is checked against.
 
-use crate::film_gpu::{shade_push, PREPARE};
-use crate::wgpu_compute::{bytes, dispatch, words, Binding};
-use fd_shade::{Appearance, Look};
+use super::testkit::{bytes, dispatch, words, Binding};
+use super::{shade_push, PREPARE};
+use crate::{Appearance, Look};
 
 const LN_2: f32 = std::f32::consts::LN_2;
 const BAND_K: f32 = -2.0 * (std::f32::consts::PI * 0.5) * (std::f32::consts::PI * 0.5);
 
 /// Run the WGSL prepare pass over a `w` x `h` keyframe of packed raw samples with
 /// look `l` at appearance `a`. Returns the adapter name and two cooked words per sample.
-pub(crate) fn run(
+pub(super) fn run(
     samples: &[[u32; 4]],
     (w, h): (usize, usize),
     l: &Look,
@@ -42,7 +42,7 @@ pub(crate) fn run(
 /// CPU mirror of fd-shade Studio's per-sample terms at one sample per pixel, in its f32
 /// operation order: t = density * nu (f64), band weight, light, haze weight and tone,
 /// cycles.
-pub(crate) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[u32; 8]> {
+pub(super) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[u32; 8]> {
     let density = l.density * f64::from(a.density());
     let (ls, lc) = l.light.to_radians().sin_cos();
     let (lx, ly) = (lc, -ls);
@@ -90,8 +90,8 @@ pub(crate) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[
 
 #[cfg(test)]
 mod tests {
+    use super::super::testkit::or_skip;
     use super::*;
-    use crate::wgpu_compute::or_skip;
 
     /// Largest float-bit distance, in ulps, the WGSL pass may differ from the reference.
     /// GPU exp/tanh/sin/cos are not correctly rounded, and exp's error grows with its

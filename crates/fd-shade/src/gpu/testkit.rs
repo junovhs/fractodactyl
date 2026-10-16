@@ -1,13 +1,13 @@
-//! wgpu device selection shared by the WGSL film passes, and a one-shot compute
-//! dispatch (bind buffers in declaration order, dispatch, read the output back) for tests.
+//! wgpu device selection for the studio passes, plus the plumbing their tests use (here
+//! and in fd-cli): a one-shot compute dispatch (bind buffers in declaration order,
+//! dispatch, read the output back) and the no-adapter skip rule.
 
-#[cfg(test)]
 use std::sync::mpsc;
 
 /// The first Vulkan adapter wgpu offers, preferring a discrete GPU, opened with the
 /// adapter's own limits (keyframe buffers exceed wgpu's conservative defaults).
 /// Returns the adapter name, device and queue.
-pub(crate) fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
+pub fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::VULKAN,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -26,9 +26,8 @@ pub(crate) fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Qu
     Ok((name, device, queue))
 }
 
-#[cfg(test)]
 /// A buffer bound at the binding number equal to its position in the list.
-pub(crate) enum Binding<'a> {
+pub enum Binding<'a> {
     /// Read-only storage, uploaded from these bytes.
     Read(&'a [u8]),
     /// Read-write storage of this many bytes; the one buffer read back.
@@ -40,8 +39,7 @@ pub(crate) enum Binding<'a> {
 /// Run `entry` of the WGSL `source` over `groups` workgroups on the first Vulkan
 /// adapter wgpu offers, preferring a discrete GPU. Returns the adapter name and the
 /// bytes of the single `Out` binding.
-#[cfg(test)]
-pub(crate) fn dispatch(
+pub fn dispatch(
     label: &str,
     source: &str,
     entry: &str,
@@ -156,8 +154,7 @@ pub(crate) fn dispatch(
 /// A GPU test's result, or `None` after printing a skip when this machine has no wgpu
 /// Vulkan adapter (CI's Windows runner). With FD_REQUIRE_GPU set (CI's Linux runner,
 /// on lavapipe) a missing adapter fails instead; any other error always fails.
-#[cfg(test)]
-pub(crate) fn or_skip<T>(result: Result<T, String>, what: &str) -> Option<T> {
+pub fn or_skip<T>(result: Result<T, String>, what: &str) -> Option<T> {
     match result {
         Ok(v) => Some(v),
         Err(e) if e.contains("no wgpu Vulkan adapter") => {
@@ -173,8 +170,7 @@ pub(crate) fn or_skip<T>(result: Result<T, String>, what: &str) -> Option<T> {
 }
 
 /// Native-endian bytes of a word slice, for upload.
-#[cfg(test)]
-pub(crate) fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {
+pub fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {
     words
         .iter()
         .flat_map(|&w| Into::<u32>::into(w).to_ne_bytes())
@@ -182,8 +178,7 @@ pub(crate) fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {
 }
 
 /// Words of a read-back byte buffer.
-#[cfg(test)]
-pub(crate) fn words(bytes: &[u8]) -> Vec<u32> {
+pub fn words(bytes: &[u8]) -> Vec<u32> {
     bytes
         .chunks_exact(4)
         .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
