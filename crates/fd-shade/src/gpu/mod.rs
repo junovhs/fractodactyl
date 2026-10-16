@@ -25,7 +25,10 @@ pub const SHADE: &str = concat!(
     include_str!("../../shaders/film_shade.wgsl")
 );
 /// The tent resample source: two shaded keyframes into one (possibly rotated) frame.
-pub const RESAMPLE: &str = include_str!("../../shaders/film_resample.wgsl");
+pub const RESAMPLE: &str = concat!(
+    include_str!("../../shaders/soft_f64.wgsl"),
+    include_str!("../../shaders/film_resample.wgsl")
+);
 
 type Rect = (usize, usize, usize, usize);
 type Source<'a> = (&'a Samples, (usize, usize), Rect);
@@ -211,6 +214,17 @@ impl Resample {
     }
 }
 
+/// (cos, sin) of every stored normal angle, as fd-shade's CPU studio computes them
+/// (`Samples::unit`), for the prepare pass.
+pub fn unit_table() -> Vec<u8> {
+    (0..=u16::MAX)
+        .flat_map(|a| {
+            let (c, s) = Samples::unit(a);
+            c.to_ne_bytes().into_iter().chain(s.to_ne_bytes())
+        })
+        .collect()
+}
+
 /// One keyframe's raw samples and prepared words (palette base, relief, band AA, haze
 /// and line terms), prepared on upload and again only when the density changes.
 struct Key {
@@ -235,6 +249,7 @@ pub struct StudioGpu {
     shaded: [Option<wgpu::Buffer>; 2],
     palette: wgpu::Buffer,
     lut: wgpu::Buffer,
+    unit: wgpu::Buffer,
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     host_output: Vec<u8>,
@@ -299,6 +314,9 @@ impl StudioGpu {
             .collect();
         let lut = storage(&device, table.len() as u64, false);
         queue.write_buffer(&lut, 0, &table);
+        let normals = unit_table();
+        let unit = storage(&device, normals.len() as u64, false);
+        queue.write_buffer(&unit, 0, &normals);
         let bytes = (out.0 * out.1 * 4) as u64;
         let output = storage(&device, bytes, true);
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
@@ -321,6 +339,7 @@ impl StudioGpu {
             shaded: [None, None],
             palette,
             lut,
+            unit,
             output,
             readback,
             host_output: vec![0; out.0 * out.1 * 3],
@@ -416,7 +435,10 @@ impl StudioGpu {
         }
         let params = self.uniform(&push.bytes());
         let key = &self.keys[k];
-        let group = self.group(&self.prepare, &[&key.samples, &key.prepared, &params]);
+        let group = self.group(
+            &self.prepare,
+            &[&key.samples, &key.prepared, &params, &self.unit],
+        );
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());

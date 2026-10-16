@@ -1,5 +1,5 @@
-// Exact IEEE binary64 arithmetic on 32-bit integers (SHAD-04/05), shared by the film
-// WGSL passes; Rust prepends this file to each pass's source. Values are
+// Exact IEEE binary64 arithmetic on 32-bit integers (SHAD-04/05) and backend-safe f32
+// helpers, shared by the film WGSL passes; Rust prepends this file to each pass's source. Values are
 // sign * m * 2^e with m a 64-bit integer held in vec2<u32> (x = low, y = high).
 
 // ---- 64-bit unsigned integers ----
@@ -272,4 +272,10 @@ fn to_f64_bits(a: Soft) -> vec2<u32> {
 
 fn finite_f32(x: f32) -> bool {
     return (bitcast<u32>(x) & 0x7f800000u) != 0x7f800000u;
+}
+
+// pow without the zero-base hazard: some backends (DX12 WARP) evaluate pow(0, y) as
+// exp2(y * log2(0)) and return NaN; for y > 0 the value is 0.
+fn pow_nonneg(x: f32, y: f32) -> f32 {
+    return select(pow(x, y), 0.0, x <= 0.0);
 }
