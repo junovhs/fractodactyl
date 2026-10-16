@@ -14,13 +14,6 @@ const KP_AT: i32 = K_AT + 2 * 19;
 const T_AT: i32 = KP_AT + 2 * 19;
 const REF_AT: i32 = T_AT + 2 * 512;
 
-fn ce_one() -> CE { return CE(ff(0.5), ff(0.0), 1); }
-fn ce_div(a: CE, b: CE) -> CE {
-    let n = ff_add(ff_mul(b.re, b.re), ff_mul(b.im, b.im));
-    let re = ff_add(ff_mul(a.re, b.re), ff_mul(a.im, b.im));
-    let im = ff_sub(ff_mul(a.im, b.re), ff_mul(a.re, b.im));
-    return ce_norm(ff_div(re, n), ff_div(im, n), a.e - b.e);
-}
 // ln|x| = 0.5 ln|m|^2 + e ln 2.
 fn ce_ln_abs(x: CE) -> FF {
     let m2 = ff_add(ff_mul(x.re, x.re), ff_mul(x.im, x.im));

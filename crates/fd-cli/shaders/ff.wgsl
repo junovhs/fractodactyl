@@ -173,6 +173,9 @@ fn ce_mul(x: CE, y: CE) -> CE {
     return ce_norm(re, im, x.e + y.e);
 }
 fn ce_add(x: CE, y: CE) -> CE {
+    // A zero carries exponent 0, which must not decide the alignment.
+    if (x.re.hi == 0.0 && x.im.hi == 0.0) { return y; }
+    if (y.re.hi == 0.0 && y.im.hi == 0.0) { return x; }
     if (x.e >= y.e) {
         let d = max(y.e - x.e, -150);
         return ce_norm(ff_add(x.re, ff_scale(y.re, d)), ff_add(x.im, ff_scale(y.im, d)), x.e);

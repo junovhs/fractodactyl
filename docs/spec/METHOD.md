@@ -2939,3 +2939,77 @@ pixels the CPU mid operator declined to full perturbation; the GPU uses the same
     lavapipe. That is once per process.
   - Afterwards the GPU is faster than the CPU zone on every frame: 16-25 ms (mixed) and
     35-44 ms (f32only), against 47-69 ms.
+
+### GPU-23: extended-range zones on the f32-only GPU kernel, RX 5700 XT and lavapipe (2026-10-16)
+
+`--gpu-kernel f32only` now renders zones whose constants leave f64's range, the deep
+(`Fx`) tier from KERN-05. Before, the wgpu path declined every such frame to the CPU
+zone. `fd render --gpu-kernel` now takes `f32only` as well as `f64`. Other GPU modes
+still decline these zones on stderr.
+
+**Packing.** `Zone::gpu_extended_input` keeps the deep layout. Each slot holds a
+binary64 mantissa plus a binary exponent (`|e| < 2^28`), and the exponents are
+appended two per word. zone32_lib.wgsl's `fe_at` adds slot `i`'s exponent from the
+`EXP_BASE` override. The slots that need one at k=7676:
+- scale 2^-1661 and guard;
+- the centre offset in zone units (from the exact offset);
+- the sample spacing in zone units (~2^-1658);
+- the output pixel;
+- the biseries (to 2^1666) and the Koenigs entry offset.
+
+The kernel already worked in exponent-carrying formats (CE/CF/R), so the
+arithmetic did not change. `zone_extended_packing_roundtrip` runs `fe_at`/`ce_at` on
+the device for slots at exponents -3000 and +3000.
+
+**Three fixes on the way:**
+- **CPU coverage (`deep_covers`).** The first-return truncation bound took the sample
+  spacing in zone units as an f64. At k=7676 that is ~2^-1658, so it underflowed to 0,
+  log2 r became -inf and the bound NaN. Every frame of a make_zone.sh rung zone with
+  `diag` lines was declined, on the CPU path as well. The bound now takes log2 r and
+  log2 h from the exact mantissas and exponents.
+- **`ce_add` with a zero operand.** A zero carries exponent 0. Adding it to a value at
+  exponent -1661 aligned that value to the zero and shifted it out (the shift is
+  capped at 2^-150). Zero operands now return the other operand.
+- **Interior tests that follow the CPU.** The GPU's `attracted()` (the return map's
+  attracting cycle) ran Newton with f32 derivatives and compared f32 magnitudes
+  against slightly different constants (2^-47 and 2^-40 for the CPU's 1e-14 and
+  1e-12). Samples at the edge of a basin flipped between Interior and Unresolved in
+  both directions (in stills, Unresolved is magenta). Now:
+  - Newton, its derivatives and the return map's derivative run in CE.
+  - Comparisons are float-float squared norms against the CPU's 1e-28 and 1e-24.
+  - Newton also counts as converged at CE's own floor, |step| <= 2^-44 |x| / |B' - 1|.
+    The residual B^q(x) - x cancels to about 2^-48 |x|, so near a component's root
+    float-float stalls where binary64 still reaches 1e-14.
+  - These tests run only at returns 16, 32, 64..., so the cost is negligible.
+  - As a side effect, GPU-28's 2e-49 frame now has 0 class differences (it had 753).
+
+**Check** (`gpu_zone_extended_parity`): rung zones from `make_zone.sh` (k=7676: 60 s,
+k=409: 14 s), PROB-19's widths, max_iter 40P, against the CPU zone, at the strict
+bar with fd compare's DE (0.2%) and normal (0.2 degree) gates.
+
+| rung | grid | sizes | class | nu > 1e-3 px | de / normal over | worst nu px | GPU ms (RX 5700 XT / lavapipe) | CPU zone ms |
+|---|---|---|---|---|---|---|---|---|
+| k=7676 (~1e-1000) | 96x54 | 5000 | 0 | 0 | 0 / 0 | 1.9e-11 | 2191 incl. compile / 5504 | 3 |
+| k=7676 | 96x54 | 500 | 0 | 0 | 0 / 0 | 6.2e-10 | 10 / 13 | 3 |
+| k=7676 | 96x54 | 50 | 0 | 0 | 0 / 0 | 7.2e-11 | 15 / 12 | 3 |
+| k=7676 | 96x54 | 5 | 0 | 0 | 0 / 0 | 6.7e-10 | 17 / 15 | 2 |
+| k=7676 | 480x270 | 5000 | 0 | 0 | 0 / 0 | 1.4e-10 | 27 / 1535 | 24 |
+| k=7676 | 480x270 | 500 | 0 | 0 | 0 / 0 | 1.1e-8 | 21 / 99 | 24 |
+| k=7676 | 480x270 | 50 | 0 | 0 | 0 / 0 | 3.3e-9 | 22 / 95 | 25 |
+| k=7676 | 480x270 | 5 | 0 | 0 | 0 / 0 | 3.3e-9 | 33 / 161 | 30 |
+| k=409 (~1e-100) | 480x270 | 5000 | 0 | 0 | 0 / 0 | 1.1e-5 | 2051 incl. compile / 5076 | 12 |
+| k=409 | 480x270 | 500 | 0 | 0 | 0 / 0 | 4.4e-8 | 19 / 78 | 10 |
+| k=409 | 480x270 | 50 | 0 | 0 | 0 / 0 | 3.6e-5 | 20 / 91 | 9 |
+| k=409 | 480x270 | 5 | 0 | 0 | 0 / 0 | 7.5e-7 | 31 / 155 | 11 |
+
+- Worst DE error is 8.5e-6 (k=7676) and 6.1e-4 (k=409). Worst normal error is
+  0.027 degrees.
+- k=409 is still inside f64's range, so it runs the ordinary f32only deep stage.
+- **CLI surface:** `fd render RE IM --width 5.05e-997 (and 5.05e-999) --size 480x270
+  --zone rung7676.zone --gpu-kernel f32only` against the CPU zone. `fd compare` gives
+  ok: 0 class mismatches, nu at most 3.3e-9 px, de 4.8e-6 rel, normal 0.0055 degrees.
+- **Speed:** at these sizes the GPU is not faster than the CPU zone, which takes
+  2-30 ms with 24 threads. The point is that extended zones no longer need a CPU
+  fallback (DEC-28).
+- The first pipeline per process compiles in about 2 s on RADV.
+- GPU-29 carries the RTX 3050 Ti and Iris Xe rows.

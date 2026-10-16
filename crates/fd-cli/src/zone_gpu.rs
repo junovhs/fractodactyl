@@ -123,27 +123,54 @@ pub(crate) enum Stage {
     Deep,
     /// KERN-02's co-moving two-cycle jump (zone_mid.wgsl / zone_mid32.wgsl, GPU-22).
     Mid,
+    /// [`Stage::Deep`] on an extended-range zone (GPU-23, f32only only): the binary
+    /// exponent table starts at this constant slot.
+    Extended(usize),
 }
 
 impl Stage {
     /// Slot of r^2 in the stage's constants.
     fn escape_slot(self) -> usize {
         match self {
-            Self::Deep => 21,
+            Self::Deep | Self::Extended(_) => 21,
             Self::Mid => 3,
         }
     }
 }
 
+/// Append slot exponents two per 8-byte word (low word first), as zone32_lib.wgsl's
+/// `fe_at` reads them; returns the first exponent slot (`EXP_BASE`).
+fn pack_exponents(v: &mut Vec<f64>, exps: &[i32]) -> usize {
+    let base = v.len();
+    v.extend(exps.chunks(2).map(|e| {
+        let hi = e.get(1).copied().unwrap_or(0) as u32;
+        f64::from_bits(u64::from(e[0] as u32) | u64::from(hi) << 32)
+    }));
+    base
+}
+
 /// The frame's constants for whichever operator the CPU zone would use on it.
-fn inputs(view: &View, p: &Params, zone: &Zone) -> Result<(Stage, Header, Vec<f64>), String> {
-    match zone.gpu_f64_input(view, p) {
-        Ok((h, v)) => Ok((Stage::Deep, h, v)),
-        Err(deep) => zone
-            .gpu_mid_input(view, p)
-            .map(|(h, v)| (Stage::Mid, h, v))
-            .map_err(|_| deep),
+fn inputs(
+    view: &View,
+    p: &Params,
+    zone: &Zone,
+    mode: Kernel,
+) -> Result<(Stage, Header, Vec<f64>), String> {
+    let deep = match zone.gpu_f64_input(view, p) {
+        Ok((h, v)) => return Ok((Stage::Deep, h, v)),
+        Err(e) => e,
+    };
+    if zone.extended() {
+        if mode != Kernel::F32Only {
+            return Err("extended-range zones run on the GPU with --gpu-kernel f32only".into());
+        }
+        let (h, mut v, exps) = zone.gpu_extended_input(view, p)?;
+        let base = pack_exponents(&mut v, &exps);
+        return Ok((Stage::Extended(base), h, v));
     }
+    zone.gpu_mid_input(view, p)
+        .map(|(h, v)| (Stage::Mid, h, v))
+        .map_err(|_| deep)
 }
 
 impl Renderer {
@@ -304,15 +331,19 @@ impl Gpu {
             label: Some("fd zone kernel"),
             source: wgpu::ShaderSource::Wgsl(
                 match stage {
-                    Stage::Deep => mode.source(),
+                    Stage::Deep | Stage::Extended(_) => mode.source(),
                     Stage::Mid => mode.mid_source(),
                 }
                 .into(),
             ),
         });
         let shape = match stage {
-            Stage::Deep => specialisation(constants),
+            Stage::Deep | Stage::Extended(_) => specialisation(constants),
             Stage::Mid => [0; 3],
+        };
+        let exp_base = match stage {
+            Stage::Extended(base) => base as f64,
+            _ => -1.0,
         };
         let all = [
             ("DEG", f64::from(shape[0])),
@@ -320,8 +351,15 @@ impl Gpu {
             ("NPSI", f64::from(shape[2])),
             ("F32_FRONT", if mode == Kernel::F32 { 1.0 } else { 0.0 }),
         ];
+        let extended = [
+            ("DEG", f64::from(shape[0])),
+            ("NPHI", f64::from(shape[1])),
+            ("NPSI", f64::from(shape[2])),
+            ("EXP_BASE", exp_base),
+        ];
         let overrides = match (stage, mode) {
             (Stage::Mid, _) => &all[..0],
+            (Stage::Extended(_), _) => &extended[..],
             (Stage::Deep, Kernel::F32Only) => &all[..3],
             (Stage::Deep, _) => &all[..],
         };
@@ -489,7 +527,7 @@ impl Renderer {
         zone: &Zone,
     ) -> Result<(Header, Samples), String> {
         let start = Instant::now();
-        let (stage, mut header, constants) = inputs(view, p, zone)?;
+        let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let prep = start.elapsed();
         let count = (p.nx as usize)
@@ -525,7 +563,7 @@ impl Renderer {
     /// Build (or keep) the pipeline and buffers for this keyframe's grid and zone shape.
     fn prepare(&mut self, stage: Stage, count: usize, constants: &[f64]) -> Result<(), String> {
         let shape = match stage {
-            Stage::Deep => specialisation(constants),
+            Stage::Deep | Stage::Extended(_) => specialisation(constants),
             Stage::Mid => [0; 3],
         };
         let layout = (stage, count, constants.len(), shape);
@@ -556,7 +594,7 @@ impl Renderer {
         id: usize,
     ) -> Result<Option<Header>, String> {
         let start = Instant::now();
-        let (stage, mut header, constants) = inputs(view, p, zone)?;
+        let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
@@ -1102,6 +1140,237 @@ mod tests {
                 } else {
                     assert_eq!(classes, 0, "{mode:?} frame {index}: class mismatches");
                     assert_eq!(strict, 0, "{mode:?} frame {index}: samples over 1e-3 px");
+                }
+            }
+        }
+    }
+
+    /// GPU-23: slot exponents at -3000 and +3000 survive the packing and zone32_lib's
+    /// `fe_at`/`ce_at` on the device, including a zero mantissa that carries a huge
+    /// exponent next to a tiny partner (a zero must not decide CE alignment).
+    #[test]
+    fn zone_extended_packing_roundtrip() {
+        use fd_shade::gpu::testkit::{dispatch, or_skip, Binding};
+        // (mantissa, exponent) per slot; slots 6..7 and 8..9 are complex pairs.
+        let slots: [(f64, i32); 10] = [
+            (1.5, -3000),
+            (-1.25, 3000),
+            (0.75, 0),
+            (1.0000000001, -3000),
+            (-1.9999999, 2999),
+            (0.0, 3000),
+            (1.5, -3000),
+            (0.0, 0),
+            (0.0, 3000),
+            (1.25, -3000),
+        ];
+        let mut v: Vec<f64> = slots.iter().map(|s| s.0).collect();
+        let exps: Vec<i32> = slots.iter().map(|s| s.1).collect();
+        let base = pack_exponents(&mut v, &exps);
+        let words: Vec<u8> = v.iter().flat_map(|x| x.to_ne_bytes()).collect();
+        let entry = r#"
+@compute @workgroup_size(1)
+fn probe() {
+    ff_init(input_data[2].x);
+    for (var i = 0; i < 6; i += 1) {
+        let x = fe_at(i);
+        nu_out[2 * i] = vec2<u32>(bitcast<u32>(x.m.hi), bitcast<u32>(x.m.lo));
+        nu_out[2 * i + 1] = vec2<u32>(bitcast<u32>(x.e), 0u);
+    }
+    for (var k = 0; k < 2; k += 1) {
+        let z = ce_at(6 + 2 * k);
+        nu_out[12 + 3 * k] = vec2<u32>(bitcast<u32>(z.re.hi), bitcast<u32>(z.re.lo));
+        nu_out[13 + 3 * k] = vec2<u32>(bitcast<u32>(z.im.hi), bitcast<u32>(z.im.lo));
+        nu_out[14 + 3 * k] = vec2<u32>(bitcast<u32>(z.e), 0u);
+    }
+}
+"#;
+        let source = format!(
+            "{}\n{}\n{}\n{entry}",
+            crate::zone_ff::FF,
+            include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
+            include_str!("../shaders/zone32_lib.wgsl").replace(
+                "override EXP_BASE: i32 = -1;",
+                &format!("const EXP_BASE: i32 = {base};")
+            )
+        );
+        let Some((name, out)) = or_skip(
+            dispatch(
+                "fd zone extended packing",
+                &source,
+                "probe",
+                &[Binding::Read(&words), Binding::Out(18 * 8)],
+                (1, 1),
+            ),
+            "GPU-23 packing",
+        ) else {
+            return;
+        };
+        let w: Vec<u32> = out
+            .chunks_exact(4)
+            .map(|b| u32::from_ne_bytes(b.try_into().unwrap()))
+            .collect();
+        let ff =
+            |at: usize| f64::from(f32::from_bits(w[at])) + f64::from(f32::from_bits(w[at + 1]));
+        // m 2^e with m in [0.5, 1), as fe_norm leaves it.
+        let norm = |m: f64, e: i32| {
+            if m == 0.0 {
+                return (0.0, 0);
+            }
+            let k = m.abs().log2().floor() as i32 + 1;
+            (m / 2f64.powi(k), e + k)
+        };
+        for (i, &(m, e)) in slots.iter().take(6).enumerate() {
+            let (want, we) = norm(m, e);
+            let (got, ge) = (ff(4 * i), w[4 * i + 2] as i32);
+            assert!(
+                (got - want).abs() <= 2f64.powi(-44) && (want == 0.0 || ge == we),
+                "{name}: slot {i}: got {got:e} * 2^{ge}, want {want:e} * 2^{we}"
+            );
+        }
+        for k in 0..2 {
+            let at = 24 + 6 * k;
+            let (re, im, e) = (ff(at), ff(at + 2), w[at + 4] as i32);
+            let (want_re, want_im) = (slots[6 + 2 * k], slots[7 + 2 * k]);
+            // The pair's one exponent belongs to its non-zero part.
+            let (m, we) = if want_re.0 != 0.0 {
+                norm(want_re.0, want_re.1)
+            } else {
+                norm(want_im.0, want_im.1)
+            };
+            let (gr, gi) = if want_re.0 != 0.0 { (re, im) } else { (im, re) };
+            assert!(
+                (gr - m).abs() <= 2f64.powi(-44) && gi == 0.0 && e == we,
+                "{name}: pair {k}: got ({re:e}, {im:e}) * 2^{e}, want {m:e} * 2^{we}"
+            );
+        }
+        eprintln!("GPU-23 packing on {name}: exponents -3000..3000 round-trip");
+    }
+
+    /// The zone built by tools/research/misiurewicz/make_zone.sh at ladder rung `k`
+    /// (FD_RUNG_ZONES/rung{k}.zone, default out/zones), with the rung's nucleus.
+    fn rung_zone(k: u32) -> Option<(Zone, String, String, u64)> {
+        let dir = std::env::var_os("FD_RUNG_ZONES").map_or_else(
+            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/zones"),
+            std::path::PathBuf::from,
+        );
+        let text = std::fs::read_to_string(dir.join(format!("rung{k}.zone"))).ok()?;
+        let line = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
+            .lines()
+            .find(|l| l.starts_with(&format!("{k} ")))
+            .unwrap();
+        let f: Vec<&str> = line.split_whitespace().collect();
+        Some((
+            Zone::parse(&text).unwrap(),
+            f[2].into(),
+            f[3].into(),
+            f[1].parse().unwrap(),
+        ))
+    }
+
+    /// GPU-23: ladder-rung frames on the f32-only kernel against the CPU zone, at
+    /// PROB-19's widths (5000, 500, 50 and 5 minibrot sizes): the k = 7676 rung
+    /// (~1e-1000, extended range) at 96x54 and 480x270, and k = 409 (~1e-100) at 480x270.
+    /// Strict bar: 0 class mismatches, every escaped sample within 1e-3 px in nu
+    /// position, and fd compare's DE (0.2%) and normal (0.2 degree) gates where the
+    /// reference DE exceeds 1e-3 px.
+    #[test]
+    fn gpu_zone_extended_parity() {
+        for (k, size, grids) in [
+            (7676u32, "1.01e-1000", &[(96u32, 54u32), (480, 270)][..]),
+            (409, "9.2e-101", &[(480, 270)][..]),
+        ] {
+            let Some((zone, re, im, period)) = rung_zone(k) else {
+                eprintln!("GPU-23 SKIP: no rung{k}.zone (FD_RUNG_ZONES or out/zones)");
+                continue;
+            };
+            let mut gpu = Renderer::new(Kernel::F32Only);
+            for &(nx, ny) in grids {
+                let p = Params {
+                    nx,
+                    ny,
+                    ss: 1,
+                    max_iter: 40 * period,
+                    escape_radius: 1e10,
+                    columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
+                    threads: 24,
+                    tier: None,
+                };
+                for mult in ["5000", "500", "50", "5"] {
+                    let (m, e) = size.split_once('e').unwrap();
+                    let width = format!(
+                        "{}e{e}",
+                        m.parse::<f64>().unwrap() * mult.parse::<f64>().unwrap()
+                    );
+                    let view = View {
+                        center_re: re.clone(),
+                        center_im: im.clone(),
+                        width,
+                        rotation: 0.0,
+                    };
+                    let t = Instant::now();
+                    let (_, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
+                    let cpu_ms = t.elapsed().as_secs_f64() * 1e3;
+                    let t = Instant::now();
+                    let got = match gpu.render(&view, &p, &zone) {
+                        Ok((_, s)) => s,
+                        Err(e) if e.contains("no wgpu") => {
+                            eprintln!("GPU-23 SKIP: {e}");
+                            return;
+                        }
+                        Err(e) => panic!("rung {k} {mult} sizes: {e}"),
+                    };
+                    let ms = t.elapsed().as_secs_f64() * 1e3;
+                    let stage = gpu.layout.unwrap().0;
+                    let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
+                    let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
+                    let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
+                    let (mut classes, mut nu_off, mut de_off, mut normal_off) = (0, 0, 0, 0);
+                    let (mut worst, mut escaped) = ([0.0f64; 3], 0);
+                    for i in 0..cpu.class.len() {
+                        if cpu.class[i].kind() != got.class[i].kind() {
+                            classes += 1;
+                            eprintln!(
+                                "GPU-23 class at ({}, {}): CPU {:?}, GPU {:?}",
+                                i % nx as usize,
+                                i / nx as usize,
+                                cpu.class[i].kind(),
+                                got.class[i].kind()
+                            );
+                            continue;
+                        }
+                        if !cpu.class[i].escaped() {
+                            continue;
+                        }
+                        escaped += 1;
+                        let de = f64::from(ad[i]);
+                        let px = (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
+                        let rel = (f64::from(bd[i]) / de - 1.0).abs();
+                        let deg =
+                            f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
+                                * 360.0
+                                / 65536.0;
+                        worst[0] = worst[0].max(px);
+                        nu_off += usize::from(px.is_nan() || px > 1e-3);
+                        if de > 1e-3 {
+                            worst[1] = worst[1].max(rel);
+                            worst[2] = worst[2].max(deg);
+                            de_off += usize::from(rel.is_nan() || rel > 2e-3);
+                            normal_off += usize::from(deg > 0.2);
+                        }
+                    }
+                    eprintln!(
+                        "GPU-23 rung {k} {nx}x{ny} {mult} sizes ({stage:?}): class {classes}, nu > 1e-3 px {nu_off}, de > 0.2% {de_off}, normal > 0.2 deg {normal_off}; worst nu {:.1e} px, de {:.1e}, normal {:.1e} deg over {escaped} escaped; GPU {ms:.0} ms, CPU zone {cpu_ms:.0} ms",
+                        worst[0], worst[1], worst[2]
+                    );
+                    if k == 7676 {
+                        assert!(matches!(stage, Stage::Extended(_)), "rung {k}: {stage:?}");
+                    }
+                    assert_eq!(
+                        (classes, nu_off, de_off, normal_off),
+                        (0, 0, 0, 0),
+                        "rung {k} {nx}x{ny} {mult} sizes"
+                    );
                 }
             }
         }
