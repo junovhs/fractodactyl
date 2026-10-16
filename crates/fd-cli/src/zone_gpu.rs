@@ -54,12 +54,31 @@ impl Kernel {
 
     /// The WGSL module: zone.wgsl plus the guarded f32 finish, or a stub
     /// that keeps the f64 kernel free of subgroup operations.
+    /// The mid-band module (GPU-22).
+    fn mid_source(self) -> String {
+        if self == Self::F32Only {
+            return format!(
+                "{}\n{}\n{}\n{}",
+                crate::zone_ff::FF,
+                include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
+                include_str!("../shaders/zone32_lib.wgsl"),
+                include_str!("../shaders/zone_mid32.wgsl")
+            );
+        }
+        format!(
+            "{}\n{}",
+            include_str!("../shaders/zone_f64_lib.wgsl"),
+            include_str!("../shaders/zone_mid.wgsl")
+        )
+    }
+
     fn source(self) -> String {
         if self == Self::F32Only {
             return format!(
-                "{}\n{}\n{}",
+                "{}\n{}\n{}\n{}",
                 crate::zone_ff::FF,
                 include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
+                include_str!("../shaders/zone32_lib.wgsl"),
                 include_str!("../shaders/zone32.wgsl")
             );
         }
@@ -72,7 +91,11 @@ impl Kernel {
                 include_str!("../shaders/zone_finish32.wgsl")
             }
         };
-        format!("{}\n{tail}", include_str!("../shaders/zone.wgsl"))
+        format!(
+            "{}\n{}\n{tail}",
+            include_str!("../shaders/zone_f64_lib.wgsl"),
+            include_str!("../shaders/zone.wgsl")
+        )
     }
 
     fn features(self) -> wgpu::Features {
@@ -90,7 +113,37 @@ pub(crate) struct Renderer {
     mode: Kernel,
     opened: Option<Opened>,
     gpu: Option<Gpu>,
-    layout: Option<(usize, usize, [i32; 3])>,
+    layout: Option<(Stage, usize, usize, [i32; 3])>,
+}
+
+/// Which zone operator a frame uses, as the CPU zone decides it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Stage {
+    /// Return map, approach, Koenigs jump or patch, finish (zone.wgsl / zone32.wgsl).
+    Deep,
+    /// KERN-02's co-moving two-cycle jump (zone_mid.wgsl / zone_mid32.wgsl, GPU-22).
+    Mid,
+}
+
+impl Stage {
+    /// Slot of r^2 in the stage's constants.
+    fn escape_slot(self) -> usize {
+        match self {
+            Self::Deep => 21,
+            Self::Mid => 3,
+        }
+    }
+}
+
+/// The frame's constants for whichever operator the CPU zone would use on it.
+fn inputs(view: &View, p: &Params, zone: &Zone) -> Result<(Stage, Header, Vec<f64>), String> {
+    match zone.gpu_f64_input(view, p) {
+        Ok((h, v)) => Ok((Stage::Deep, h, v)),
+        Err(deep) => zone
+            .gpu_mid_input(view, p)
+            .map(|(h, v)| (Stage::Mid, h, v))
+            .map_err(|_| deep),
+    }
 }
 
 impl Renderer {
@@ -219,7 +272,13 @@ struct Gpu {
 }
 
 impl Gpu {
-    fn new(opened: &Opened, count: usize, constants: &[f64], mode: Kernel) -> Result<Self, String> {
+    fn new(
+        opened: &Opened,
+        count: usize,
+        constants: &[f64],
+        mode: Kernel,
+        stage: Stage,
+    ) -> Result<Self, String> {
         let const_bytes = std::mem::size_of_val(constants) as u64;
         let column_bytes = (count as u64).checked_mul(8).ok_or("GPU grid overflow")?;
         let groups = count.div_ceil(64) as u64;
@@ -243,19 +302,28 @@ impl Gpu {
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fd zone kernel"),
-            source: wgpu::ShaderSource::Wgsl(mode.source().into()),
+            source: wgpu::ShaderSource::Wgsl(
+                match stage {
+                    Stage::Deep => mode.source(),
+                    Stage::Mid => mode.mid_source(),
+                }
+                .into(),
+            ),
         });
-        let shape = specialisation(constants);
+        let shape = match stage {
+            Stage::Deep => specialisation(constants),
+            Stage::Mid => [0; 3],
+        };
         let all = [
             ("DEG", f64::from(shape[0])),
             ("NPHI", f64::from(shape[1])),
             ("NPSI", f64::from(shape[2])),
             ("F32_FRONT", if mode == Kernel::F32 { 1.0 } else { 0.0 }),
         ];
-        let overrides = if mode == Kernel::F32Only {
-            &all[..3]
-        } else {
-            &all[..]
+        let overrides = match (stage, mode) {
+            (Stage::Mid, _) => &all[..0],
+            (Stage::Deep, Kernel::F32Only) => &all[..3],
+            (Stage::Deep, _) => &all[..],
         };
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fd zone kernel"),
@@ -421,7 +489,7 @@ impl Renderer {
         zone: &Zone,
     ) -> Result<(Header, Samples), String> {
         let start = Instant::now();
-        let (mut header, constants) = zone.gpu_f64_input(view, p)?;
+        let (stage, mut header, constants) = inputs(view, p, zone)?;
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let prep = start.elapsed();
         let count = (p.nx as usize)
@@ -429,7 +497,7 @@ impl Renderer {
             .ok_or("GPU grid overflow")?;
         // Keyframes share a sample grid and a zone packing shape.
         let t = Instant::now();
-        self.prepare(count, &constants)?;
+        self.prepare(stage, count, &constants)?;
         let init = t.elapsed();
         let gpu = self.gpu.as_ref().unwrap();
         let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
@@ -455,17 +523,22 @@ impl Renderer {
 
 impl Renderer {
     /// Build (or keep) the pipeline and buffers for this keyframe's grid and zone shape.
-    fn prepare(&mut self, count: usize, constants: &[f64]) -> Result<(), String> {
-        let layout = (count, constants.len(), specialisation(constants));
+    fn prepare(&mut self, stage: Stage, count: usize, constants: &[f64]) -> Result<(), String> {
+        let shape = match stage {
+            Stage::Deep => specialisation(constants),
+            Stage::Mid => [0; 3],
+        };
+        let layout = (stage, count, constants.len(), shape);
         if self.layout != Some(layout) || self.gpu.is_none() {
             self.open(count)?;
             // The f32-only finish holds |z|^2 as a float-float: radius^2 must stay
             // inside f32's range with room for one more squaring.
-            if self.mode == Kernel::F32Only && (constants[21].is_nan() || constants[21] >= 1e36) {
+            let r2 = constants[stage.escape_slot()];
+            if self.mode == Kernel::F32Only && (r2.is_nan() || r2 >= 1e36) {
                 return Err("the f32-only zone kernel needs an escape radius <= 1e18".into());
             }
             let opened = self.opened.as_ref().expect("opened");
-            self.gpu = Some(Gpu::new(opened, count, constants, self.mode)?);
+            self.gpu = Some(Gpu::new(opened, count, constants, self.mode, stage)?);
             self.layout = Some(layout);
         }
         Ok(())
@@ -483,12 +556,12 @@ impl Renderer {
         id: usize,
     ) -> Result<Option<Header>, String> {
         let start = Instant::now();
-        let (mut header, constants) = zone.gpu_f64_input(view, p)?;
+        let (stage, mut header, constants) = inputs(view, p, zone)?;
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
             .ok_or("GPU grid overflow")?;
-        self.prepare(count, &constants)?;
+        self.prepare(stage, count, &constants)?;
         let gpu = self.gpu.as_ref().unwrap();
         gpu.run(&constants)?;
         let [nu, de, word] = &gpu.outputs;
@@ -606,9 +679,12 @@ mod tests {
     #[test]
     fn zone_wgsl_validates() {
         use naga::valid::{Capabilities, ValidationFlags, Validator};
-        for mode in [Kernel::F64, Kernel::Mixed, Kernel::F32, Kernel::F32Only] {
-            let module = naga::front::wgsl::parse_str(&mode.source())
-                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&mode.source())));
+        let kernels = [Kernel::F64, Kernel::Mixed, Kernel::F32, Kernel::F32Only];
+        let deep = kernels.map(|mode| (mode, mode.source()));
+        let mid = [Kernel::F64, Kernel::F32Only].map(|mode| (mode, mode.mid_source()));
+        for (mode, source) in deep.into_iter().chain(mid) {
+            let module = naga::front::wgsl::parse_str(&source)
+                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&source)));
             // f32only must validate with no f64/i64 capability at all (DEC-25).
             let mut caps = Capabilities::FLOAT64 | Capabilities::SHADER_INT64;
             if mode == Kernel::F32Only {
@@ -618,7 +694,7 @@ mod tests {
             }
             Validator::new(ValidationFlags::all(), caps)
                 .validate(&module)
-                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&mode.source())));
+                .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&source)));
         }
     }
 
@@ -889,6 +965,145 @@ mod tests {
                 off * 1000 <= pixels,
                 "{width}: {off} of {pixels} shaded pixels differ by more than one level"
             );
+        }
+    }
+
+    /// The full v0 zone (with KERN-02's mid-band constants), built by
+    /// tools/research/misiurewicz/make_zone.sh: FD_V0_ZONE, else out/zones/v0.zone.
+    fn full_v0_zone() -> Option<Zone> {
+        let path = std::env::var_os("FD_V0_ZONE").map_or_else(
+            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/zones/v0.zone"),
+            std::path::PathBuf::from,
+        );
+        Some(Zone::parse(&std::fs::read_to_string(path).ok()?).unwrap())
+    }
+
+    /// GPU-22: mid-band frames of scripts/kern02_subset.sh's 14 at 960x540, against the
+    /// CPU zone: binary64 (mixed) at the strict bar, f32only at DEC-29 film-equivalence.
+    #[test]
+    fn gpu_zone_mid_parity() {
+        use fd_shade::Pass as _;
+        let Some(zone) = full_v0_zone() else {
+            eprintln!("GPU-22 SKIP: no full v0 zone (FD_V0_ZONE or out/zones/v0.zone)");
+            return;
+        };
+        let rows: Vec<String> = include_str!("../../../bench/path-atlas-v0.txt")
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+            .map(str::to_owned)
+            .collect();
+        let p = Params {
+            nx: 960,
+            ny: 540,
+            ss: 1,
+            max_iter: 100_000,
+            escape_radius: 1e10,
+            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
+            threads: 24,
+            tier: None,
+        };
+        let look = fd_shade::Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let film = fd_shade::Appearance {
+            time: 1.0,
+            flow: look.flow,
+            aa: true,
+            dither: true,
+            unresolved_interior: true,
+            ..fd_shade::Appearance::STILL
+        };
+        let studio = fd_shade::Studio(look);
+        let modes: Vec<Kernel> = match std::env::var("FD_MID_MODES") {
+            Ok(m) => m.split(',').map(|k| Kernel::parse(k).unwrap()).collect(),
+            Err(_) => vec![Kernel::Mixed, Kernel::F32Only],
+        };
+        for mode in modes {
+            let mut gpu = Renderer::new(mode);
+            for index in [
+                100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 400, 430, 480,
+            ] {
+                let f: Vec<&str> = rows[index].split_whitespace().collect();
+                let view = View {
+                    center_re: f[0].into(),
+                    center_im: f[1].into(),
+                    width: f[2].into(),
+                    rotation: 0.0,
+                };
+                if zone.gpu_mid_input(&view, &p).is_err() {
+                    continue;
+                }
+                let t = Instant::now();
+                let (hc, cpu, _, zs) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
+                // Pixels the mid operator declined to the full-perturbation fallback.
+                let fallback = 1.0 - zs.jumps as f64 / cpu.class.len() as f64;
+                let cpu_ms = t.elapsed().as_secs_f64() * 1e3;
+                let t = Instant::now();
+                let got = match gpu.render(&view, &p, &zone) {
+                    Ok((h, s)) => {
+                        assert!(h.kernel.contains("mid"), "{}", h.kernel);
+                        s
+                    }
+                    Err(e) if e.contains("no wgpu") => {
+                        eprintln!("GPU-22 SKIP {mode:?}: {e}");
+                        break;
+                    }
+                    Err(e) => panic!("{mode:?} frame {index}: {e}"),
+                };
+                let ms = t.elapsed().as_secs_f64() * 1e3;
+                let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
+                let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
+                let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
+                let (mut classes, mut strict, mut worst) = (0, 0, [0.0f64; 3]);
+                for i in 0..cpu.class.len() {
+                    if cpu.class[i].kind() != got.class[i].kind() {
+                        classes += 1;
+                        continue;
+                    }
+                    if !cpu.class[i].escaped() {
+                        continue;
+                    }
+                    let de = f64::from(ad[i]);
+                    let e = [
+                        (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0,
+                        (de - f64::from(bd[i])).abs(),
+                        f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
+                            * std::f64::consts::TAU
+                            / 65536.0
+                            * de,
+                    ];
+                    for c in 0..3 {
+                        worst[c] = worst[c].max(e[c]);
+                    }
+                    strict += usize::from(e.iter().any(|&x| x.is_nan() || x > 1e-3));
+                }
+                let (x, y) = (
+                    studio.shade_with(&hc, &cpu, &film),
+                    studio.shade_with(&hc, &got, &film),
+                );
+                let off = x
+                    .data
+                    .chunks_exact(3)
+                    .zip(y.data.chunks_exact(3))
+                    .filter(|(p, q)| p.iter().zip(q.iter()).any(|(u, v)| u.abs_diff(*v) > 1))
+                    .count();
+                let pixels = x.w * x.h;
+                eprintln!(
+                    "GPU-22 {mode:?} frame {index} (width {}): class {classes}, >1e-3 px {strict}, worst nu/de/normal px {:.1e} {:.1e} {:.1e}, shaded > 1 level {off}/{pixels}, fallback {:.1}%; GPU {ms:.0} ms, CPU zone {cpu_ms:.0} ms",
+                    f[2],
+                    worst[0],
+                    worst[1],
+                    worst[2],
+                    fallback * 100.0
+                );
+                if mode == Kernel::F32Only {
+                    assert!(
+                        off * 1000 <= pixels,
+                        "{mode:?} frame {index}: {off} shaded pixels differ"
+                    );
+                } else {
+                    assert_eq!(classes, 0, "{mode:?} frame {index}: class mismatches");
+                    assert_eq!(strict, 0, "{mode:?} frame {index}: samples over 1e-3 px");
+                }
+            }
         }
     }
 }

@@ -2887,3 +2887,55 @@ What the reported counts mean:
 No targeted re-run (GPU-26) was needed at these widths: re-run and CPU-handoff rates
 are 0. On the RX 5700 XT, native f64 (mixed) stays about 2x faster, as GPU-24
 measured, so mixed remains the default there. f32only is the no-f64 path.
+
+### GPU-22: mid-band zone frames on the GPU, RX 5700 XT and lavapipe (2026-10-16)
+
+The wgpu zone renderer now runs KERN-02's mid-band operator. Before this, every frame
+the CPU zone rendered with `mid::pixel` was declined to the CPU. `Zone::gpu_mid_input`
+packs the mid constants (Z_0..Z_24, k and k', lambda0^j for j < 512, the reference
+orbit, the cycle point, s, sign, lambda) and the frame's exact centre offset. The
+renderer picks the stage per frame: the deep kernel if `gpu_f64_input` admits the
+frame, the mid kernel if `gpu_mid_input` admits it, else the CPU zone.
+
+Two kernels:
+- `zone_mid.wgsl` is binary64. It ports mid.rs operation for operation: the guards,
+  the closed-form cycle-point shift, three Newton steps for w0, the jump with dz/dc,
+  the finish at the pixel's own c, and the rebasing fallback. The f64 helpers it
+  shares with zone.wgsl moved to `zone_f64_lib.wgsl`.
+- `zone_mid32.wgsl` is f32-only, on `ff.wgsl` plus the shared `zone32_lib.wgsl` (now
+  also used by zone32.wgsl, with its escape test and escape encoding).
+  - dc, the approach offset, the cycle-point shift, w0 and the jump are `CE`.
+  - The finish orbit is float-float, and dz/dc in the finish is `CF`.
+
+**Check**: `gpu_zone_mid_parity`, run over the mid-band frames among KERN-02's 14
+(10 of them on v0) at 960x540, against the CPU zone. The fallback rate is the share of
+pixels the CPU mid operator declined to full perturbation; the GPU uses the same guards.
+
+| frame | width | fallback | mixed: class / >1e-3 px | mixed ms | f32only: shaded px > 1 level / >1e-3 px | f32only ms | CPU zone ms |
+|---|---|---|---|---|---|---|---|
+| 100 | 1.0e-6 | 23.1% | 0 / 0 | 128 (incl. compile) | 0 / 498 | 11274 (incl. compile) | 78-81 |
+| 175 | 1.2e-11 | 0% | 0 / 0 | 18 | 0 / 512 | 44 | 53 |
+| 200 | 2.7e-13 | 0% | 0 / 0 | 25 | 0 / 540 | 35 | 52-56 |
+| 225 | 6.2e-15 | 0% | 0 / 0 | 16 | 0 / 537 | 36 | 52-54 |
+| 250 | 1.4e-16 | 0% | 0 / 0 | 16 | 0 / 556 | 36 | 53 |
+| 275 | 3.2e-18 | 0% | 0 / 0 | 16 | 0 / 489 | 41 | 50 |
+| 300 | 7.2e-20 | 0% | 0 / 0 | 17 | 0 / 514 | 38 | 49-55 |
+| 325 | 1.6e-21 | 0% | 0 / 0 | 16 | 0 / 480 | 36 | 49-63 |
+| 350 | 3.7e-23 | 0% | 0 / 0 | 17 | 0 / 517 | 40 | 49-69 |
+| 400 | 1.9e-26 | 0% | 0 / 0 | 17 | 0 / 753 | 44 | 62-63 |
+
+- **binary64 (mixed)** meets the strict bar on every frame: 0 class mismatches and 0
+  escaped samples over 1e-3 px in nu position, DE or normal. The worst is 1.6e-5 px.
+- **f32only** meets DEC-29 on every frame: 0 of 518,400 shaded pixels differ by more
+  than one level, and 0 class mismatches.
+  - Its ~500 samples over 1e-3 px per frame are DE errors up to 4e-4 px and normal
+    errors up to 3.6e-2 px.
+  - The cause is dz/dc carried as an f32 mantissa through the finish, which gives
+    about 1e-7 relative error.
+- **Lavapipe, f32only**: the same verdict on every frame (0 shaded pixels off, 0 class
+  mismatches), at 300-350 ms per frame.
+- **Costs**:
+  - The first f32only mid pipeline takes 11 s to compile on RADV and 23 s on
+    lavapipe. That is once per process.
+  - Afterwards the GPU is faster than the CPU zone on every frame: 16-25 ms (mixed) and
+    35-44 ms (f32only), against 47-69 ms.
