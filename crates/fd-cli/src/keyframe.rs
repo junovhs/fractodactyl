@@ -42,6 +42,11 @@ pub(crate) struct Keyframes<'a> {
     cache: Vec<(usize, f64, Header, Samples)>,
     studio: Option<Look>,
     gpu: Option<fd_shade::gpu::StudioGpu>,
+    /// The studio host shares the zone kernel's device: GPU zone keyframes stay there
+    /// (GPU-21).
+    resident: bool,
+    /// Bytes of zone kernel output read back to the host (fd-film/1 report).
+    pub zone_readback_bytes: u64,
     shaded: [Rgb8; 2],
     output: Rgb8,
     lut: [f32; 256],
@@ -86,6 +91,8 @@ impl<'a> Keyframes<'a> {
             cache: Vec::new(),
             studio,
             gpu: None,
+            resident: false,
+            zone_readback_bytes: 0,
             shaded: std::array::from_fn(|_| Rgb8 {
                 w: 0,
                 h: 0,
@@ -124,10 +131,23 @@ impl<'a> Keyframes<'a> {
         Ok(())
     }
 
-    /// Open the studio look's wgpu device (SHAD-11: the only studio shading).
+    /// Open the studio look's wgpu device (SHAD-11: the only studio shading). With the
+    /// wgpu zone kernel it is the kernel's device, so zone keyframes are shaded where
+    /// they were rendered (GPU-21); FD_ZONE_READBACK=1 keeps them on the host instead.
     pub(crate) fn enable_gpu(&mut self, look: &Look, a: &Appearance) -> Result<String, String> {
         let multiple = self.p.nx as usize / self.out.0;
-        let gpu = fd_shade::gpu::StudioGpu::new(look, a, self.out, multiple)?;
+        let count = self.p.nx as usize * self.p.ny as usize;
+        let shared = match self.zone_renderer.as_mut() {
+            Some(r) if std::env::var_os("FD_ZONE_READBACK").is_none() => r.device(count).ok(),
+            _ => None,
+        };
+        self.resident = shared.is_some();
+        let gpu = match shared {
+            Some((name, device, queue)) => fd_shade::gpu::StudioGpu::on_device(
+                name, device, queue, look, a, self.out, multiple,
+            )?,
+            None => fd_shade::gpu::StudioGpu::new(look, a, self.out, multiple)?,
+        };
         let name = gpu.name.clone();
         self.gpu = Some(gpu);
         Ok(name)
@@ -163,14 +183,43 @@ impl<'a> Keyframes<'a> {
             rotation: 0.0,
         };
         let t = std::time::Instant::now();
-        let gpu_result = match (self.zone, self.zone_renderer.as_mut()) {
-            (Some(zone), Some(renderer)) if zone_covers(&view, &self.p, zone)? => {
-                Some(renderer.render(&view, &self.p, zone))
+        let covered = match self.zone {
+            Some(zone) if self.zone_renderer.is_some() => zone_covers(&view, &self.p, zone)?,
+            _ => false,
+        };
+        if covered && self.resident {
+            let (zone, renderer) = (self.zone.unwrap(), self.zone_renderer.as_mut().unwrap());
+            let gpu = self.gpu.as_mut().expect("resident studio host");
+            match renderer.render_resident(&view, &self.p, zone, gpu, j) {
+                Ok(Some(h)) => {
+                    // Only the validity word came back; the samples stay on the device.
+                    self.zone_readback_bytes += 4;
+                    self.rendered
+                        .push((j, t.elapsed().as_secs_f64(), Used::Zone));
+                    self.cache.push((j, self.width(j), h, Samples::default()));
+                    return Ok(());
+                }
+                Ok(None) => {
+                    eprintln!("fd film: wgpu zone keyframe {j} has invalid columns; using CPU zone")
+                }
+                Err(e) => eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone"),
             }
+            self.zone_renderer = None;
+            self.zone_readback_bytes += 4;
+            let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, false)?;
+            self.rendered.push((j, t.elapsed().as_secs_f64(), used));
+            self.cache.push((j, self.width(j), h, s));
+            return Ok(());
+        }
+        let gpu_result = match (self.zone, self.zone_renderer.as_mut()) {
+            (Some(zone), Some(renderer)) if covered => Some(renderer.render(&view, &self.p, zone)),
             _ => None,
         };
         let (h, s, used) = match gpu_result {
-            Some(Ok((h, s))) => (h, s, Used::Zone),
+            Some(Ok((h, s))) => {
+                self.zone_readback_bytes += 16 * s.class.len() as u64;
+                (h, s, Used::Zone)
+            }
             Some(Err(e)) => {
                 eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone");
                 self.zone_renderer = None;
