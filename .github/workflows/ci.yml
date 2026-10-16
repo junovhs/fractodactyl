@@ -25,10 +25,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy, rustfmt
-      - name: ffmpeg (fd film tests encode)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: ffmpeg (fd film tests encode) and lavapipe (wgpu GPU tests)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg mesa-vulkan-drivers
+      # The wgpu studio tests run on lavapipe here and must not skip (FIX-58); the
+      # Windows job has no Vulkan adapter, so they skip there.
       - name: clippy + tests
-        run: JOBS=4 bash scripts/check.sh
+        run: FD_REQUIRE_GPU=1 JOBS=4 bash scripts/check.sh
 
   # DEC-27: Windows and Linux are first-class landing targets. Both check
   # jobs must pass fmt, check, clippy (warnings denied), and workspace tests.

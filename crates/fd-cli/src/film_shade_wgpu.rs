@@ -66,6 +66,7 @@ mod tests {
     use super::*;
     use crate::film_gpu::{linear, pack_samples, shade_push};
     use crate::film_prepare_wgpu as prepare;
+    use crate::wgpu_compute::or_skip;
     use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View, MINOR};
     use fd_shade::{Appearance, Look, PreparedStudio, Rgb8};
 
@@ -207,7 +208,9 @@ mod tests {
             .iter()
             .map(|&(t, phase, n)| encode_case(t, phase, n))
             .collect();
-        let (name, got) = band_select(&encoded).unwrap_or_else(|e| panic!("band select: {e}"));
+        let Some((name, got)) = or_skip(band_select(&encoded), "band select") else {
+            return;
+        };
         eprintln!("adapter {name}");
         // How many cases an f32 shortcut gets wrong: proof the fixture bites.
         let mut naive_wrong = 0;
@@ -304,7 +307,11 @@ mod tests {
                 .chunks_exact(4)
                 .map(|c| [c[0], c[1], c[2], c[3]])
                 .collect();
-            let (name, cooked) = prepare::run(&packed, (w, h), &look, &a).unwrap();
+            let Some((name, cooked)) =
+                or_skip(prepare::run(&packed, (w, h), &look, &a), "wgsl prepare")
+            else {
+                return;
+            };
             let stops: Vec<[f32; 3]> = look.stops.iter().map(|&c| linear(c)).collect();
             let push = shade_push(&look, &a, (w, h), (0, 0, w, h));
             let (_, gpu) = run(&cooked, &stops, &push, (w, h), (w, h)).unwrap();

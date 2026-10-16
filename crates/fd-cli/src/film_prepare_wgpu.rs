@@ -91,6 +91,7 @@ pub(crate) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wgpu_compute::or_skip;
 
     /// Largest float-bit distance, in ulps, the WGSL pass may differ from the reference.
     /// GPU exp/tanh/sin/cos are not correctly rounded, and exp's error grows with its
@@ -168,8 +169,10 @@ mod tests {
                 aa,
                 ..Appearance::STILL
             };
-            let (name, gpu) =
-                run(&samples, (w, h), &look, &a).unwrap_or_else(|e| panic!("wgsl prepare: {e}"));
+            let Some((name, gpu)) = or_skip(run(&samples, (w, h), &look, &a), "wgsl prepare")
+            else {
+                return;
+            };
             let cpu = reference(&samples, &look, &a);
             eprintln!("adapter {name}, aa {aa}, breathe {breathe}");
             let mut worst = 0;
