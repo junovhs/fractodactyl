@@ -2807,3 +2807,29 @@ against 18,432,000 bytes on the readback path.
 GPU work for this film now totals about 15.5 s. x264 (`--x264 slow`, crf 16) has
 become the bottleneck: the wall-time saving is smaller than the shading saving
 because the film now waits on the encoder. The RTX 3050 Ti row is BENC-11.
+
+### GPU-27: the f32-only zone kernel's float-float library (2026-10-16)
+
+`crates/fd-cli/shaders/ff.wgsl` is the production float-float (about 48 bits) and
+f32+exponent library for the f32-only zone kernel (GPU-28), ported from GPU-24's
+research arm. It contains:
+- TwoSum with every intermediate behind a runtime-zero XOR (`opq`);
+- TwoProd by fma only when an on-device self-test shows fma is fused, else Dekker;
+- ff add, mul, div and sqrt;
+- `FE`/`CE` (f32+exponent scalar and complex), with `fe_from_f64` for the zone
+  kernel's binary64 constants;
+- ff exp (ln 2 reduction, Taylor to r^14), log (two Newton steps on exp), sincos
+  (Cody-Waite pi/2, Taylor) and atan2 (polynomial f32 seed plus one Newton step).
+
+`zone_ff_helpers_match_binary64` runs 67,046 random and edge cases (cancellation,
+f32-boundary ties, |x| to 2^±45 in FF and 2^±1000 in FE) against binary64:
+- bounds: 2^-44 relative for the arithmetic, 2^-40 for the transcendentals (absolute
+  for sin/cos/atan2, and for log near 1);
+- RX 5700 XT (RADV) and lavapipe: 0 failures. Both split fma, so both use Dekker.
+
+`zone_ff_guard_is_needed` strips the guard: 60,499 (RADV) and 60,497 (lavapipe) of
+the 67,046 cases then fail, so the guard is load-bearing on both. On DX12 WARP
+(Windows CI, DXC) the helpers pass, and stripping the guard changes nothing: DXC keeps
+the error terms. The guard stays for Mesa, NVIDIA and Intel. A float-float alone
+covers |x| in 2^±100. Below that its low word is subnormal and GPUs flush it, which
+is why FE exists.

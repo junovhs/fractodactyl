@@ -24,6 +24,7 @@ mod render;
 mod reuse;
 mod schedule;
 mod shade;
+mod zone_ff;
 mod zone_gpu;
 
 const USAGE: &str = "\
