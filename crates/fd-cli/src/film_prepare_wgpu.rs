@@ -1,94 +1,89 @@
-//! Studio prepare pass on wgpu (SHAD-03): the WGSL port of `film_prepare.comp`, plus
-//! the CPU mirror of that GLSL math the port is checked against. Test-only until the
-//! film GPU path is wired to it.
+//! Studio prepare pass on wgpu (SHAD-03/05): runs film_prepare.wgsl alone, plus the CPU
+//! mirror of fd-shade Studio's per-sample terms it is checked against.
 
+use crate::film_gpu::{shade_push, PREPARE};
 use crate::wgpu_compute::{bytes, dispatch, words, Binding};
+use fd_shade::{Appearance, Look};
 
-const SHADER: &str = include_str!("../shaders/film_prepare.wgsl");
 const LN_2: f32 = std::f32::consts::LN_2;
-// -2 * (pi * sigma)^2 with sigma = 0.5, as in film_prepare.comp.
 const BAND_K: f32 = -2.0 * (std::f32::consts::PI * 0.5) * (std::f32::consts::PI * 0.5);
 
-/// Frame and look terms the prepare pass reads; mirrors `Params` in the shader.
-#[derive(Clone, Copy)]
-pub(crate) struct Params {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-    pub(crate) density: f32,
-    pub(crate) slope: f32,
-    pub(crate) light: [f32; 2],
-    pub(crate) aa: bool,
-}
-
-impl Params {
-    /// The shade parameter block (six vec4s, 96 bytes) with the fields prepare reads.
-    fn uniform(&self) -> Vec<u8> {
-        let dims = [self.width, self.height, 0, 0];
-        let rect = [self.width, self.height, 0, 0];
-        let tone = [0.0, self.density, 0.0, self.slope];
-        let light = [self.light[0], self.light[1], 0.0, 0.0];
-        let extra = [0.0, 0.0, if self.aa { 1.0 } else { 0.0 }, 0.0];
-        let mut out = Vec::with_capacity(96);
-        for w in dims.into_iter().chain(rect) {
-            out.extend(w.to_ne_bytes());
-        }
-        for f in tone.into_iter().chain(light).chain([0.0; 4]).chain(extra) {
-            out.extend(f.to_ne_bytes());
-        }
-        out
-    }
-}
-
-/// Run the WGSL prepare pass on the wgpu Vulkan adapter. Returns the adapter name and
-/// the cooked words.
-pub(crate) fn run(samples: &[[u32; 4]], p: &Params) -> Result<(String, Vec<[u32; 4]>), String> {
-    let count = p.width as usize * p.height as usize;
-    if count == 0 || samples.len() != count {
-        return Err(format!("expected {count} samples, got {}", samples.len()));
+/// Run the WGSL prepare pass over a `w` x `h` keyframe of packed raw samples with
+/// look `l` at appearance `a`. Returns the adapter name and two cooked words per sample.
+pub(crate) fn run(
+    samples: &[[u32; 4]],
+    (w, h): (usize, usize),
+    l: &Look,
+    a: &Appearance,
+) -> Result<(String, Vec<[u32; 8]>), String> {
+    if w * h == 0 || samples.len() != w * h {
+        return Err(format!("expected {} samples, got {}", w * h, samples.len()));
     }
     let input = bytes(samples.as_flattened());
+    let push = shade_push(l, a, (w, h), (0, 0, w, h)).bytes();
     let (name, out) = dispatch(
         "fd studio prepare",
-        SHADER,
+        PREPARE,
         "main",
         &[
             Binding::Read(&input),
-            Binding::Out(count as u64 * 16),
-            Binding::Uniform(&p.uniform()),
+            Binding::Out((w * h * 32) as u64),
+            Binding::Uniform(&push),
         ],
-        (p.width.div_ceil(8), p.height.div_ceil(8)),
+        ((w as u32).div_ceil(8), (h as u32).div_ceil(8)),
     )?;
     let cooked = words(&out)
-        .chunks_exact(4)
-        .map(|c| [c[0], c[1], c[2], c[3]])
+        .chunks_exact(8)
+        .map(|c| std::array::from_fn(|k| c[k]))
         .collect();
     Ok((name, cooked))
 }
 
-/// CPU mirror of `film_prepare.comp`, in the same f32 operation order. The reference
-/// the WGSL pass is compared against.
-pub(crate) fn reference(samples: &[[u32; 4]], p: &Params) -> Vec<[u32; 4]> {
+/// CPU mirror of fd-shade Studio's per-sample terms at one sample per pixel, in its f32
+/// operation order: t = density * nu (f64), band weight, light, haze weight and tone,
+/// cycles.
+pub(crate) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[u32; 8]> {
+    let density = l.density * f64::from(a.density());
+    let (ls, lc) = l.light.to_radians().sin_cos();
+    let (lx, ly) = (lc, -ls);
     samples
         .iter()
         .map(|s| {
             let kind = s[3] >> 16;
             if kind != 0 {
-                return [s[0], s[1], (-(kind as f32)).to_bits(), 0.0f32.to_bits()];
+                return [0, 0, (-(kind as f32)).to_bits(), 0, 0, 0, 0, 0];
             }
+            let nu = f64::from_bits(u64::from(s[0]) | u64::from(s[1]) << 32);
+            let t = (density * nu).to_bits();
             let d = f32::from_bits(s[2]).max(0.0);
             let angle = (s[3] & 65535) as f32 * (std::f32::consts::TAU / 65536.0);
-            let facing = -(angle.cos() * p.light[0] + angle.sin() * p.light[1]);
-            let cycles = p.density * 2.0 / (d.max(1e-30) * LN_2);
-            let aa = p.aa;
-            let band = if aa {
+            let facing = -(angle.cos() * lx + angle.sin() * ly);
+            let cycles = density as f32 * 2.0 / (d.max(1e-30) * LN_2);
+            let band = if a.aa {
                 (BAND_K * cycles * cycles).exp()
             } else {
                 1.0
             };
             let steep = (0.6 * (1.0 + cycles / 0.02).ln()).tanh();
-            let fade = if aa { (d / 0.7).tanh() } else { 1.0 };
-            let v = (1.0 + p.slope * facing * steep * fade) * (1.0 - 0.6 * (-d * 1.5).exp());
-            [s[0], s[1], band.to_bits(), v.to_bits()]
+            let fade = if a.aa { (d / 0.7).tanh() } else { 1.0 };
+            let v = (1.0 + l.slope * facing * steep * fade) * (1.0 - 0.6 * (-d * 1.5).exp());
+            let (weight, tone) =
+                if l.haze.is_some() && d > 0.0 && d.is_finite() && cycles.is_finite() {
+                    let e = (cycles - 1.0).clamp(0.0, 1.0);
+                    (e * e * (3.0 - 2.0 * e), 0.2 + 2.8 * d / (d + 0.02))
+                } else {
+                    (0.0, 0.0)
+                };
+            [
+                t as u32,
+                (t >> 32) as u32,
+                band.to_bits(),
+                v.to_bits(),
+                weight.to_bits(),
+                tone.to_bits(),
+                cycles.to_bits(),
+                0,
+            ]
         })
         .collect()
 }
@@ -106,7 +101,9 @@ mod tests {
     const MAX_ULP: u32 = 32;
     const ABS_FLOOR: f32 = 1.0 / 16_777_216.0;
 
-    /// Interior, unresolved and escaped samples over a grid, with varied distance and angle.
+    /// Interior, unresolved and escaped samples over a grid: varied distance and angle,
+    /// and nu from arbitrary f64 bit patterns (huge, tiny, subnormal, infinite, NaN)
+    /// alongside realistic smooth iteration counts.
     fn fixture(w: u32, h: u32) -> Vec<[u32; 4]> {
         (0..h)
             .flat_map(|y| {
@@ -123,9 +120,18 @@ mod tests {
                     // all underflowing, and the near-zero fade and dimming terms are hit.
                     let d = 0.01 * (x as f32 / 16.0 + y as f32 / 4096.0).exp2();
                     let angle = (x * 37 + y * 91) & 0xffff;
+                    let nu = if i.is_multiple_of(2) {
+                        f64::from_bits(
+                            u64::from(i.wrapping_mul(2_654_435_761))
+                                | u64::from(i ^ 0x5bd1_e995) << 32,
+                        )
+                    } else {
+                        20.0 + f64::from(i) * 0.0137
+                    };
+                    let nu = nu.to_bits();
                     [
-                        i.wrapping_mul(2_654_435_761),
-                        i ^ 0x5bd1_e995,
+                        nu as u32,
+                        (nu >> 32) as u32,
                         d.to_bits(),
                         (kind << 16) | angle,
                     ]
@@ -141,26 +147,48 @@ mod tests {
         ftz(a).abs_diff(ftz(b))
     }
 
+    /// The same f64, both NaN, or a CPU subnormal the shader flushed to zero.
+    fn same_f64(gpu: u64, cpu: u64) -> bool {
+        let (g, c) = (f64::from_bits(gpu), f64::from_bits(cpu));
+        gpu == cpu || (g.is_nan() && c.is_nan()) || (c.abs() < f64::MIN_POSITIVE && g == 0.0)
+    }
+
     #[test]
     fn wgsl_prepare_matches_reference() {
         let (w, h) = (256, 256);
-        let samples = fixture(w, h);
-        for aa in [false, true] {
-            let p = Params {
-                width: w,
-                height: h,
-                density: 3.7,
-                slope: 0.45,
-                light: [0.6, 0.8],
+        let samples = fixture(w as u32, h as u32);
+        let mut look = Look::builtin("ice").unwrap();
+        look.haze = Some(0x1e7fe0);
+        look.slope = 0.45;
+        for (aa, breathe) in [(false, 0.0), (true, 0.0), (true, 0.08)] {
+            let a = Appearance {
+                time: 0.7,
+                breathe,
+                brate: 0.5,
                 aa,
+                ..Appearance::STILL
             };
-            let (name, gpu) = run(&samples, &p).unwrap_or_else(|e| panic!("wgsl prepare: {e}"));
-            let cpu = reference(&samples, &p);
-            eprintln!("adapter {name}, aa {aa}");
+            let (name, gpu) =
+                run(&samples, (w, h), &look, &a).unwrap_or_else(|e| panic!("wgsl prepare: {e}"));
+            let cpu = reference(&samples, &look, &a);
+            eprintln!("adapter {name}, aa {aa}, breathe {breathe}");
             let mut worst = 0;
             for (i, (g, c)) in gpu.iter().zip(&cpu).enumerate() {
-                assert_eq!(&g[..2], &c[..2], "pixel {i}: copied phase words differ");
-                for k in [2, 3] {
+                let t = |w: &[u32; 8]| u64::from(w[0]) | u64::from(w[1]) << 32;
+                assert!(
+                    same_f64(t(g), t(c)),
+                    "pixel {i}: t = density * nu: gpu {:e}, cpu {:e}",
+                    f64::from_bits(t(g)),
+                    f64::from_bits(t(c))
+                );
+                // The haze weight is ill-conditioned in cycles near one cycle per
+                // sample (it uses cycles - 1): check its formula on the GPU's own cycles.
+                let mut c = *c;
+                if c[4] != 0 {
+                    let e = (f32::from_bits(g[6]) - 1.0).clamp(0.0, 1.0);
+                    c[4] = (e * e * (3.0 - 2.0 * e)).to_bits();
+                }
+                for k in 2..7 {
                     if (f32::from_bits(g[k]) - f32::from_bits(c[k])).abs() < ABS_FLOOR {
                         continue;
                     }
@@ -176,7 +204,10 @@ mod tests {
                     );
                 }
             }
-            eprintln!("aa {aa}: worst {worst} ulp over {} samples", gpu.len());
+            eprintln!(
+                "aa {aa}: t bit-exact, worst {worst} ulp over {} samples",
+                gpu.len()
+            );
         }
     }
 }

@@ -226,9 +226,9 @@ impl Look {
                 _ => return Err(bad("unknown key")),
             }
         }
-        if !(2..=16).contains(&l.stops.len()) {
+        if !(2..=64).contains(&l.stops.len()) {
             return Err(format!(
-                "stops: expected 2 to 16 colours, got {}",
+                "stops: expected 2 to 64 colours, got {}",
                 l.stops.len()
             ));
         }

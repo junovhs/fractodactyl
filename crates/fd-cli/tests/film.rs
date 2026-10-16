@@ -149,27 +149,21 @@ fn film_spin_keyframes() {
     fs::remove_dir_all(dir).unwrap();
 }
 
-/// SHAD-07: a rotating keyframed studio film on the wgpu GPU path matches the CPU film.
-#[test]
-fn gpu_film_matches_cpu() {
+/// Render a rotating keyframed studio film with `look` twice (--gpu on, --gpu off) and
+/// require every raw RGB24 channel within 1 level. Skips only without a wgpu adapter.
+fn gpu_film_matches_cpu_with(name: &str, look_text: &str) {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("fd-shad07-{}-{stamp}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("fd-{name}-{}-{stamp}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let speed = dir.join("speed.txt");
     let spins = dir.join("spins.txt");
     fs::write(&speed, format!("{:.16} 4\n", 4f64.log10())).unwrap();
     fs::write(&spins, "0 1.2 0.25\n").unwrap();
-    // The ice palette with terraces and relief but no lines (lines are SHAD-05's).
-    let look = dir.join("ice-plain.look");
-    fs::write(
-        &look,
-        "stops #08152e #0b3d91 #1e7fe0 #7cc4ff #eef6fc #c9c3bc #7d7a78 #2a3140\n\
-         interior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\nlines 0\n",
-    )
-    .unwrap();
+    let look = dir.join(format!("{name}.look"));
+    fs::write(&look, look_text).unwrap();
     let mut frames = Vec::new();
     for gpu in ["on", "off"] {
         let raw = dir.join(format!("raw-{gpu}"));
@@ -250,5 +244,35 @@ fn gpu_film_matches_cpu() {
             );
         }
     }
-    eprintln!("5 rotating frames: GPU within {worst} level(s) of CPU");
+    eprintln!("{name}: 5 rotating frames, GPU within {worst} level(s) of CPU");
+}
+
+/// SHAD-07: a rotating keyframed studio film on the wgpu GPU path matches the CPU film.
+#[test]
+fn gpu_film_matches_cpu() {
+    // The ice palette with terraces and relief but no lines.
+    gpu_film_matches_cpu_with(
+        "ice-plain",
+        "stops #08152e #0b3d91 #1e7fe0 #7cc4ff #eef6fc #c9c3bc #7d7a78 #2a3140\n\
+         interior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\nlines 0\n",
+    );
+}
+
+/// SHAD-05: haze, terrain lines, breathing, flow and a 40-stop palette on the GPU path.
+#[test]
+fn gpu_film_full_look_matches_cpu() {
+    let stops: Vec<String> = (0..40u32)
+        .map(|i| {
+            let r = (i * 97 + 30) % 256;
+            let g = (i * 53 + 90) % 256;
+            let b = (i * 151 + 10) % 256;
+            format!("#{r:02x}{g:02x}{b:02x}")
+        })
+        .collect();
+    let look = format!(
+        "stops {}\ninterior #05070d\ndensity 0.05\nterrace 0.5\nslope 1.1\nlight 135\n\
+         lines 1\nline_px 2.2\nhaze #1e7fe0\nflow 0.11\nbreathe 0.08\nbrate 0.5\n",
+        stops.join(" ")
+    );
+    gpu_film_matches_cpu_with("full-look", &look);
 }
