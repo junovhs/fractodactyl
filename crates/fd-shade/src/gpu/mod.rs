@@ -26,6 +26,8 @@ pub const SHADE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
     include_str!("../../shaders/film_shade.wgsl")
 );
+/// Packs the one-word-per-pixel output into RGB24 bytes for readback (SHAD-13).
+const PACK: &str = include_str!("../../shaders/rgb_pack.wgsl");
 /// The tent resample source: two shaded keyframes into one (possibly rotated) frame.
 pub const RESAMPLE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
@@ -292,12 +294,15 @@ pub struct StudioGpu {
     shade: wgpu::ComputePipeline,
     resample: wgpu::ComputePipeline,
     still: wgpu::ComputePipeline,
+    pack: wgpu::ComputePipeline,
     keys: Vec<Key>,
     shaded: [Option<wgpu::Buffer>; 2],
     palette: wgpu::Buffer,
     lut: wgpu::Buffer,
     unit: wgpu::Buffer,
     output: wgpu::Buffer,
+    /// The output as RGB24 bytes, then the host-mapped copy of it.
+    packed: wgpu::Buffer,
     readback: wgpu::Buffer,
     host_output: Vec<u8>,
     /// The adapter's name.
@@ -347,6 +352,7 @@ impl StudioGpu {
         };
         let (prepare, shade) = (pipeline(PREPARE, "main"), pipeline(SHADE, "main"));
         let (resample, still) = (pipeline(RESAMPLE, "main"), pipeline(SHADE, "still"));
+        let pack = pipeline(PACK, "main");
         let palette = storage(&device, PALETTE_BYTES, false);
         queue.write_buffer(&palette, 0, &palette_bytes(l));
         // The exact CPU tent gamma-decode table.
@@ -358,7 +364,7 @@ impl StudioGpu {
         let normals = unit_table();
         let unit = storage(&device, normals.len() as u64, false);
         queue.write_buffer(&unit, 0, &normals);
-        let (output, readback) = outputs(&device, out);
+        let (output, packed, readback) = outputs(&device, out);
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("wgpu film pipelines: {e}"));
         }
@@ -369,12 +375,14 @@ impl StudioGpu {
             shade,
             resample,
             still,
+            pack,
             keys: Vec::new(),
             shaded: [None, None],
             palette,
             lut,
             unit,
             output,
+            packed,
             readback,
             host_output: vec![0; out.0 * out.1 * 3],
             name,
@@ -391,7 +399,7 @@ impl StudioGpu {
             self.keys.clear();
         }
         if out.0 * out.1 * 3 != self.host_output.len() {
-            (self.output, self.readback) = outputs(&self.device, out);
+            (self.output, self.packed, self.readback) = outputs(&self.device, out);
             self.host_output = vec![0; out.0 * out.1 * 3];
         }
     }
@@ -615,14 +623,27 @@ impl StudioGpu {
         self.finish(encoder, scope, "still")
     }
 
-    /// Copy the output to the host after `encoder`'s passes, as packed RGB8.
+    /// Copy the output to the host after `encoder`'s passes, as packed RGB8: the pack
+    /// pass turns it into RGB24 bytes on the device, so the host copy is one memcpy
+    /// (converting RGBA on the host cost 2.2 ms of a 10 ms 1080p frame, SHAD-13).
     fn finish(
         &mut self,
         mut encoder: wgpu::CommandEncoder,
         scope: wgpu::ErrorScopeGuard,
         what: &str,
     ) -> Result<&[u8], String> {
-        encoder.copy_buffer_to_buffer(&self.output, 0, &self.readback, 0, self.readback.size());
+        let pixels = self.host_output.len() / 3;
+        let params = self.uniform(&[pixels as u32, 0, 0, 0].map(u32::to_ne_bytes).concat());
+        let group = self.group(&self.pack, &[&self.output, &self.packed, &params]);
+        let words = pixels.div_ceil(4) * 3;
+        let blocks = (words as u32).div_ceil(64);
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.pack);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(blocks.min(65535), blocks.div_ceil(65535), 1);
+        }
+        encoder.copy_buffer_to_buffer(&self.packed, 0, &self.readback, 0, self.readback.size());
         self.queue.submit([encoder.finish()]);
         let (tx, rx) = mpsc::channel();
         self.readback.map_async(wgpu::MapMode::Read, .., move |m| {
@@ -643,30 +664,31 @@ impl StudioGpu {
                 .readback
                 .get_mapped_range(..)
                 .map_err(|e| format!("wgpu mapped range: {e}"))?;
-            for (rgb, pixel) in self
-                .host_output
-                .chunks_exact_mut(3)
-                .zip(view.chunks_exact(4))
-            {
-                rgb.copy_from_slice(&pixel[..3]);
-            }
+            let n = self.host_output.len();
+            self.host_output.copy_from_slice(&view[..n]);
         }
         self.readback.unmap();
         Ok(&self.host_output)
     }
 }
 
-/// The packed-RGBA output buffer for an `out`-sized image and its host readback.
-fn outputs(device: &wgpu::Device, out: (usize, usize)) -> (wgpu::Buffer, wgpu::Buffer) {
-    let bytes = (out.0 * out.1 * 4).max(4) as u64;
-    let output = storage(device, bytes, true);
+/// For an `out`-sized image: the one-word-per-pixel output buffer, its RGB24 packing
+/// (whole words) and the host readback of that.
+fn outputs(
+    device: &wgpu::Device,
+    out: (usize, usize),
+) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer) {
+    let pixels = (out.0 * out.1).max(1);
+    let output = storage(device, pixels as u64 * 4, true);
+    let rgb = (pixels.div_ceil(4) * 12) as u64;
+    let packed = storage(device, rgb, true);
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("fd film readback"),
-        size: bytes,
+        size: rgb,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    (output, readback)
+    (output, packed, readback)
 }
 
 /// A storage buffer; `out` buffers are also copy sources.
