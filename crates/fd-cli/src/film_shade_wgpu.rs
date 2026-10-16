@@ -1,16 +1,14 @@
-//! Studio shade pass on wgpu (SHAD-04): the WGSL port of `film_shade.comp`, f32 and
-//! integer arithmetic only. Test-only until the film GPU path is wired to it.
+//! Studio shade pass on wgpu (SHAD-04/05): runs film_shade.wgsl alone (FilmGpu runs it
+//! in the film path), for tests against fd-shade's CPU shading.
 
-use crate::film_gpu::ShadePush;
+use crate::film_gpu::{ShadePush, SHADE as SHADER};
 use crate::wgpu_compute::{bytes, dispatch, words, Binding};
-
-const SHADER: &str = include_str!("../shaders/film_shade.wgsl");
 
 /// Shade the push block's rectangle of `cooked` (the prepare pass output, full frame)
 /// with linear-light `stops`. Returns the adapter name and the full-frame packed
 /// RGB words (`r | g << 8 | b << 16`); words outside the rectangle are zero.
 pub(crate) fn run(
-    cooked: &[[u32; 4]],
+    cooked: &[[u32; 8]],
     stops: &[[f32; 3]],
     push: &ShadePush,
     full: (usize, usize),
@@ -23,9 +21,9 @@ pub(crate) fn run(
             cooked.len()
         ));
     }
-    if !(2..=32).contains(&stops.len()) {
+    if !(2..=64).contains(&stops.len()) {
         return Err(format!(
-            "{} stops; the shade pass takes 2..=32",
+            "{} stops; the shade pass takes 2..=64",
             stops.len()
         ));
     }
@@ -67,7 +65,7 @@ pub(crate) fn band_select(cases: &[[u32; 4]]) -> Result<(String, Vec<u32>), Stri
 mod tests {
     use super::*;
     use crate::film_gpu::{linear, pack_samples, shade_push};
-    use crate::film_prepare_wgpu::{self as prepare, Params};
+    use crate::film_prepare_wgpu as prepare;
     use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View, MINOR};
     use fd_shade::{Appearance, Look, PreparedStudio, Rgb8};
 
@@ -301,21 +299,12 @@ mod tests {
             let phase = a.phase();
             let (header, samples) = fixture(&look, f64::from(phase), w, h);
             let mut packed = vec![0u32; w * h * 4];
-            pack_samples(&samples, look.density, &mut packed).unwrap();
+            pack_samples(&samples, &mut packed).unwrap();
             let packed: Vec<[u32; 4]> = packed
                 .chunks_exact(4)
                 .map(|c| [c[0], c[1], c[2], c[3]])
                 .collect();
-            let (sin, cos) = look.light.to_radians().sin_cos();
-            let params = Params {
-                width: w as u32,
-                height: h as u32,
-                density: look.density as f32,
-                slope: look.slope,
-                light: [cos, -sin],
-                aa,
-            };
-            let (name, cooked) = prepare::run(&packed, &params).unwrap();
+            let (name, cooked) = prepare::run(&packed, (w, h), &look, &a).unwrap();
             let stops: Vec<[f32; 3]> = look.stops.iter().map(|&c| linear(c)).collect();
             let push = shade_push(&look, &a, (w, h), (0, 0, w, h));
             let (_, gpu) = run(&cooked, &stops, &push, (w, h), (w, h)).unwrap();
@@ -323,13 +312,13 @@ mod tests {
 
             // Band index: exact on every escaped sample.
             let n = stops.len() as u32;
-            let cases: Vec<[u32; 4]> = packed
+            let cases: Vec<[u32; 4]> = cooked
                 .iter()
                 .map(|s| [s[0], s[1], phase.to_bits(), n])
                 .collect();
             let (_, xs) = band_select(&cases).unwrap();
             let mut edges = 0;
-            for (i, s) in packed.iter().enumerate() {
+            for (i, s) in cooked.iter().enumerate() {
                 if samples.class[i].kind() != Some(Kind::Escaped) {
                     continue;
                 }

@@ -7,8 +7,14 @@ use fd_shade::{Appearance, Look};
 use std::sync::mpsc;
 
 const GROUP: u32 = 8;
-const PREPARE: &str = include_str!("../shaders/film_prepare.wgsl");
-const SHADE: &str = include_str!("../shaders/film_shade.wgsl");
+pub(crate) const PREPARE: &str = concat!(
+    include_str!("../shaders/soft_f64.wgsl"),
+    include_str!("../shaders/film_prepare.wgsl")
+);
+pub(crate) const SHADE: &str = concat!(
+    include_str!("../shaders/soft_f64.wgsl"),
+    include_str!("../shaders/film_shade.wgsl")
+);
 const RESAMPLE: &str = include_str!("../shaders/film_resample.wgsl");
 
 type Rect = (usize, usize, usize, usize);
@@ -18,7 +24,7 @@ fn groups(n: u32) -> u32 {
     n.div_ceil(GROUP)
 }
 
-/// The shade (and prepare) parameter block: six vec4s, 96 bytes.
+/// The shade (and prepare) parameter block: nine vec4s, 144 bytes.
 #[derive(Clone, Copy)]
 pub(crate) struct ShadePush {
     dims: [u32; 4],
@@ -27,17 +33,29 @@ pub(crate) struct ShadePush {
     light: [f32; 4],
     color: [f32; 4],
     extra: [f32; 4],
+    density64: [u32; 4],
+    lines: [f32; 4],
+    haze: [f32; 4],
 }
 
 impl ShadePush {
     /// The block as native-endian bytes.
     pub(crate) fn bytes(&self) -> Vec<u8> {
-        let words = self.dims.into_iter().chain(self.rect);
-        let floats = [self.tone, self.light, self.color, self.extra];
-        words
-            .flat_map(u32::to_ne_bytes)
-            .chain(floats.into_iter().flatten().flat_map(f32::to_ne_bytes))
+        let words = |w: [u32; 4]| w.into_iter().flat_map(u32::to_ne_bytes);
+        let floats = |f: &[[f32; 4]]| -> Vec<u8> {
+            f.iter().flatten().flat_map(|v| v.to_ne_bytes()).collect()
+        };
+        words(self.dims)
+            .chain(words(self.rect))
+            .chain(floats(&[self.tone, self.light, self.color, self.extra]))
+            .chain(words(self.density64))
+            .chain(floats(&[self.lines, self.haze]))
             .collect()
+    }
+
+    /// The f64 density these parameters band with.
+    fn density(&self) -> u64 {
+        u64::from(self.density64[0]) | u64::from(self.density64[1]) << 32
     }
 }
 
@@ -63,10 +81,17 @@ pub(crate) fn shade_push(
         [0, 1, 2].map(|c| stops.iter().map(|v| v[c]).sum::<f32>() / stops.len() as f32);
     let inside = linear(l.interior);
     let (sin, cos) = l.light.to_radians().sin_cos();
+    // As fd-shade's Studio: the breathing density in f64, its f32 for band spacing.
+    let density = l.density * f64::from(a.density());
+    let bits = density.to_bits();
+    let haze = l.haze.map_or([0.0; 4], |h| {
+        let c = linear(h);
+        [c[0], c[1], c[2], 1.0]
+    });
     ShadePush {
         dims: [full.0 as u32, full.1 as u32, rect.0 as u32, rect.1 as u32],
         rect: [rect.2 as u32, rect.3 as u32, 0, 0],
-        tone: [a.phase(), l.density as f32, l.terrace, l.slope],
+        tone: [a.phase(), density as f32, l.terrace, l.slope],
         light: [cos, -sin, inside[0], inside[1]],
         color: [inside[2], mean[0], mean[1], mean[2]],
         extra: [
@@ -79,23 +104,26 @@ pub(crate) fn shade_push(
             u8::from(a.aa) as f32,
             u8::from(a.unresolved_interior) as f32,
         ],
+        density64: [bits as u32, (bits >> 32) as u32, 0, 0],
+        lines: [l.lines, l.line_px, 0.0, 0.0],
+        haze,
     }
 }
 
-/// Pack exactly the f64 phase base evaluated by PreparedStudio; do not cast
-/// it to f32 before adding the animated palette phase (DEC-29).
-/// Words 0..1 store the bitwise f64; word 2 stores DE and word 3 packs
-/// u16 normal + class kind, preserving the 16-byte/sample SSBO layout.
+/// Pack the raw samples for the prepare pass: words 0..1 the bitwise f64 `nu` of
+/// escaped samples (0 otherwise; the pass forms density * nu in exact f64, so the
+/// palette phase base is never rounded to f32, DEC-29), word 2 DE, word 3 the u16
+/// normal + class kind.
 #[cfg(test)]
-pub(crate) fn pack_samples(s: &Samples, density: f64, out: &mut [u32]) -> Result<(), String> {
+pub(crate) fn pack_samples(s: &Samples, out: &mut [u32]) -> Result<(), String> {
     if out.len() != s.class.len() * 4 {
         return Err("GPU sample-column lengths differ".into());
     }
-    pack_range(s, density, 0, out)
+    pack_range(s, 0, out)
 }
 
 /// Pack samples `first..first + out.len() / 4`, as pack_samples.
-fn pack_range(s: &Samples, density: f64, first: usize, out: &mut [u32]) -> Result<(), String> {
+fn pack_range(s: &Samples, first: usize, out: &mut [u32]) -> Result<(), String> {
     let nu = s.nu.as_deref().ok_or("GPU needs nu")?;
     let de = s.de.as_deref().ok_or("GPU needs de")?;
     let normal = s.normal.as_deref().ok_or("GPU needs normal")?;
@@ -110,12 +138,7 @@ fn pack_range(s: &Samples, density: f64, first: usize, out: &mut [u32]) -> Resul
     }
     for (j, word) in out.chunks_exact_mut(4).enumerate() {
         let i = first + j;
-        let t = if s.class[i].escaped() {
-            density * nu[i]
-        } else {
-            0.0
-        };
-        let bits = t.to_bits();
+        let bits = if s.class[i].escaped() { nu[i] } else { 0.0 }.to_bits();
         word.copy_from_slice(&[
             bits as u32,
             (bits >> 32) as u32,
@@ -126,10 +149,14 @@ fn pack_range(s: &Samples, density: f64, first: usize, out: &mut [u32]) -> Resul
     Ok(())
 }
 
-/// One keyframe's prepared words (relief, band AA and light, computed once on upload).
+/// One keyframe's raw samples and prepared words (palette base, relief, band AA, haze
+/// and line terms), prepared on upload and again only when the density changes.
 struct Key {
     id: usize,
+    full: (usize, usize),
+    samples: wgpu::Buffer,
     prepared: wgpu::Buffer,
+    density: Option<u64>,
 }
 
 /// A GPU film keeps only the current pair's prepared keyframes resident.
@@ -153,12 +180,11 @@ pub(crate) struct FilmGpu {
 
 impl FilmGpu {
     pub(crate) fn supported(l: &Look, a: &Appearance) -> bool {
-        l.lines == 0.0
-            && l.haze.is_none() // CPU fallback: GPU has no dense-frame treatment
-            && a.breathe == 0.0
-            && (2..=32).contains(&l.stops.len())
+        // The band select multiplies by the stop count exactly up to 2047.
+        (2..=64).contains(&l.stops.len())
             && l.density.is_finite()
             && l.density > 0.0
+            && f64::from(a.density()).is_finite()
     }
 
     pub(crate) fn new(
@@ -168,9 +194,7 @@ impl FilmGpu {
         multiple: usize,
     ) -> Result<Self, String> {
         if !Self::supported(l, a) {
-            return Err(
-                "studio look with lines, haze, breathing or >32 stops is not supported".into(),
-            );
+            return Err("studio look density or stop count is out of range".into());
         }
         if multiple == 0 || out.0 == 0 || out.1 == 0 {
             return Err("invalid keyframe dimensions".into());
@@ -266,14 +290,8 @@ impl FilmGpu {
         buffer
     }
 
-    /// Upload one keyframe's samples and run the time-invariant prepare pass once.
-    fn ensure_key(
-        &mut self,
-        id: usize,
-        s: &Samples,
-        full: (usize, usize),
-        a: &Appearance,
-    ) -> Result<(), String> {
+    /// Upload one keyframe's raw samples, once.
+    fn ensure_key(&mut self, id: usize, s: &Samples, full: (usize, usize)) -> Result<(), String> {
         if self.keys.iter().any(|k| k.id == id) {
             return Ok(());
         }
@@ -281,19 +299,19 @@ impl FilmGpu {
             return Err("GPU keyframe dimensions differ from samples".into());
         }
         let len = (s.class.len() as u64)
-            .checked_mul(16)
+            .checked_mul(32)
             .ok_or("GPU keyframe byte count overflow")?;
         let limits = self.device.limits();
         if len > limits.max_storage_buffer_binding_size || len > limits.max_buffer_size {
             return Err("keyframe exceeds the adapter's storage buffer limit".into());
         }
-        let samples = storage(&self.device, len, false);
+        let samples = storage(&self.device, len / 2, false);
         // Pack and upload in bounded chunks: no keyframe-sized second CPU copy.
         const CHUNK: usize = 1 << 20;
         let mut words = vec![0u32; CHUNK.min(s.class.len()) * 4];
         for first in (0..s.class.len()).step_by(CHUNK) {
             let n = CHUNK.min(s.class.len() - first);
-            pack_range(s, self.look.density, first, &mut words[..n * 4])?;
+            pack_range(s, first, &mut words[..n * 4])?;
             let bytes: Vec<u8> = words[..n * 4]
                 .iter()
                 .flat_map(|w| w.to_ne_bytes())
@@ -301,8 +319,27 @@ impl FilmGpu {
             self.queue.write_buffer(&samples, first as u64 * 16, &bytes);
         }
         let prepared = storage(&self.device, len, true);
-        let params = self.uniform(&shade_push(&self.look, a, full, (0, 0, full.0, full.1)).bytes());
-        let group = self.group(&self.prepare, &[&samples, &prepared, &params]);
+        self.keys.push(Key {
+            id,
+            full,
+            samples,
+            prepared,
+            density: None,
+        });
+        Ok(())
+    }
+
+    /// Run the prepare pass for keyframe `id` unless it is current for this density.
+    fn prepare_key(&mut self, id: usize, a: &Appearance) {
+        let k = self.keys.iter().position(|k| k.id == id).expect("uploaded");
+        let full = self.keys[k].full;
+        let push = shade_push(&self.look, a, full, (0, 0, full.0, full.1));
+        if self.keys[k].density == Some(push.density()) {
+            return;
+        }
+        let params = self.uniform(&push.bytes());
+        let key = &self.keys[k];
+        let group = self.group(&self.prepare, &[&key.samples, &key.prepared, &params]);
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_compute_pass(&Default::default());
@@ -311,8 +348,7 @@ impl FilmGpu {
             pass.dispatch_workgroups(groups(full.0 as u32), groups(full.1 as u32), 1);
         }
         self.queue.submit([encoder.finish()]);
-        self.keys.push(Key { id, prepared });
-        Ok(())
+        self.keys[k].density = Some(push.density());
     }
 
     /// Shade both keyframes' needed rectangles, tent blend (rotation included), then
@@ -333,9 +369,11 @@ impl FilmGpu {
             return Err("GPU output size differs from the film".into());
         }
         let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        self.ensure_key(outer_id, outer.0, outer.1, a)?;
-        self.ensure_key(inner_id, inner.0, inner.1, a)?;
+        self.ensure_key(outer_id, outer.0, outer.1)?;
+        self.ensure_key(inner_id, inner.0, inner.1)?;
         self.keys.retain(|k| k.id >= outer_id);
+        self.prepare_key(outer_id, a);
+        self.prepare_key(inner_id, a);
         for (i, (_, full, _)) in [&outer, &inner].into_iter().enumerate() {
             let bytes = (full.0 * full.1 * 4) as u64;
             if self.shaded[i].as_ref().is_none_or(|b| b.size() < bytes) {
@@ -440,7 +478,7 @@ mod tests {
         let look = Look::builtin("ice").unwrap();
         assert_eq!(
             shade_push(&look, &a, (16, 9), (0, 0, 16, 9)).bytes().len(),
-            96
+            144
         );
         assert_eq!(groups(1), 1);
         assert_eq!(groups(8), 1);
@@ -464,22 +502,20 @@ mod tests {
             ..Default::default()
         };
         let mut words = vec![0u32; 8];
-        pack_samples(&s, 0.05, &mut words).unwrap();
+        pack_samples(&s, &mut words).unwrap();
         assert_eq!(words.len(), 8);
-        let phase = f64::from_bits(u64::from(words[0]) | (u64::from(words[1]) << 32));
-        assert_eq!(phase, 2000.25 * 0.05);
+        let nu = f64::from_bits(u64::from(words[0]) | (u64::from(words[1]) << 32));
+        assert_eq!(nu, 2000.25);
         assert_eq!(f32::from_bits(words[2]), 1.5);
         assert_eq!(words[3], 32768);
         assert_eq!(words[7] >> 16, 1);
+        // Lines, haze and breathing run on the GPU (SHAD-05); stop counts cap at 64.
         let mut look = Look::builtin("ice").unwrap();
         let a = Appearance::STILL;
-        assert!(!FilmGpu::supported(&look, &a));
-        look.lines = 0.0;
         assert!(FilmGpu::supported(&look, &a));
-        assert!(!FilmGpu::supported(
-            &look,
-            &Appearance { breathe: 0.1, ..a }
-        ));
+        assert!(FilmGpu::supported(&look, &Appearance { breathe: 0.1, ..a }));
+        look.stops = vec![0x102030; 65];
+        assert!(!FilmGpu::supported(&look, &a));
     }
 
     #[test]
@@ -504,9 +540,9 @@ mod tests {
             normal: Some(vec![1234]),
             ..Default::default()
         };
-        pack_samples(&s, 0.05, &mut packed).unwrap();
+        pack_samples(&s, &mut packed).unwrap();
         let reconstructed = f64::from_bits(u64::from(packed[0]) | (u64::from(packed[1]) << 32));
-        assert_eq!(reconstructed, 0.05 * s.nu.as_ref().unwrap()[0]);
+        assert_eq!(reconstructed, s.nu.as_ref().unwrap()[0]);
         assert_eq!(packed[3], 1234);
     }
 
