@@ -2,6 +2,7 @@
 // keyframe::resample, f32 only, including rotated frames (FILM-14). Sources are
 // full-frame packed RGB (r | g << 8 | b << 16) of which only `rect` was shaded; reads
 // clamp to that rectangle, as the CPU gather does on its cropped image.
+// soft_f64.wgsl (shared helpers) is prepended by the Rust side.
 
 struct Params {
     dims: vec4<u32>,       // output width, output height, outer width, outer height
@@ -105,7 +106,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var packed = 0u;
     for (var j = 0u; j < 3u; j++) {
         let v = clamp(col[j], 0.0, 1.0);
-        let level = min(u32(pow(v, bitcast<f32>(INV_GAMMA_BITS)) * 255.0 + 0.5), 255u);
+        let level = min(u32(pow_nonneg(v, bitcast<f32>(INV_GAMMA_BITS)) * 255.0 + 0.5), 255u);
         packed |= level << (8u * j);
     }
     out_rgb[gid.y * ow + gid.x] = packed;

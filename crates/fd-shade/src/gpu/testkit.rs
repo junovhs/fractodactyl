@@ -11,10 +11,12 @@ use std::sync::mpsc;
 /// driver. Returns the adapter name, device and queue.
 pub fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
     let backends = wgpu::Backends::VULKAN | wgpu::Backends::DX12;
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
+    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    descriptor.backends = backends;
+    // DX12 compiles through statically linked DXC: the legacy FXC default miscompiles the
+    // studio shade pass on WARP (FIX-59), while DXC matches the CPU.
+    descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::StaticDxc;
+    let instance = wgpu::Instance::new(descriptor);
     let rank = |a: &wgpu::Adapter| {
         let info = a.get_info();
         let kind = match info.device_type {

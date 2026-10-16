@@ -2,7 +2,7 @@
 //! mirror of fd-shade Studio's per-sample terms it is checked against.
 
 use super::testkit::{bytes, dispatch, words, Binding};
-use super::{shade_push, PREPARE};
+use super::{shade_push, unit_table, PREPARE};
 use crate::{Appearance, Look};
 
 const LN_2: f32 = std::f32::consts::LN_2;
@@ -29,6 +29,7 @@ pub(super) fn run(
             Binding::Read(&input),
             Binding::Out((w * h * 32) as u64),
             Binding::Uniform(&push),
+            Binding::Read(&unit_table()),
         ],
         ((w as u32).div_ceil(8), (h as u32).div_ceil(8)),
     )?;
@@ -56,8 +57,8 @@ pub(super) fn reference(samples: &[[u32; 4]], l: &Look, a: &Appearance) -> Vec<[
             let nu = f64::from_bits(u64::from(s[0]) | u64::from(s[1]) << 32);
             let t = (density * nu).to_bits();
             let d = f32::from_bits(s[2]).max(0.0);
-            let angle = (s[3] & 65535) as f32 * (std::f32::consts::TAU / 65536.0);
-            let facing = -(angle.cos() * lx + angle.sin() * ly);
+            let (ux, uy) = fd_samples::Samples::unit((s[3] & 65535) as u16);
+            let facing = -(ux * lx + uy * ly);
             let cycles = density as f32 * 2.0 / (d.max(1e-30) * LN_2);
             let band = if a.aa {
                 (BAND_K * cycles * cycles).exp()

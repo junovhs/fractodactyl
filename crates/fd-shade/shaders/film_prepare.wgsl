@@ -24,11 +24,21 @@ struct Params {
 // cycles, 0); band is -1 interior and -2 unresolved.
 @group(0) @binding(1) var<storage, read_write> cooked: array<vec4<u32>>;
 @group(0) @binding(2) var<uniform> p: Params;
+// Unit normal (cos, sin) for each of the 65536 stored angles, built on the CPU with
+// fd_samples::Samples::unit: backend sin/cos may be as coarse as 2^-11 (D3D).
+@group(0) @binding(3) var<storage, read> unit: array<vec2<f32>>;
 
-const ANGLE_PER_STEP: f32 = 6.2831853 / 65536.0;
 const LN_2: f32 = 0.6931471805599453;
 // -2 * (pi * sigma)^2 with sigma = 0.5
 const BAND_K: f32 = -4.9348022;
+
+// tanh for x >= 0 from exp alone. Backend tanh varies: DX12 WARP's returns NaN once
+// e^2x overflows and drifts ~1e-4 near x = 4 (FIX-59); 1 - 2/(e^2x + 1) is
+// well-conditioned for x >= 0, and every x >= 10 is 1 in f32.
+fn tanh_bounded(x: f32) -> f32 {
+    let y = clamp(x, 0.0, 10.0);
+    return 1.0 - 2.0 / (exp(2.0 * y) + 1.0);
+}
 
 // density * nu as f64 bits, as Rust evaluates it.
 fn base(lo: u32, hi: u32) -> vec2<u32> {
@@ -60,9 +70,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let t = base(s.x, s.y);
     let ss = f32(max(p.rect.z, 1u));
     let d = max(bitcast<f32>(s.z), 0.0);
-    let angle = f32(s.w & 65535u) * ANGLE_PER_STEP;
-    let normal = vec2<f32>(cos(angle), sin(angle));
-    let facing = -dot(normal, p.light.xy);
+    let normal = unit[s.w & 65535u];
+    let facing = -(normal.x * p.light.x + normal.y * p.light.y);
     let cycles = p.tone.y * 2.0 / (max(d, 1e-30) * LN_2);
     let aa = p.extra.z > 0.5;
     var band: f32 = 1.0;
@@ -70,10 +79,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let per_sample = cycles / ss;
         band = exp(BAND_K * per_sample * per_sample);
     }
-    let steep = tanh(0.6 * log(1.0 + cycles / 0.02));
+    let steep = tanh_bounded(0.6 * log(1.0 + cycles / 0.02));
     var fade: f32 = 1.0;
     if (aa) {
-        fade = tanh(max(d * ss / 0.7, 0.0));
+        fade = tanh_bounded(max(d * ss / 0.7, 0.0));
     }
     let v = (1.0 + p.tone.w * facing * steep * fade) * (1.0 - 0.6 * exp(-d * ss * 1.5));
     // fd-shade haze_terms.

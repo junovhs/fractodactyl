@@ -71,7 +71,7 @@ fn encode(rgb: vec3<f32>, x: u32, y: u32) -> u32 {
             dither = DITHER_LEVELS * tpdf((y << 16u) ^ (x << 2u) ^ j);
         }
         let v = clamp(rgb[j], 0.0, 1.0);
-        let level = clamp(pow(v, bitcast<f32>(INV_GAMMA_BITS)) * 255.0 + 0.5 + dither, 0.0, 255.0);
+        let level = clamp(pow_nonneg(v, bitcast<f32>(INV_GAMMA_BITS)) * 255.0 + 0.5 + dither, 0.0, 255.0);
         out |= u32(level) << (8u * j);
     }
     return out;
@@ -98,7 +98,7 @@ fn sample_color(i: u32) -> vec4<f32> {
         let c1 = stops[(k + 1u) % n].rgb;
         col = c0 + (c1 - c0) * f;
         if (p.tone.z > 0.0) {
-            col = col * (1.0 - p.tone.z * pow(1.0 - fr, 1.5));
+            col = col * (1.0 - p.tone.z * pow_nonneg(1.0 - fr, 1.5));
         }
         if (p.extra.z > 0.5) {
             let mean = vec3<f32>(p.color.y, p.color.z, p.color.w);
