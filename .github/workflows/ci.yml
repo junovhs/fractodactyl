@@ -25,6 +25,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy, rustfmt
+      # mach-dxcompiler-rs (wgpu static-dxc) asks the GitHub API, via plain curl, whether its
+      # DXC release is immutable; unauthenticated calls from shared runners hit the rate
+      # limit and the build script refuses. Authenticate curl with the job's token,
+      # after the toolchain install so rustup's own curl never sees it.
+      - name: authenticate curl for the GitHub API
+        shell: bash
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$HOME/.curlrc"
+          if [ -n "${APPDATA:-}" ]; then cp "$HOME/.curlrc" "$HOME/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/.curlrc"; fi
       - name: ffmpeg (fd film tests encode) and lavapipe (wgpu GPU tests)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg mesa-vulkan-drivers
       # The wgpu studio tests run on lavapipe here and must not skip (FIX-58); the
@@ -48,6 +59,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           components: clippy, rustfmt
+      # mach-dxcompiler-rs (wgpu static-dxc) asks the GitHub API, via plain curl, whether its
+      # DXC release is immutable; unauthenticated calls from shared runners hit the rate
+      # limit and the build script refuses. Authenticate curl with the job's token,
+      # after the toolchain install so rustup's own curl never sees it.
+      - name: authenticate curl for the GitHub API
+        shell: bash
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$HOME/.curlrc"
+          if [ -n "${APPDATA:-}" ]; then cp "$HOME/.curlrc" "$HOME/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/.curlrc"; fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -73,6 +95,9 @@ jobs:
         run: cargo test --workspace --locked --jobs 1 -- --test-threads=1
       - name: GPU studio tests (adapter names)
         run: cargo test -p fd-shade --locked --jobs 1 -- wgsl_ --nocapture --test-threads=1
+      # CLEA-05: the f32-only zone kernel on DX12 WARP; FD_REQUIRE_GPU turns a skip into a failure.
+      - name: zone kernel on WARP (adapter names)
+        run: cargo test -p fd-cli --bin fd --locked --jobs 1 -- zone_extended_packing_roundtrip gpu_zone_f32only_parity zone_ff_ --nocapture --test-threads=1
 
   locations:
     needs: check
@@ -80,6 +105,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.90.0
+      # mach-dxcompiler-rs (wgpu static-dxc) asks the GitHub API, via plain curl, whether its
+      # DXC release is immutable; unauthenticated calls from shared runners hit the rate
+      # limit and the build script refuses. Authenticate curl with the job's token,
+      # after the toolchain install so rustup's own curl never sees it.
+      - name: authenticate curl for the GitHub API
+        shell: bash
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$HOME/.curlrc"
+          if [ -n "${APPDATA:-}" ]; then cp "$HOME/.curlrc" "$HOME/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/.curlrc"; fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
