@@ -17,6 +17,15 @@ override DEG: i32 = 7;
 override NPHI: i32 = 1;
 override NPSI: i32 = 1;
 
+// Two entry points (CLEA-05): main runs the return map and the interior tests and
+// leaves each sample's state here; main_front runs the approach, Koenigs jump and
+// escape finish from it. One fully inlined kernel was too large for DX12 WARP, which
+// returned zeros or hung; each half compiles to about half its DXIL.
+// Per sample: u (re.hi, re.lo, im.hi, im.lo, e), du (x, y, e), n; n < 0 marks a
+// sample main already wrote.
+@group(0) @binding(4) var<storage, read_write> state: array<u32>;
+const STATE_WORDS: i32 = 9;
+
 struct Series { y: CE, dy: CF }
 fn series(start: i32, count: i32, x: CE) -> Series {
     var y = ce_zero();
@@ -215,6 +224,13 @@ fn finish(gid: i32, z_in: ZF, du_in: CF, n_in: i32) {
     output_sample(gid, 2u, ff(0.0), 0.0, 0.0);
 }
 
+fn set_bases() {
+    g_phi_base = 206;
+    g_psi_base = g_phi_base + 2 * NPHI;
+    g_node_base = g_psi_base + 2 * NPSI;
+    g_leaf_base = g_node_base + 4 * int_at(26);
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3<u32>,
         @builtin(num_workgroups) groups: vec3<u32>) {
@@ -228,11 +244,8 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     if (gid >= nx * ny) { return; }
     let period = int_at(3);
     let maxit = int_at(5);
-    let nn = int_at(26);
-    g_phi_base = 206;
-    g_psi_base = g_phi_base + 2 * NPHI;
-    g_node_base = g_psi_base + 2 * NPSI;
-    g_leaf_base = g_node_base + 4 * nn;
+    let s0 = STATE_WORDS * gid;
+    state[s0 + 8] = bitcast<u32>(-1);
     let col = gid % nx;
     let row = gid / nx;
     let x = f32(col) + 0.5 - f32(nx) * 0.5;
@@ -285,6 +298,32 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
         n += period;
         work += 1;
     }
+    state[s0] = bitcast<u32>(u.re.hi);
+    state[s0 + 1] = bitcast<u32>(u.re.lo);
+    state[s0 + 2] = bitcast<u32>(u.im.hi);
+    state[s0 + 3] = bitcast<u32>(u.im.lo);
+    state[s0 + 4] = bitcast<u32>(u.e);
+    state[s0 + 5] = bitcast<u32>(du.m.x);
+    state[s0 + 6] = bitcast<u32>(du.m.y);
+    state[s0 + 7] = bitcast<u32>(du.e);
+    state[s0 + 8] = bitcast<u32>(n);
+}
+
+@compute @workgroup_size(64)
+fn main_front(@builtin(global_invocation_id) id: vec3<u32>,
+              @builtin(num_workgroups) groups: vec3<u32>) {
+    let gid = i32(id.x + id.y * (groups.x * 64u));
+    ff_init(input_data[6].x);
+    if (gid >= int_at(6) * int_at(7)) { return; }
+    let s0 = STATE_WORDS * gid;
+    let n = bitcast<i32>(state[s0 + 8]);
+    if (n < 0) { return; }
+    set_bases();
+    let u = CE(FF(bitcast<f32>(state[s0]), bitcast<f32>(state[s0 + 1])),
+               FF(bitcast<f32>(state[s0 + 2]), bitcast<f32>(state[s0 + 3])),
+               bitcast<i32>(state[s0 + 4]));
+    let du = CF(vec2<f32>(bitcast<f32>(state[s0 + 5]), bitcast<f32>(state[s0 + 6])),
+                bitcast<i32>(state[s0 + 7]));
     let f = front(u, du, n);
     finish(gid, f.z, f.du, f.n);
 }

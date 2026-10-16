@@ -3013,3 +3013,61 @@ bar with fd compare's DE (0.2%) and normal (0.2 degree) gates.
   fallback (DEC-28).
 - The first pipeline per process compiles in about 2 s on RADV.
 - GPU-29 carries the RTX 3050 Ti and Iris Xe rows.
+
+### CLEA-05: the f32-only zone kernel on any wgpu adapter, DX12 WARP and lavapipe (2026-10-16)
+
+`zone_gpu`'s device now comes from Vulkan or DX12 (DX12 with the statically linked
+DXC, as fd-shade's testkit does). Adapters are ranked discrete, integrated,
+virtual/other, then CPU, with Vulkan preferred on ties. The binary64 modes stay
+Vulkan-only. When the best adapter is a software one, the renderer prints
+`fd: no hardware GPU for the zone kernel; running it on the software adapter ...`.
+`WGPU_DX12_COMPILER` can still pick the compiler, but FXC crashes WARP on this kernel
+(an access violation) and is not supported.
+
+**Two entry points.** On WARP the one-entry f32-only kernel returned zeros for
+whole frames, or hung past 15 minutes. Lavapipe ran the same frames in 70 ms.
+DXIL listings from naga's HLSL compiled with DXC 1.8 locate the cause. The fully
+inlined kernel was about 71k DXIL lines. Each helper is a few hundred instructions:
+`ce_add` about 780, `ce_mul` 760, `ce_div` 1300. `attracted()`, `front()` and
+`finish()` are each tens of call sites. On WARP, variants without `attracted()`
+(48k lines) or without `front()` (43k) matched RADV value for value, while 65k and
+71k failed. Marking every loop `[loop]` did not change the size, so the cause is
+inlining, not unrolling.
+
+zone32.wgsl now has two entry points over one module:
+- `main` runs the return map and the interior tests.
+- `main_front` runs the approach, the Koenigs jump and the escape finish.
+
+Each sample's state passes between them in a device-only buffer (binding 4, 9
+words: u as CE, du as CF, n; n < 0 marks a sample `main` already wrote). Both
+entries are dispatched in one compute pass, and they compile to 37k and 35k
+DXIL lines. The mid-band and binary64 kernels keep one entry. The state buffer
+adds 36 bytes per sample. A grid whose state exceeds the device's
+storage-binding limit is declined like any oversized grid.
+
+**CI.** All three jobs now authenticate curl with the job token before building.
+mach-dxcompiler-rs asks the GitHub API whether its DXC release is immutable, and
+unauthenticated calls from shared runners hit the rate limit ("Refusing to
+download a mutable GitHub release"). The step runs after the toolchain install,
+so the token never reaches rustup's download host. The Windows job runs
+`zone_extended_packing_roundtrip gpu_zone_f32only_parity zone_ff_` on WARP with
+FD_REQUIRE_GPU=1, and `gpu_zone_f32only_parity` no longer exempts Windows.
+
+**Check** (`gpu_zone_f32only_parity`, GPU-28's frames, 480x270):
+
+| frame | WARP shaded > 1 level / class | WARP worst nu px | WARP ms | lavapipe shaded > 1 level / class | RX 5700 XT shaded > 1 level / class |
+|---|---|---|---|---|---|
+| 1e-37 | 0 / 0 | 2.3e-7 | 23935 incl. compile | 0 / 0 | 0 / 0 |
+| 1e-38 | 0 / 0 | 9.6e-5 | 1354 | 0 / 0 | 0 / 0 |
+| 6e-39 | 0 / 0 | 2.3e-4 | 1404 | 0 / 0 | 0 / 0 |
+| 3e-39 | 0 / 0 | 7.5e-4 | 1325 | 0 / 0 | 0 / 0 |
+| 1e-39 | 0 / 0 | 1.0e-9 | 1071 | 0 / 0 | 0 / 0 |
+| 1e-41 | 0 / 0 | 2.6e-9 | 1323 | 0 / 0 | 0 / 0 |
+| 1e-42 | 0 / 0 | 5.5e-7 | 1390 | 0 / 0 | 0 / 0 |
+| 1e-45 | 0 / 0 | 8.5e-8 | 1408 | 0 / 0 | 0 / 0 |
+| 2e-49 | 0 / 0 | 6.4e-6 | 3049 | 0 / 0 | 0 / 0 |
+
+`zone_extended_packing_roundtrip` passes on WARP (exponents -3000..3000). On the
+RX 5700 XT and on lavapipe, `gpu_zone_extended_parity` (rungs k=409 and k=7676)
+still shows 0 class differences and 0 nu/DE/normal failures after the split. On the
+RX 5700 XT, f32-only keyframes after the first take 13-45 ms with the split.

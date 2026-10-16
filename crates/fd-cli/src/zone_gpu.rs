@@ -226,36 +226,44 @@ impl Opened {
         let required = mode.features();
         let column_bytes = (count as u64).checked_mul(8).ok_or("GPU grid overflow")?;
         let groups = count.div_ceil(64) as u64;
-        // The binary64 kernels are proven on Vulkan only (GPU-12/19/20); other
-        // backends arrive with the f32-only path (GPU-05).
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::VULKAN,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
-        let mut adapters: Vec<_> =
-            pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
-                .into_iter()
-                .filter(|a| {
-                    let limits = a.limits();
-                    let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
-                    (mode == Kernel::F32Only || a.get_info().device_type != wgpu::DeviceType::Cpu)
-                        && a.features().contains(required)
-                        && x > 0
-                        && groups.div_ceil(x)
-                            <= u64::from(limits.max_compute_workgroups_per_dimension)
-                        && column_bytes <= limits.max_storage_buffer_binding_size
-                        && 2 * column_bytes <= limits.max_buffer_size
-                })
-                .collect();
-        adapters.sort_by_key(|a| match a.get_info().device_type {
-            wgpu::DeviceType::DiscreteGpu => 0,
-            wgpu::DeviceType::IntegratedGpu => 1,
-            wgpu::DeviceType::Cpu => 3,
-            _ => 2,
+        // The binary64 kernels are proven on Vulkan only (GPU-12/19/20). The f32-only
+        // kernel runs on any adapter (CLEA-05): Vulkan or DX12, the latter through the
+        // statically linked DXC, as fd-shade's passes (FIX-59).
+        let backends = match mode {
+            Kernel::F32Only => wgpu::Backends::VULKAN | wgpu::Backends::DX12,
+            _ => wgpu::Backends::VULKAN,
+        };
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        descriptor.backends = backends;
+        descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::StaticDxc.with_env();
+        let instance = wgpu::Instance::new(descriptor);
+        let mut adapters: Vec<_> = pollster::block_on(instance.enumerate_adapters(backends))
+            .into_iter()
+            .filter(|a| {
+                let limits = a.limits();
+                let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
+                (mode == Kernel::F32Only || a.get_info().device_type != wgpu::DeviceType::Cpu)
+                    && a.features().contains(required)
+                    && x > 0
+                    && groups.div_ceil(x) <= u64::from(limits.max_compute_workgroups_per_dimension)
+                    && column_bytes <= limits.max_storage_buffer_binding_size
+                    && 2 * column_bytes <= limits.max_buffer_size
+            })
+            .collect();
+        // Hardware first, software (lavapipe, WARP) last; Vulkan before DX12.
+        adapters.sort_by_key(|a| {
+            let info = a.get_info();
+            let kind = match info.device_type {
+                wgpu::DeviceType::DiscreteGpu => 0,
+                wgpu::DeviceType::IntegratedGpu => 1,
+                wgpu::DeviceType::Cpu => 3,
+                _ => 2,
+            };
+            (kind, info.backend != wgpu::Backend::Vulkan)
         });
         let Some(adapter) = adapters.into_iter().next() else {
             return Err(format!(
-                "no wgpu Vulkan GPU with {} and sufficient buffer limits",
+                "no wgpu adapter with {} and sufficient buffer limits",
                 if mode == Kernel::F32Only {
                     "no f64 features (f32only)"
                 } else if mode == Kernel::F64 {
@@ -265,7 +273,11 @@ impl Opened {
                 }
             ));
         };
-        let name = adapter.get_info().name;
+        let info = adapter.get_info();
+        let name = info.name;
+        if info.device_type == wgpu::DeviceType::Cpu {
+            eprintln!("fd: no hardware GPU for the zone kernel; running it on the software adapter {name} ({:?})", info.backend);
+        }
         let limits = adapter.limits();
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("fd zone"),
@@ -283,11 +295,18 @@ impl Opened {
     }
 }
 
+/// Bytes of per-sample state between the f32-only kernel's two entry points
+/// (zone32.wgsl STATE_WORDS).
+const STATE_BYTES: u64 = 9 * 4;
+
 struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     group: wgpu::BindGroup,
+    /// The f32-only kernel's second entry point (approach and finish) and its group;
+    /// the per-sample state between the two lives in a device-only buffer (CLEA-05).
+    front: Option<(wgpu::ComputePipeline, wgpu::BindGroup)>,
     constants: wgpu::Buffer,
     /// Sample columns as the host stores them: nu f64, de f32, normal | class << 16.
     outputs: [wgpu::Buffer; 3],
@@ -321,21 +340,27 @@ impl Gpu {
             return Err("zone keyframe exceeds the wgpu device's limits".into());
         }
         let dispatch = (x as u32, groups.div_ceil(x) as u32);
+        let split = mode == Kernel::F32Only && stage != Stage::Mid;
+        let state_bytes = column_bytes / 8 * STATE_BYTES;
+        if split
+            && (state_bytes > limits.max_storage_buffer_binding_size
+                || state_bytes > limits.max_buffer_size)
+        {
+            return Err("zone keyframe state exceeds the wgpu device's limits".into());
+        }
         let (name, device, queue) = (
             opened.name.clone(),
             opened.device.clone(),
             opened.queue.clone(),
         );
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let source = match stage {
+            Stage::Deep | Stage::Extended(_) => mode.source(),
+            Stage::Mid => mode.mid_source(),
+        };
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fd zone kernel"),
-            source: wgpu::ShaderSource::Wgsl(
-                match stage {
-                    Stage::Deep | Stage::Extended(_) => mode.source(),
-                    Stage::Mid => mode.mid_source(),
-                }
-                .into(),
-            ),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let shape = match stage {
             Stage::Deep | Stage::Extended(_) => specialisation(constants),
@@ -363,17 +388,20 @@ impl Gpu {
             (Stage::Deep, Kernel::F32Only) => &all[..3],
             (Stage::Deep, _) => &all[..],
         };
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("fd zone kernel"),
-            layout: None,
-            module: &module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions {
-                constants: overrides,
-                ..Default::default()
-            },
-            cache: None,
-        });
+        let entry = |name| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("fd zone kernel"),
+                layout: None,
+                module: &module,
+                entry_point: Some(name),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: overrides,
+                    ..Default::default()
+                },
+                cache: None,
+            })
+        };
+        let pipeline = entry("main");
         let storage = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -398,8 +426,10 @@ impl Gpu {
             2 * column_bytes,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
+        let state = split.then(|| storage("zone state", state_bytes, wgpu::BufferUsages::STORAGE));
         let entries: Vec<_> = std::iter::once(&constants_buffer)
             .chain(&outputs)
+            .chain(&state)
             .enumerate()
             .map(|(binding, buffer)| wgpu::BindGroupEntry {
                 binding: binding as u32,
@@ -411,6 +441,15 @@ impl Gpu {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &entries,
         });
+        let front = split.then(|| {
+            let pipeline = entry("main_front");
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("fd zone front"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries: &entries,
+            });
+            (pipeline, group)
+        });
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("wgpu zone pipeline rejected: {e}"));
         }
@@ -419,6 +458,7 @@ impl Gpu {
             queue,
             pipeline,
             group,
+            front,
             constants: constants_buffer,
             outputs,
             staging,
@@ -438,6 +478,11 @@ impl Gpu {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.group, &[]);
             pass.dispatch_workgroups(self.dispatch.0, self.dispatch.1, 1);
+            if let Some((pipeline, group)) = &self.front {
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, group, &[]);
+                pass.dispatch_workgroups(self.dispatch.0, self.dispatch.1, 1);
+            }
         }
         encoder
     }
@@ -938,9 +983,8 @@ mod tests {
             let got = match f32only.render(&view, &p, &zone) {
                 Ok((_, s)) => s,
                 Err(e) if e.contains("no wgpu") => {
-                    // The zone kernel is Vulkan-only: Windows CI has only DX12 WARP.
                     assert!(
-                        std::env::var_os("FD_REQUIRE_GPU").is_none() || cfg!(windows),
+                        std::env::var_os("FD_REQUIRE_GPU").is_none(),
                         "no wgpu adapter for f32only, but FD_REQUIRE_GPU is set: {e}"
                     );
                     eprintln!("GPU-28 SKIP: {e}");

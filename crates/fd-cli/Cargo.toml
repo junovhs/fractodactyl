@@ -18,7 +18,7 @@ fd-kernel = { path = "../fd-kernel" }
 fd-shade = { path = "../fd-shade" }
 
 pollster = "0.4"
-wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "wgsl"] }
+wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "dx12", "static-dxc", "wgsl"] }
 
 [dev-dependencies]
 naga = { version = "=30.0.0", features = ["wgsl-in"] }
