@@ -125,6 +125,15 @@ mod tests {
                     // 0.01..~650 geometrically, so band weights span 0..1 rather than
                     // all underflowing, and the near-zero fade and dimming terms are hit.
                     let d = 0.01 * (x as f32 / 16.0 + y as f32 / 4096.0).exp2();
+                    // Samples on the boundary can carry subnormal DE (FIX-60: GPUs flush
+                    // them to zero, yet the studio hazes them as positive), and signed zero.
+                    let d = match i % 61 {
+                        0 => f32::from_bits(1 + i % 0x7f_ffff),
+                        1 => f32::MIN_POSITIVE * 0.5,
+                        2 => -0.0,
+                        3 => -f32::from_bits(1 + i % 0x7f_ffff),
+                        _ => d,
+                    };
                     let angle = (x * 37 + y * 91) & 0xffff;
                     let nu = if i.is_multiple_of(2) {
                         f64::from_bits(

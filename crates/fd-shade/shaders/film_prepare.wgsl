@@ -85,10 +85,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         fade = tanh_bounded(max(d * ss / 0.7, 0.0));
     }
     let v = (1.0 + p.tone.w * facing * steep * fade) * (1.0 - 0.6 * exp(-d * ss * 1.5));
-    // fd-shade haze_terms.
+    // Haze (FX-07) needs a positive, finite DE. Decided from the bits: GPUs flush
+    // subnormals to zero, but a subnormal DE is a sample on the boundary, which the CPU
+    // studio hazed at full weight and the darkest tone (FIX-60).
+    let positive = s.z != 0u && s.z < 0x7f800000u;
     var weight = 0.0;
     var tone = 0.0;
-    if (p.haze.w > 0.5 && d > 0.0 && finite_f32(d) && finite_f32(cycles)) {
+    if (p.haze.w > 0.5 && positive && finite_f32(cycles)) {
         let e = clamp(cycles / ss - 1.0, 0.0, 1.0);
         weight = e * e * (3.0 - 2.0 * e);
         let x = d * ss;
