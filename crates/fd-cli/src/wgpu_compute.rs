@@ -1,8 +1,32 @@
-//! One-shot wgpu compute dispatch shared by the WGSL film passes: pick the Vulkan
-//! adapter, bind buffers in declaration order, dispatch, read the output back.
+//! wgpu device selection shared by the WGSL film passes, and a one-shot compute
+//! dispatch (bind buffers in declaration order, dispatch, read the output back) for tests.
 
+#[cfg(test)]
 use std::sync::mpsc;
 
+/// The first Vulkan adapter wgpu offers, preferring a discrete GPU, opened with the
+/// adapter's own limits (keyframe buffers exceed wgpu's conservative defaults).
+/// Returns the adapter name, device and queue.
+pub(crate) fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    let adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
+        .into_iter()
+        .min_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu)
+        .ok_or("no wgpu Vulkan adapter")?;
+    let name = adapter.get_info().name;
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some(label),
+        required_limits: adapter.limits(),
+        ..Default::default()
+    }))
+    .map_err(|e| format!("wgpu device: {e}"))?;
+    Ok((name, device, queue))
+}
+
+#[cfg(test)]
 /// A buffer bound at the binding number equal to its position in the list.
 pub(crate) enum Binding<'a> {
     /// Read-only storage, uploaded from these bytes.
@@ -16,6 +40,7 @@ pub(crate) enum Binding<'a> {
 /// Run `entry` of the WGSL `source` over `groups` workgroups on the first Vulkan
 /// adapter wgpu offers, preferring a discrete GPU. Returns the adapter name and the
 /// bytes of the single `Out` binding.
+#[cfg(test)]
 pub(crate) fn dispatch(
     label: &str,
     source: &str,
@@ -23,20 +48,7 @@ pub(crate) fn dispatch(
     bindings: &[Binding],
     groups: (u32, u32),
 ) -> Result<(String, Vec<u8>), String> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
-        .into_iter()
-        .min_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu)
-        .ok_or("no wgpu Vulkan adapter")?;
-    let name = adapter.get_info().name;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some(label),
-        ..Default::default()
-    }))
-    .map_err(|e| format!("wgpu device: {e}"))?;
+    let (name, device, queue) = open_device(label)?;
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
@@ -142,6 +154,7 @@ pub(crate) fn dispatch(
 }
 
 /// Native-endian bytes of a word slice, for upload.
+#[cfg(test)]
 pub(crate) fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {
     words
         .iter()
@@ -150,6 +163,7 @@ pub(crate) fn bytes<T: Copy + Into<u32>>(words: &[T]) -> Vec<u8> {
 }
 
 /// Words of a read-back byte buffer.
+#[cfg(test)]
 pub(crate) fn words(bytes: &[u8]) -> Vec<u32> {
     bytes
         .chunks_exact(4)

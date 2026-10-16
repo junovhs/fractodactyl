@@ -21,17 +21,18 @@ pub(crate) struct Params {
 }
 
 impl Params {
-    /// The uniform block: four vec4s, 64 bytes, std140 layout.
+    /// The shade parameter block (six vec4s, 96 bytes) with the fields prepare reads.
     fn uniform(&self) -> Vec<u8> {
         let dims = [self.width, self.height, 0, 0];
+        let rect = [self.width, self.height, 0, 0];
         let tone = [0.0, self.density, 0.0, self.slope];
         let light = [self.light[0], self.light[1], 0.0, 0.0];
         let extra = [0.0, 0.0, if self.aa { 1.0 } else { 0.0 }, 0.0];
-        let mut out = Vec::with_capacity(64);
-        for w in dims {
+        let mut out = Vec::with_capacity(96);
+        for w in dims.into_iter().chain(rect) {
             out.extend(w.to_ne_bytes());
         }
-        for f in tone.into_iter().chain(light).chain(extra) {
+        for f in tone.into_iter().chain(light).chain([0.0; 4]).chain(extra) {
             out.extend(f.to_ne_bytes());
         }
         out

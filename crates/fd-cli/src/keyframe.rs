@@ -263,17 +263,19 @@ impl<'a> Keyframes<'a> {
         } else {
             (0, 0, iwidth, iheight)
         };
+        let mut r = Resample {
+            out: self.out,
+            sin,
+            cos,
+            zoom: (zo, zi),
+            outer_at: (oxo, oyo),
+            inner_at: (oxi, oyi),
+            ramp,
+            margin,
+            outer: ((owidth, oheight), ro),
+            inner: ((iwidth, iheight), ri),
+        };
         if let Some(gpu) = &mut self.gpu {
-            let resample = crate::film_gpu::ResamplePush::new(
-                self.out,
-                (owidth, oheight),
-                (iwidth, iheight),
-                (zo, zi),
-                (oxo, oyo),
-                (oxi, oyi),
-                ramp,
-                margin,
-            );
             let t = std::time::Instant::now();
             match gpu.frame(
                 k,
@@ -281,7 +283,7 @@ impl<'a> Keyframes<'a> {
                 k + 1,
                 (&inner.3, (iwidth, iheight), ri),
                 &sa,
-                resample,
+                &r,
             ) {
                 Ok(rgb) => {
                     self.output.data.copy_from_slice(rgb);
@@ -294,7 +296,7 @@ impl<'a> Keyframes<'a> {
                 }
             }
         }
-        // If Vulkan failed after disabling CPU preparation, use the original
+        // If the GPU failed after disabling CPU preparation, use the original
         // uncropped CPU shade; gather coordinates must match that full image.
         let ro = if outer.4.is_none() {
             (0, 0, owidth, oheight)
@@ -323,18 +325,8 @@ impl<'a> Keyframes<'a> {
         }
         self.sample_shade_seconds += t_shade.elapsed().as_secs_f64();
         let t_resample = std::time::Instant::now();
-        let r = Resample {
-            out: self.out,
-            sin,
-            cos,
-            zoom: (zo, zi),
-            outer_at: (oxo, oyo),
-            inner_at: (oxi, oyi),
-            ramp,
-            margin,
-            outer: ((owidth, oheight), ro),
-            inner: ((iwidth, iheight), ri),
-        };
+        r.outer.1 = ro;
+        r.inner.1 = ri;
         resample(&r, &self.shaded, &self.lut, &mut self.output);
         self.resample_seconds += t_resample.elapsed().as_secs_f64();
         Ok(&self.output)
@@ -355,6 +347,45 @@ pub(crate) struct Resample {
     pub(crate) margin: f32,
     pub(crate) outer: ((usize, usize), (usize, usize, usize, usize)),
     pub(crate) inner: ((usize, usize), (usize, usize, usize, usize)),
+}
+
+impl Resample {
+    /// The WGSL resample parameter block: seven vec4s, 112 bytes (film_resample.wgsl).
+    pub(crate) fn uniform(&self) -> Vec<u8> {
+        let u = |v: usize| v as u32;
+        let rect = |(x, y, w, h): (usize, usize, usize, usize)| [u(x), u(y), u(w), u(h)];
+        let (((ow, oh), ro), ((iw, ih), ri)) = (self.outer, self.inner);
+        let ints = [
+            u(self.out.0),
+            u(self.out.1),
+            u(ow),
+            u(oh),
+            u(iw),
+            u(ih),
+            0,
+            0,
+        ];
+        let floats = [
+            self.zoom.0,
+            self.zoom.1,
+            self.outer_at.0,
+            self.outer_at.1,
+            self.inner_at.0,
+            self.inner_at.1,
+            self.ramp,
+            self.margin,
+            self.sin,
+            self.cos,
+            0.0,
+            0.0,
+        ];
+        let rects = rect(ro).into_iter().chain(rect(ri));
+        ints.into_iter()
+            .flat_map(u32::to_ne_bytes)
+            .chain(floats.into_iter().flat_map(f32::to_ne_bytes))
+            .chain(rects.flat_map(u32::to_ne_bytes))
+            .collect()
+    }
 }
 
 /// Tent-resample the shaded outer and inner keyframe rectangles into `output`, blending
