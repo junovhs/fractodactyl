@@ -2,7 +2,7 @@
 //! the CPU mirror of that GLSL math the port is checked against. Test-only until the
 //! film GPU path is wired to it.
 
-use std::sync::mpsc;
+use crate::wgpu_compute::{bytes, dispatch, words, Binding};
 
 const SHADER: &str = include_str!("../shaders/film_prepare.wgsl");
 const LN_2: f32 = std::f32::consts::LN_2;
@@ -38,129 +38,29 @@ impl Params {
     }
 }
 
-/// Run the WGSL prepare pass on the first Vulkan adapter wgpu offers, preferring a
-/// discrete GPU. Returns the adapter name and the cooked words.
+/// Run the WGSL prepare pass on the wgpu Vulkan adapter. Returns the adapter name and
+/// the cooked words.
 pub(crate) fn run(samples: &[[u32; 4]], p: &Params) -> Result<(String, Vec<[u32; 4]>), String> {
     let count = p.width as usize * p.height as usize;
     if count == 0 || samples.len() != count {
         return Err(format!("expected {count} samples, got {}", samples.len()));
     }
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
-        .into_iter()
-        .min_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu)
-        .ok_or("no wgpu Vulkan adapter")?;
-    let name = adapter.get_info().name;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("fd studio prepare"),
-        ..Default::default()
-    }))
-    .map_err(|e| format!("wgpu device: {e}"))?;
-    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("fd studio prepare"),
-        source: wgpu::ShaderSource::Wgsl(SHADER.into()),
-    });
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: Some("fd studio prepare"),
-        layout: None,
-        module: &module,
-        entry_point: Some("main"),
-        compilation_options: Default::default(),
-        cache: None,
-    });
-    let buffer = |label: &str, size: u64, usage: wgpu::BufferUsages| {
-        device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size,
-            usage,
-            mapped_at_creation: false,
-        })
-    };
-    let bytes = count as u64 * 16;
-    let input = buffer(
-        "prepare samples",
-        bytes,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-    );
-    let output = buffer(
-        "prepare cooked",
-        bytes,
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    );
-    let uniform = buffer(
-        "prepare params",
-        64,
-        wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    );
-    let staging = buffer(
-        "prepare readback",
-        bytes,
-        wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-    );
-    let words: Vec<u8> = samples
-        .iter()
-        .flat_map(|s| s.iter().flat_map(|w| w.to_ne_bytes()))
-        .collect();
-    queue.write_buffer(&input, 0, &words);
-    queue.write_buffer(&uniform, 0, &p.uniform());
-    let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("fd studio prepare"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: input.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: output.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: uniform.as_entire_binding(),
-            },
+    let input = bytes(samples.as_flattened());
+    let (name, out) = dispatch(
+        "fd studio prepare",
+        SHADER,
+        "main",
+        &[
+            Binding::Read(&input),
+            Binding::Out(count as u64 * 16),
+            Binding::Uniform(&p.uniform()),
         ],
-    });
-    let mut encoder = device.create_command_encoder(&Default::default());
-    {
-        let mut pass = encoder.begin_compute_pass(&Default::default());
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &group, &[]);
-        pass.dispatch_workgroups(p.width.div_ceil(8), p.height.div_ceil(8), 1);
-    }
-    encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, bytes);
-    queue.submit([encoder.finish()]);
-    let (tx, rx) = mpsc::channel();
-    staging.map_async(wgpu::MapMode::Read, .., move |r| {
-        let _ = tx.send(r);
-    });
-    device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| format!("wgpu poll: {e}"))?;
-    rx.recv()
-        .map_err(|e| format!("wgpu map callback: {e}"))?
-        .map_err(|e| format!("wgpu map: {e}"))?;
-    if let Some(e) = pollster::block_on(scope.pop()) {
-        staging.unmap();
-        return Err(format!("wgpu prepare rejected: {e}"));
-    }
-    let cooked = {
-        let view = staging
-            .get_mapped_range(..)
-            .map_err(|e| format!("wgpu mapped range: {e}"))?;
-        view.chunks_exact(16)
-            .map(|c| {
-                [0, 1, 2, 3].map(|k| {
-                    u32::from_ne_bytes([c[4 * k], c[4 * k + 1], c[4 * k + 2], c[4 * k + 3]])
-                })
-            })
-            .collect::<Vec<_>>()
-    };
-    staging.unmap();
+        (p.width.div_ceil(8), p.height.div_ceil(8)),
+    )?;
+    let cooked = words(&out)
+        .chunks_exact(4)
+        .map(|c| [c[0], c[1], c[2], c[3]])
+        .collect();
     Ok((name, cooked))
 }
 
