@@ -17,6 +17,8 @@ pub(crate) enum Kernel {
     F64,
     F32,
     Mixed,
+    /// No f64 or i64 anywhere (GPU-28): float-float and f32+exponent (DEC-25).
+    F32Only,
 }
 
 impl Kernel {
@@ -25,8 +27,9 @@ impl Kernel {
             "f64" => Ok(Self::F64),
             "f32" => Ok(Self::F32),
             "mixed" => Ok(Self::Mixed),
+            "f32only" => Ok(Self::F32Only),
             _ => Err(format!(
-                "--gpu-kernel: expected f64, f32 or mixed, got {value:?}"
+                "--gpu-kernel: expected f64, f32, mixed or f32only, got {value:?}"
             )),
         }
     }
@@ -36,6 +39,7 @@ impl Kernel {
             Self::F64 => "wgpu-f64",
             Self::F32 => "wgpu-f32",
             Self::Mixed => "wgpu-mixed",
+            Self::F32Only => "wgpu-f32only",
         }
     }
 
@@ -44,18 +48,29 @@ impl Kernel {
             Self::F64 => "FP64",
             Self::F32 => "f32",
             Self::Mixed => "mixed",
+            Self::F32Only => "f32only",
         }
     }
 
     /// The WGSL module: zone.wgsl plus the guarded f32 finish, or a stub
     /// that keeps the f64 kernel free of subgroup operations.
     fn source(self) -> String {
+        if self == Self::F32Only {
+            return format!(
+                "{}\n{}\n{}",
+                crate::zone_ff::FF,
+                include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
+                include_str!("../shaders/zone32.wgsl")
+            );
+        }
         const F64_TAIL: &str = "const F32_FINISH: bool = false;\n\
             fn wave_all(ready: bool) -> bool { return false; }\n\
             fn finish32(gid: i32, z: C, du: C, n: i32, errpx: f64) -> bool { return false; }\n";
         let tail = match self {
             Self::F64 => F64_TAIL,
-            Self::F32 | Self::Mixed => include_str!("../shaders/zone_finish32.wgsl"),
+            Self::F32 | Self::Mixed | Self::F32Only => {
+                include_str!("../shaders/zone_finish32.wgsl")
+            }
         };
         format!("{}\n{tail}", include_str!("../shaders/zone.wgsl"))
     }
@@ -65,6 +80,7 @@ impl Kernel {
         match self {
             Self::F64 => base,
             Self::F32 | Self::Mixed => base | wgpu::Features::SUBGROUP,
+            Self::F32Only => wgpu::Features::empty(),
         }
     }
 }
@@ -100,7 +116,18 @@ impl Renderer {
 
     fn open(&mut self, count: usize) -> Result<&Opened, String> {
         if self.opened.is_none() {
-            self.opened = Some(Opened::new(count, self.mode)?);
+            // Without an f64-capable GPU, the f32-only kernel runs instead (GPU-28),
+            // on a software adapter if need be (DEC-28).
+            let opened = match Opened::new(count, self.mode) {
+                Err(e) if self.mode != Kernel::F32Only => {
+                    let o = Opened::new(count, Kernel::F32Only)?;
+                    eprintln!("fd: {e}; using the f32-only zone kernel on {}", o.name);
+                    self.mode = Kernel::F32Only;
+                    o
+                }
+                other => other?,
+            };
+            self.opened = Some(opened);
         }
         Ok(self.opened.as_ref().expect("opened"))
     }
@@ -131,7 +158,7 @@ impl Opened {
                 .filter(|a| {
                     let limits = a.limits();
                     let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
-                    a.get_info().device_type != wgpu::DeviceType::Cpu
+                    (mode == Kernel::F32Only || a.get_info().device_type != wgpu::DeviceType::Cpu)
                         && a.features().contains(required)
                         && x > 0
                         && groups.div_ceil(x)
@@ -140,11 +167,18 @@ impl Opened {
                         && 2 * column_bytes <= limits.max_buffer_size
                 })
                 .collect();
-        adapters.sort_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu);
+        adapters.sort_by_key(|a| match a.get_info().device_type {
+            wgpu::DeviceType::DiscreteGpu => 0,
+            wgpu::DeviceType::IntegratedGpu => 1,
+            wgpu::DeviceType::Cpu => 3,
+            _ => 2,
+        });
         let Some(adapter) = adapters.into_iter().next() else {
             return Err(format!(
                 "no wgpu Vulkan GPU with {} and sufficient buffer limits",
-                if mode == Kernel::F64 {
+                if mode == Kernel::F32Only {
+                    "no f64 features (f32only)"
+                } else if mode == Kernel::F64 {
                     "SHADER_F64 and SHADER_INT64"
                 } else {
                     "SHADER_F64, SHADER_INT64 and SUBGROUP (f32/mixed)"
@@ -212,19 +246,24 @@ impl Gpu {
             source: wgpu::ShaderSource::Wgsl(mode.source().into()),
         });
         let shape = specialisation(constants);
-        let overrides = [
+        let all = [
             ("DEG", f64::from(shape[0])),
             ("NPHI", f64::from(shape[1])),
             ("NPSI", f64::from(shape[2])),
             ("F32_FRONT", if mode == Kernel::F32 { 1.0 } else { 0.0 }),
         ];
+        let overrides = if mode == Kernel::F32Only {
+            &all[..3]
+        } else {
+            &all[..]
+        };
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("fd zone kernel"),
             layout: None,
             module: &module,
             entry_point: Some("main"),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: &overrides,
+                constants: overrides,
                 ..Default::default()
             },
             cache: None,
@@ -365,7 +404,8 @@ impl Gpu {
 /// Probe the FP64 wgpu stack; unavailable devices are not correctness failures.
 #[cfg(test)]
 fn probe() -> Result<String, String> {
-    Ok(Renderer::new(Kernel::F64).device(1)?.0)
+    // A real binary64 device, not the f32-only fallback.
+    Ok(Opened::new(1, Kernel::F64)?.name)
 }
 
 /// Sample all columns on the FP64 compute device.
@@ -419,6 +459,11 @@ impl Renderer {
         let layout = (count, constants.len(), specialisation(constants));
         if self.layout != Some(layout) || self.gpu.is_none() {
             self.open(count)?;
+            // The f32-only finish holds |z|^2 as a float-float: radius^2 must stay
+            // inside f32's range with room for one more squaring.
+            if self.mode == Kernel::F32Only && (constants[21].is_nan() || constants[21] >= 1e36) {
+                return Err("the f32-only zone kernel needs an escape radius <= 1e18".into());
+            }
             let opened = self.opened.as_ref().expect("opened");
             self.gpu = Some(Gpu::new(opened, count, constants, self.mode)?);
             self.layout = Some(layout);
@@ -561,11 +606,14 @@ mod tests {
     #[test]
     fn zone_wgsl_validates() {
         use naga::valid::{Capabilities, ValidationFlags, Validator};
-        for mode in [Kernel::F64, Kernel::Mixed, Kernel::F32] {
+        for mode in [Kernel::F64, Kernel::Mixed, Kernel::F32, Kernel::F32Only] {
             let module = naga::front::wgsl::parse_str(&mode.source())
                 .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&mode.source())));
+            // f32only must validate with no f64/i64 capability at all (DEC-25).
             let mut caps = Capabilities::FLOAT64 | Capabilities::SHADER_INT64;
-            if mode != Kernel::F64 {
+            if mode == Kernel::F32Only {
+                caps = Capabilities::empty();
+            } else if mode != Kernel::F64 {
                 caps |= Capabilities::SUBGROUP;
             }
             Validator::new(ValidationFlags::all(), caps)
@@ -726,6 +774,121 @@ mod tests {
                     "{mode:?} {width}: {strict} samples > 1e-3 px"
                 );
             }
+        }
+    }
+
+    /// GPU-28: the f32-only kernel (no f64 or i64 requested) at the GPU-02 parity widths,
+    /// judged by DEC-29 film-equivalence: the studio look (master-ice, film settings)
+    /// shaded from its samples is within one level of the exact CPU zone's on >=99.9%
+    /// of pixels. Class, position, DE and normal differences against the CPU reference
+    /// are reported (DEC-17, not gating), with ms per keyframe next to mixed.
+    #[test]
+    fn gpu_zone_f32only_parity() {
+        use fd_shade::Pass as _;
+        let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
+        let p = Params {
+            nx: 480,
+            ny: 270,
+            ss: 1,
+            max_iter: 100_000,
+            escape_radius: 1e10,
+            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
+            threads: 8,
+            tier: None,
+        };
+        let look = fd_shade::Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let film = fd_shade::Appearance {
+            time: 1.0,
+            flow: look.flow,
+            aa: true,
+            dither: true,
+            unresolved_interior: true,
+            ..fd_shade::Appearance::STILL
+        };
+        let studio = fd_shade::Studio(look);
+        let mut f32only = Renderer::new(Kernel::F32Only);
+        let mut mixed = Renderer::new(Kernel::Mixed);
+        let mut name = None;
+        let widths = [
+            "1e-37", "1e-38", "6e-39", "3e-39", "1e-39", "1e-41", "1e-42", "1e-45", "2e-49",
+        ];
+        for width in widths {
+            let view = View {
+                center_re: "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502".into(),
+                center_im: "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922".into(),
+                width: width.into(),
+                rotation: 0.0,
+            };
+            let (hc, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
+            let t = Instant::now();
+            let got = match f32only.render(&view, &p, &zone) {
+                Ok((_, s)) => s,
+                Err(e) if e.contains("no wgpu") => {
+                    // The zone kernel is Vulkan-only: Windows CI has only DX12 WARP.
+                    assert!(
+                        std::env::var_os("FD_REQUIRE_GPU").is_none() || cfg!(windows),
+                        "no wgpu adapter for f32only, but FD_REQUIRE_GPU is set: {e}"
+                    );
+                    eprintln!("GPU-28 SKIP: {e}");
+                    return;
+                }
+                Err(e) => panic!("f32only {width}: {e}"),
+            };
+            let ms = t.elapsed().as_secs_f64() * 1e3;
+            name.get_or_insert_with(|| f32only.opened.as_ref().unwrap().name.clone());
+            // Mixed for timing, where a binary64 device exists.
+            let mixed_ms = {
+                let t = Instant::now();
+                mixed
+                    .render(&view, &p, &zone)
+                    .ok()
+                    .filter(|_| mixed.mode == Kernel::Mixed)
+                    .map(|_| t.elapsed().as_secs_f64() * 1e3)
+            };
+            let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
+            let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
+            let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
+            let (mut classes, mut strict, mut worst_pos) = (0, 0, 0.0f64);
+            for i in 0..cpu.class.len() {
+                if cpu.class[i].kind() != got.class[i].kind() {
+                    classes += 1;
+                    continue;
+                }
+                if !cpu.class[i].escaped() {
+                    continue;
+                }
+                let de = f64::from(ad[i]);
+                let pos = (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
+                let other = [
+                    (de - f64::from(bd[i])).abs(),
+                    f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
+                        * std::f64::consts::TAU
+                        / 65536.0
+                        * de,
+                ];
+                worst_pos = worst_pos.max(pos);
+                strict += usize::from(pos.max(other[0]).max(other[1]) > 1e-3);
+            }
+            let (x, y) = (
+                studio.shade_with(&hc, &cpu, &film),
+                studio.shade_with(&hc, &got, &film),
+            );
+            let off = x
+                .data
+                .chunks_exact(3)
+                .zip(y.data.chunks_exact(3))
+                .filter(|(p, q)| p.iter().zip(q.iter()).any(|(u, v)| u.abs_diff(*v) > 1))
+                .count();
+            let pixels = x.w * x.h;
+            eprintln!(
+                "GPU-28 {width} on {}: {off}/{pixels} shaded pixels > 1 level; class {classes}, worst nu position {worst_pos:.2e} px, >1e-3 px (any column) {strict}; {ms:.1} ms/keyframe, mixed {}",
+                name.as_deref().unwrap_or("?"),
+                mixed_ms.map_or("n/a".into(), |m| format!("{m:.1} ms"))
+            );
+            assert!(
+                off * 1000 <= pixels,
+                "{width}: {off} of {pixels} shaded pixels differ by more than one level"
+            );
         }
     }
 }
