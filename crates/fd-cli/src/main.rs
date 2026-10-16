@@ -12,6 +12,8 @@ mod film_gpu;
 #[cfg(test)]
 mod film_prepare_wgpu;
 #[cfg(test)]
+mod film_resample_wgpu;
+#[cfg(test)]
 mod film_shade_wgpu;
 mod filmcheck;
 mod jetaa;

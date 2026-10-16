@@ -230,7 +230,6 @@ impl<'a> Keyframes<'a> {
         let (outer, inner) = (get(k), get(k + 1));
         let sa = Appearance { dither: true, ..*a };
         let (ow, oh) = self.out;
-        let aspect = ow as f32 / oh as f32;
         let (sin, cos) = rotation.sin_cos();
         let (sin, cos) = (sin as f32, cos as f32);
         let ramp_width = if self.footprint > 1.0 {
@@ -324,61 +323,100 @@ impl<'a> Keyframes<'a> {
         }
         self.sample_shade_seconds += t_shade.elapsed().as_secs_f64();
         let t_resample = std::time::Instant::now();
-        let (so, si) = (&self.shaded[0], &self.shaded[1]);
-        let lut = &self.lut;
-        let threads = std::thread::available_parallelism()
-            .map_or(1, |n| n.get())
-            .clamp(1, oh);
-        let rows_per = oh.div_ceil(threads);
-        std::thread::scope(|sc| {
-            for (c, chunk) in self.output.data.chunks_mut(rows_per * ow * 3).enumerate() {
-                sc.spawn(move || {
-                    for (r, row) in chunk.chunks_mut(ow * 3).enumerate() {
-                        let py = c * rows_per + r;
-                        let yn = (py as f32 + 0.5) / oh as f32 - 0.5;
-                        for px in 0..ow {
-                            let xn = (px as f32 + 0.5) / ow as f32 - 0.5;
-                            let (rx, ry) = rotated(xn, yn, sin, cos, aspect);
-                            let (xi, yi) = (rx * zi + oxi, ry * zi + oyi);
-                            let d = (2.0 * xi.abs()).max(2.0 * yi.abs());
-                            let wi = ramp * ((1.0 - d) / margin).clamp(0.0, 1.0);
-                            let mut col = [0f32; 3];
-                            if wi < 1.0 {
-                                let o = gather(
-                                    so,
-                                    lut,
-                                    rx * zo + oxo,
-                                    ry * zo + oyo,
-                                    TENT * zo * owidth as f32 / ow as f32,
-                                    ro,
-                                    (owidth, oheight),
-                                );
-                                col = o.map(|v| v * (1.0 - wi));
-                            }
-                            if wi > 0.0 {
-                                let i = gather(
-                                    si,
-                                    lut,
-                                    xi,
-                                    yi,
-                                    TENT * zi * iwidth as f32 / ow as f32,
-                                    ri,
-                                    (iwidth, iheight),
-                                );
-                                col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
-                            }
-                            for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
-                                let v = v.clamp(0.0, 1.0);
-                                *o = (v.powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
-                            }
-                        }
-                    }
-                });
-            }
-        });
+        let r = Resample {
+            out: self.out,
+            sin,
+            cos,
+            zoom: (zo, zi),
+            outer_at: (oxo, oyo),
+            inner_at: (oxi, oyi),
+            ramp,
+            margin,
+            outer: ((owidth, oheight), ro),
+            inner: ((iwidth, iheight), ri),
+        };
+        resample(&r, &self.shaded, &self.lut, &mut self.output);
         self.resample_seconds += t_resample.elapsed().as_secs_f64();
         Ok(&self.output)
     }
+}
+
+/// Where one output frame reads its two keyframes: the zoom of each against the frame,
+/// the frame centre in each (keyframe widths/heights), the inner blend ramp, and each
+/// source's full size and the rectangle of it that was shaded.
+pub(crate) struct Resample {
+    pub(crate) out: (usize, usize),
+    pub(crate) sin: f32,
+    pub(crate) cos: f32,
+    pub(crate) zoom: (f32, f32),
+    pub(crate) outer_at: (f32, f32),
+    pub(crate) inner_at: (f32, f32),
+    pub(crate) ramp: f32,
+    pub(crate) margin: f32,
+    pub(crate) outer: ((usize, usize), (usize, usize, usize, usize)),
+    pub(crate) inner: ((usize, usize), (usize, usize, usize, usize)),
+}
+
+/// Tent-resample the shaded outer and inner keyframe rectangles into `output`, blending
+/// to the inner keyframe inside its frame, in linear light via `lut`.
+pub(crate) fn resample(r: &Resample, shaded: &[Rgb8; 2], lut: &[f32], output: &mut Rgb8) {
+    let (ow, oh) = r.out;
+    let aspect = ow as f32 / oh as f32;
+    let (so, si) = (&shaded[0], &shaded[1]);
+    let (zo, zi) = r.zoom;
+    let ((oxo, oyo), (oxi, oyi)) = (r.outer_at, r.inner_at);
+    let (((owidth, oheight), ro), ((iwidth, iheight), ri)) = (r.outer, r.inner);
+    let (sin, cos, ramp, margin) = (r.sin, r.cos, r.ramp, r.margin);
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .clamp(1, oh);
+    let rows_per = oh.div_ceil(threads);
+    std::thread::scope(|sc| {
+        for (c, chunk) in output.data.chunks_mut(rows_per * ow * 3).enumerate() {
+            sc.spawn(move || {
+                for (r, row) in chunk.chunks_mut(ow * 3).enumerate() {
+                    let py = c * rows_per + r;
+                    let yn = (py as f32 + 0.5) / oh as f32 - 0.5;
+                    for px in 0..ow {
+                        let xn = (px as f32 + 0.5) / ow as f32 - 0.5;
+                        let (rx, ry) = rotated(xn, yn, sin, cos, aspect);
+                        let (xi, yi) = (rx * zi + oxi, ry * zi + oyi);
+                        let d = (2.0 * xi.abs()).max(2.0 * yi.abs());
+                        let wi = ramp * ((1.0 - d) / margin).clamp(0.0, 1.0);
+                        let mut col = [0f32; 3];
+                        if wi < 1.0 {
+                            let o = gather(
+                                so,
+                                lut,
+                                rx * zo + oxo,
+                                ry * zo + oyo,
+                                TENT * zo * owidth as f32 / ow as f32,
+                                ro,
+                                (owidth, oheight),
+                            );
+                            col = o.map(|v| v * (1.0 - wi));
+                        }
+                        if wi > 0.0 {
+                            let i = gather(
+                                si,
+                                lut,
+                                xi,
+                                yi,
+                                TENT * zi * iwidth as f32 / ow as f32,
+                                ri,
+                                (iwidth, iheight),
+                            );
+                            col = [0, 1, 2].map(|j| col[j] + i[j] * wi);
+                        }
+                        for (o, v) in row[px * 3..px * 3 + 3].iter_mut().zip(col) {
+                            let v = v.clamp(0.0, 1.0);
+                            *o = (v.powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+                        }
+                    }
+                }
+            });
+        }
+    });
 }
 
 /// The width needed to cover every rotated output corner, including any centre offset.
@@ -401,7 +439,7 @@ fn rotated(x: f32, y: f32, sin: f32, cos: f32, aspect: f32) -> (f32, f32) {
 }
 
 /// Conservative bounds on source samples touched by any rotated output tent.
-fn needed_rect(
+pub(crate) fn needed_rect(
     out: (usize, usize),
     image: (usize, usize),
     z: f32,
