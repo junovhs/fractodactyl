@@ -4,18 +4,32 @@
 
 use std::sync::mpsc;
 
-/// The first Vulkan adapter wgpu offers, preferring a discrete GPU, opened with the
-/// adapter's own limits (keyframe buffers exceed wgpu's conservative defaults).
-/// Returns the adapter name, device and queue.
+/// The best adapter wgpu offers, opened with the adapter's own limits (keyframe buffers
+/// exceed wgpu's conservative defaults): a discrete GPU, else an integrated one, else a
+/// software adapter (lavapipe on Linux, WARP on Windows), so a machine without a GPU still
+/// runs the WGSL (DEC-28). Vulkan is preferred; DX12 serves Windows without a Vulkan
+/// driver. Returns the adapter name, device and queue.
 pub fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
+    let backends = wgpu::Backends::VULKAN | wgpu::Backends::DX12;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::VULKAN,
+        backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let adapter = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::VULKAN))
+    let rank = |a: &wgpu::Adapter| {
+        let info = a.get_info();
+        let kind = match info.device_type {
+            wgpu::DeviceType::DiscreteGpu => 0,
+            wgpu::DeviceType::IntegratedGpu => 1,
+            wgpu::DeviceType::VirtualGpu => 2,
+            wgpu::DeviceType::Other => 3,
+            wgpu::DeviceType::Cpu => 4,
+        };
+        (kind, info.backend != wgpu::Backend::Vulkan)
+    };
+    let adapter = pollster::block_on(instance.enumerate_adapters(backends))
         .into_iter()
-        .min_by_key(|a| a.get_info().device_type != wgpu::DeviceType::DiscreteGpu)
-        .ok_or("no wgpu Vulkan adapter")?;
+        .min_by_key(rank)
+        .ok_or("no wgpu adapter")?;
     let name = adapter.get_info().name;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some(label),
@@ -152,12 +166,12 @@ pub fn dispatch(
 }
 
 /// A GPU test's result, or `None` after printing a skip when this machine has no wgpu
-/// Vulkan adapter (CI's Windows runner). With FD_REQUIRE_GPU set (CI's Linux runner,
+/// adapter at all. With FD_REQUIRE_GPU set (CI's Linux runner,
 /// on lavapipe) a missing adapter fails instead; any other error always fails.
 pub fn or_skip<T>(result: Result<T, String>, what: &str) -> Option<T> {
     match result {
         Ok(v) => Some(v),
-        Err(e) if e.contains("no wgpu Vulkan adapter") => {
+        Err(e) if e.contains("no wgpu adapter") => {
             assert!(
                 std::env::var_os("FD_REQUIRE_GPU").is_none(),
                 "{what}: {e}, but FD_REQUIRE_GPU is set"
