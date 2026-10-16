@@ -372,15 +372,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         k.enable_zone_kernel(mode);
     }
     if gpu_on {
-        if keys.is_some() && views.iter().any(|v| v.rotation != 0.0) {
-            eprintln!(
-                "fd film: GPU does not support rotated keyframes (GPU-08); using CPU shading"
-            );
-        } else if let Some(k) = keys.as_mut() {
+        if let Some(k) = keys.as_mut() {
             if look_name == "studio" {
                 let l = crate::shade::studio_look(&a)?;
                 match k.enable_gpu(&l, &Appearance { time: t0, ..base }) {
-                    Ok(device) => eprintln!("fd film: Vulkan GPU shading on {device}"),
+                    Ok(device) => eprintln!("fd film: wgpu GPU shading on {device}"),
                     Err(e) => eprintln!("fd film: GPU unavailable ({e}); using CPU shading"),
                 }
             } else {

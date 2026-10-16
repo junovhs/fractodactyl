@@ -29,7 +29,6 @@ mod render;
 mod reuse;
 mod schedule;
 mod shade;
-#[cfg(test)]
 mod wgpu_compute;
 mod zone_gpu;
 

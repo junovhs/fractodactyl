@@ -2,11 +2,15 @@
 // port of film_prepare.comp, f32 arithmetic only. One dispatch per newly uploaded
 // keyframe, not once per output frame.
 
+// The shade pass's parameter block (film_gpu::ShadePush); prepare reads its full-frame
+// dims, density, slope, light direction and anti-alias flag.
 struct Params {
-    dims: vec4<u32>,  // width, height, unused, unused
-    tone: vec4<f32>,  // unused, density, unused, slope
-    light: vec4<f32>, // light x, light y, unused, unused
-    extra: vec4<f32>, // unused, unused, anti-alias flag, unused
+    dims: vec4<u32>,  // full width, full height, rectangle x, rectangle y
+    rect: vec4<u32>,  // rectangle width, rectangle height
+    tone: vec4<f32>,  // phase, density, terrace, slope
+    light: vec4<f32>, // light x, light y, inside r, inside g
+    color: vec4<f32>, // inside b, mean r, mean g, mean b
+    extra: vec4<f32>, // ramp mean, stop count, aa, unresolved-as-interior
 }
 
 @group(0) @binding(0) var<storage, read> samples: array<vec4<u32>>;

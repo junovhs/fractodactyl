@@ -14,42 +14,11 @@ pub(crate) fn run(
     inner: &[u32],
     lut: &[f32; 256],
 ) -> Result<(String, Vec<u32>), String> {
-    let (((owidth, oheight), ro), ((iwidth, iheight), ri)) = (r.outer, r.inner);
+    let (((owidth, oheight), _), ((iwidth, iheight), _)) = (r.outer, r.inner);
     if outer.len() != owidth * oheight || inner.len() != iwidth * iheight {
         return Err("keyframe sizes do not match the resample".into());
     }
-    let u = |v: usize| v as u32;
-    let rect = |(x, y, w, h): (usize, usize, usize, usize)| [u(x), u(y), u(w), u(h)];
-    let ints = [
-        u(r.out.0),
-        u(r.out.1),
-        u(owidth),
-        u(oheight),
-        u(iwidth),
-        u(iheight),
-        0,
-        0,
-    ];
-    let floats = [
-        r.zoom.0,
-        r.zoom.1,
-        r.outer_at.0,
-        r.outer_at.1,
-        r.inner_at.0,
-        r.inner_at.1,
-        r.ramp,
-        r.margin,
-        r.sin,
-        r.cos,
-        0.0,
-        0.0,
-    ];
-    let params: Vec<u8> = bytes(&ints)
-        .into_iter()
-        .chain(floats.iter().flat_map(|f| f.to_ne_bytes()))
-        .chain(bytes(&rect(ro)))
-        .chain(bytes(&rect(ri)))
-        .collect();
+    let params = r.uniform();
     let lut: Vec<u8> = lut.iter().flat_map(|f| f.to_ne_bytes()).collect();
     let (name, out) = dispatch(
         "fd film resample",
