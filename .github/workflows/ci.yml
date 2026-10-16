@@ -84,6 +84,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install mpmath gmpy2
+      # The studio look runs only on wgpu (SHAD-11): lavapipe is the adapter here.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq mesa-vulkan-drivers
       - run: cargo build --release -j 4
       - name: FX-07 studio haze proof
         run: python3 tools/research/looks/haze_check.py

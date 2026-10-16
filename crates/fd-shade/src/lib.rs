@@ -268,10 +268,33 @@ mod tests {
 
     /// SHAD-11: the studio still matches the CPU studio's output, frozen before that
     /// was deleted (src/gpu/frozen, written by the then-CPU studio at fcab2b5).
+    /// [`fixture`] as Linux computed it when the studio stills were frozen. The fixture
+    /// builds `nu` with `f64::exp`, whose last bit differs between platform maths
+    /// libraries; on Windows one sample on a band edge then shades a different band
+    /// (FIX-61), so the frozen tests read these exact bits instead.
+    fn frozen_fixture() -> (Header, Samples) {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/frozen/fixture.fds");
+        let mut r = fd_samples::Reader::open(&path).unwrap();
+        let s = r.read(r.header.columns).unwrap();
+        (r.header.clone(), s)
+    }
+
+    /// Writes src/gpu/frozen/fixture.fds; run on Linux only, where the frozen stills
+    /// were made.
+    #[test]
+    #[ignore = "writes the frozen fixture samples"]
+    fn freeze_fixture() {
+        let (h, s) = fixture();
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/gpu/frozen/fixture.fds");
+        fd_samples::write(std::fs::File::create(path).unwrap(), &h, &s).unwrap();
+    }
+
     #[test]
     fn studio_matches_frozen_reference() {
         use crate::Pass as _;
-        let (h, s) = fixture();
+        let (h, s) = frozen_fixture();
         let adapter = crate::gpu::shared_adapter().expect("studio look needs a wgpu adapter");
         for (name, look, a) in frozen_stills() {
             let img = crate::Studio(look).shade_with(&h, &s, &a);
