@@ -661,6 +661,48 @@ impl Zone {
         hd.kernel = format!("zone-vulkan-f64/1 P={}", self.period);
         Ok((hd, v))
     }
+
+    /// Constants for the wgpu mid-band kernel (GPU-22) when the CPU zone would render
+    /// `view` with the mid operator ([`mid::pixel`]); `Err` otherwise. Every pixel's
+    /// parameter offset dc = off + (ux, uy) h is formed on the device exactly as the
+    /// CPU forms it, from the frame's centre offset to the nucleus.
+    pub fn gpu_mid_input(&self, view: &View, p: &Params) -> Result<(Header, Vec<f64>), String> {
+        let (plane, tier) = setup(view, p)?;
+        let off = centre_offset(view, self, &plane)?;
+        if deep_covers(&plane, p, self, off) || !mid_covers(&plane, p, self, off) {
+            return Err("not a mid-band zone frame".into());
+        }
+        if !p.columns.needs_derivative() || p.columns.has(Column::Bound) {
+            return Err("the wgpu mid kernel computes nu, de and normal only".into());
+        }
+        if p.max_iter > i32::MAX as u64 || self.period > i32::MAX as u64 {
+            return Err("wgpu mid zone iteration count exceeds i32".into());
+        }
+        let m = self.mid.as_ref().expect("mid_covers");
+        let mut v = vec![
+            p.nx as f64,
+            p.ny as f64,
+            p.max_iter as f64,
+            p.escape_radius * p.escape_radius,
+            plane.h(),
+            plane.h() * p.ss as f64,
+            off.absolute.0,
+            off.absolute.1,
+            self.c.0,
+            self.c.1,
+            view.rotation.cos(),
+            view.rotation.sin(),
+            self.period as f64,
+        ];
+        m.pack(&mut v, 32);
+        if !v.iter().all(|x| x.is_finite()) {
+            return Err("wgpu mid zone constants are non-finite".into());
+        }
+        let cols = p.columns.with(Column::Class);
+        let mut hd = header(view, p, cols, &plane, tier);
+        hd.kernel = format!("zone-mid-vulkan-f64/1 P={}", self.period);
+        Ok((hd, v))
+    }
 }
 
 /// Work counters of one zone render.

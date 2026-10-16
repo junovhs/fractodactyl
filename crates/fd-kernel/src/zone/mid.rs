@@ -105,6 +105,27 @@ impl Mid {
         Ok(Some(self))
     }
 
+    /// The operator constants for the wgpu mid kernel (GPU-22), in the order
+    /// zone_mid.wgsl reads them: u, s, p, sign, lambda, then from slot `at` the 25
+    /// approach points, k, k', the 512 powers lambda^j and the reference orbit.
+    pub(super) fn pack(&self, v: &mut Vec<f64>, at: usize) {
+        v.extend([
+            self.u.0, self.u.1, self.s.0, self.s.1, self.p.0, self.p.1, self.sign,
+        ]);
+        v.extend([self.lambda.0, self.lambda.1]);
+        v.resize(at, 0.0);
+        for a in self
+            .z
+            .iter()
+            .chain(&self.k)
+            .chain(&self.kp)
+            .chain(&self.powers)
+            .chain(&self.reference)
+        {
+            v.extend([a.0, a.1]);
+        }
+    }
+
     pub(super) fn covers(&self, radius: f64, escape_radius: f64) -> bool {
         // The largest possible |c-C| must fit one validated operator regime.
         // Above OUTER_MIN_DC, individual pixels in the unvalidated annulus
