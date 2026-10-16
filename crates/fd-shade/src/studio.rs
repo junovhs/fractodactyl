@@ -272,7 +272,7 @@ fn hex(s: &str) -> Option<u32> {
         .flatten()
 }
 
-fn linear(rgb: u32) -> [f32; 3] {
+pub(crate) fn linear(rgb: u32) -> [f32; 3] {
     [16, 8, 0].map(|sh| {
         let c = ((rgb >> sh) & 0xff) as f32 / 255.0;
         if c <= 0.04045 {

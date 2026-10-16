@@ -1,13 +1,13 @@
-//! Studio shade pass on wgpu (SHAD-04/05): runs film_shade.wgsl alone (FilmGpu runs it
-//! in the film path), for tests against fd-shade's CPU shading.
+//! Studio shade pass on wgpu (SHAD-04/05): runs film_shade.wgsl alone (StudioGpu runs
+//! it in the film path), for tests against fd-shade's CPU shading.
 
-use crate::film_gpu::{ShadePush, SHADE as SHADER};
-use crate::wgpu_compute::{bytes, dispatch, words, Binding};
+use super::testkit::{bytes, dispatch, words, Binding};
+use super::{ShadePush, SHADE as SHADER};
 
 /// Shade the push block's rectangle of `cooked` (the prepare pass output, full frame)
 /// with linear-light `stops`. Returns the adapter name and the full-frame packed
 /// RGB words (`r | g << 8 | b << 16`); words outside the rectangle are zero.
-pub(crate) fn run(
+pub(super) fn run(
     cooked: &[[u32; 8]],
     stops: &[[f32; 3]],
     push: &ShadePush,
@@ -49,7 +49,7 @@ pub(crate) fn run(
 
 /// Run the shader's band select alone: each case is (t low word, t high word, phase
 /// bits, stop count); returns the bits of `((t + phase).rem_euclid(1.0) * n) as f32`.
-pub(crate) fn band_select(cases: &[[u32; 4]]) -> Result<(String, Vec<u32>), String> {
+pub(super) fn band_select(cases: &[[u32; 4]]) -> Result<(String, Vec<u32>), String> {
     let input = bytes(cases.as_flattened());
     let (name, out) = dispatch(
         "fd studio band select",
@@ -63,12 +63,13 @@ pub(crate) fn band_select(cases: &[[u32; 4]]) -> Result<(String, Vec<u32>), Stri
 
 #[cfg(test)]
 mod tests {
+    use super::super::prepare_tests as prepare;
+    use super::super::testkit::or_skip;
+    use super::super::{pack_samples, shade_push};
     use super::*;
-    use crate::film_gpu::{linear, pack_samples, shade_push};
-    use crate::film_prepare_wgpu as prepare;
-    use crate::wgpu_compute::or_skip;
+    use crate::studio::linear;
+    use crate::{Appearance, Look, PreparedStudio, Rgb8};
     use fd_samples::{Class, Column, ColumnSet, Evidence, Header, Kind, Samples, View, MINOR};
-    use fd_shade::{Appearance, Look, PreparedStudio, Rgb8};
 
     /// PreparedStudio's palette coordinate, the f64 expression the shader emulates.
     fn cpu_x(t: f64, phase: f32, n: u32) -> f32 {
@@ -285,7 +286,7 @@ mod tests {
 
     #[test]
     fn wgsl_shade_matches_prepared_studio() {
-        let mut look = Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
+        let mut look = Look::parse(include_str!("../../../../looks/master-ice.look")).unwrap();
         // Haze is SHAD-05's; terrace stays, so a wrong band is a visible jump.
         look.haze = None;
         assert!(look.terrace > 0.0 && look.lines == 0.0);

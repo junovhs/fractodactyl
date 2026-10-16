@@ -1,21 +1,28 @@
 //! wgpu compute shading and tent resampling for keyframe films (SHAD-07): the WGSL
 //! prepare, shade and resample passes, f32 and integer arithmetic only (DEC-25, DEC-28).
 //! All camera and fractal arithmetic remains in the CPU renderer.
-use crate::keyframe::Resample;
+use crate::studio::linear;
+use crate::{Appearance, Look};
 use fd_samples::Samples;
-use fd_shade::{Appearance, Look};
 use std::sync::mpsc;
 
+#[cfg(test)]
+mod prepare_tests;
+#[cfg(test)]
+mod shade_tests;
+#[doc(hidden)]
+pub mod testkit;
+
 const GROUP: u32 = 8;
-pub(crate) const PREPARE: &str = concat!(
-    include_str!("../shaders/soft_f64.wgsl"),
-    include_str!("../shaders/film_prepare.wgsl")
+pub const PREPARE: &str = concat!(
+    include_str!("../../shaders/soft_f64.wgsl"),
+    include_str!("../../shaders/film_prepare.wgsl")
 );
-pub(crate) const SHADE: &str = concat!(
-    include_str!("../shaders/soft_f64.wgsl"),
-    include_str!("../shaders/film_shade.wgsl")
+pub const SHADE: &str = concat!(
+    include_str!("../../shaders/soft_f64.wgsl"),
+    include_str!("../../shaders/film_shade.wgsl")
 );
-const RESAMPLE: &str = include_str!("../shaders/film_resample.wgsl");
+pub const RESAMPLE: &str = include_str!("../../shaders/film_resample.wgsl");
 
 type Rect = (usize, usize, usize, usize);
 type Source<'a> = (&'a Samples, (usize, usize), Rect);
@@ -26,7 +33,7 @@ fn groups(n: u32) -> u32 {
 
 /// The shade (and prepare) parameter block: nine vec4s, 144 bytes.
 #[derive(Clone, Copy)]
-pub(crate) struct ShadePush {
+pub struct ShadePush {
     dims: [u32; 4],
     rect: [u32; 4],
     tone: [f32; 4],
@@ -40,7 +47,7 @@ pub(crate) struct ShadePush {
 
 impl ShadePush {
     /// The block as native-endian bytes.
-    pub(crate) fn bytes(&self) -> Vec<u8> {
+    pub fn bytes(&self) -> Vec<u8> {
         let words = |w: [u32; 4]| w.into_iter().flat_map(u32::to_ne_bytes);
         let floats = |f: &[[f32; 4]]| -> Vec<u8> {
             f.iter().flatten().flat_map(|v| v.to_ne_bytes()).collect()
@@ -65,18 +72,9 @@ impl ShadePush {
     }
 }
 
-pub(crate) fn linear(rgb: u32) -> [f32; 3] {
-    [16, 8, 0].map(|shift| {
-        let c = ((rgb >> shift) & 255) as f32 / 255.0;
-        if c <= 0.04045 {
-            c / 12.92
-        } else {
-            ((c + 0.055) / 1.055).powf(2.4)
-        }
-    })
-}
-
-pub(crate) fn shade_push(
+/// The shade (and prepare) parameters for look `l` at appearance `a` over the `full`
+/// grid's rectangle `rect`.
+pub fn shade_push(
     l: &Look,
     a: &Appearance,
     full: (usize, usize),
@@ -120,8 +118,8 @@ pub(crate) fn shade_push(
 /// escaped samples (0 otherwise; the pass forms density * nu in exact f64, so the
 /// palette phase base is never rounded to f32, DEC-29), word 2 DE, word 3 the u16
 /// normal + class kind.
-#[cfg(test)]
-pub(crate) fn pack_samples(s: &Samples, out: &mut [u32]) -> Result<(), String> {
+/// Pack raw samples for the prepare pass (see [`StudioGpu`]).
+pub fn pack_samples(s: &Samples, out: &mut [u32]) -> Result<(), String> {
     if out.len() != s.class.len() * 4 {
         return Err("GPU sample-column lengths differ".into());
     }
@@ -155,6 +153,61 @@ fn pack_range(s: &Samples, first: usize, out: &mut [u32]) -> Result<(), String> 
     Ok(())
 }
 
+/// Where one output frame reads its two keyframes: the zoom of each against the frame,
+/// the frame centre in each (keyframe widths/heights), the inner blend ramp, and each
+/// source's full size and the rectangle of it that was shaded.
+pub struct Resample {
+    pub out: (usize, usize),
+    pub sin: f32,
+    pub cos: f32,
+    pub zoom: (f32, f32),
+    pub outer_at: (f32, f32),
+    pub inner_at: (f32, f32),
+    pub ramp: f32,
+    pub margin: f32,
+    pub outer: ((usize, usize), (usize, usize, usize, usize)),
+    pub inner: ((usize, usize), (usize, usize, usize, usize)),
+}
+
+impl Resample {
+    /// The WGSL resample parameter block: seven vec4s, 112 bytes (film_resample.wgsl).
+    pub fn uniform(&self) -> Vec<u8> {
+        let u = |v: usize| v as u32;
+        let rect = |(x, y, w, h): (usize, usize, usize, usize)| [u(x), u(y), u(w), u(h)];
+        let (((ow, oh), ro), ((iw, ih), ri)) = (self.outer, self.inner);
+        let ints = [
+            u(self.out.0),
+            u(self.out.1),
+            u(ow),
+            u(oh),
+            u(iw),
+            u(ih),
+            0,
+            0,
+        ];
+        let floats = [
+            self.zoom.0,
+            self.zoom.1,
+            self.outer_at.0,
+            self.outer_at.1,
+            self.inner_at.0,
+            self.inner_at.1,
+            self.ramp,
+            self.margin,
+            self.sin,
+            self.cos,
+            0.0,
+            0.0,
+        ];
+        let rects = rect(ro).into_iter().chain(rect(ri));
+        ints.into_iter()
+            .flat_map(u32::to_ne_bytes)
+            .chain(floats.into_iter().flat_map(f32::to_ne_bytes))
+            .chain(rects.flat_map(u32::to_ne_bytes))
+            .collect()
+    }
+}
+
 /// One keyframe's raw samples and prepared words (palette base, relief, band AA, haze
 /// and line terms), prepared on upload and again only when the density changes.
 struct Key {
@@ -168,7 +221,7 @@ struct Key {
 
 /// A GPU film keeps only the current pair's prepared keyframes resident.
 /// An unavailable device or unsupported look is a normal CPU fallback.
-pub(crate) struct FilmGpu {
+pub struct StudioGpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     prepare: wgpu::ComputePipeline,
@@ -182,12 +235,13 @@ pub(crate) struct FilmGpu {
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     host_output: Vec<u8>,
-    pub(crate) name: String,
+    /// The adapter's name.
+    pub name: String,
     look: Look,
 }
 
-impl FilmGpu {
-    pub(crate) fn supported(l: &Look, a: &Appearance) -> bool {
+impl StudioGpu {
+    pub fn supported(l: &Look, a: &Appearance) -> bool {
         // The band select multiplies by the stop count exactly up to 2047.
         (2..=64).contains(&l.stops.len())
             && l.density.is_finite()
@@ -195,7 +249,7 @@ impl FilmGpu {
             && f64::from(a.density()).is_finite()
     }
 
-    pub(crate) fn new(
+    pub fn new(
         l: &Look,
         a: &Appearance,
         out: (usize, usize),
@@ -207,7 +261,7 @@ impl FilmGpu {
         if multiple == 0 || out.0 == 0 || out.1 == 0 {
             return Err("invalid keyframe dimensions".into());
         }
-        let (name, device, queue) = crate::wgpu_compute::open_device("fd film")?;
+        let (name, device, queue) = testkit::open_device("fd film")?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let pipeline = |source: &str, entry: &str| {
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -370,7 +424,7 @@ impl FilmGpu {
 
     /// Shade both keyframes' needed rectangles, tent blend (rotation included), then
     /// read only RGB8 back for ffmpeg.
-    pub(crate) fn frame(
+    pub fn frame(
         &mut self,
         outer_id: usize,
         outer: Source<'_>,
@@ -440,13 +494,13 @@ impl FilmGpu {
     }
 
     /// Bytes of one packed RGB8 output image.
-    pub(crate) fn output_len(&self) -> usize {
+    pub fn output_len(&self) -> usize {
         self.host_output.len()
     }
 
     /// Shade a whole still: `s` holds `ss x ss` samples per output pixel on a
     /// `grid`, averaged in linear light and encoded as fd-shade's resolve does.
-    pub(crate) fn still(
+    pub fn still(
         &mut self,
         s: &Samples,
         grid: (usize, usize),
@@ -585,10 +639,13 @@ mod tests {
         // Lines, haze and breathing run on the GPU (SHAD-05); stop counts cap at 64.
         let mut look = Look::builtin("ice").unwrap();
         let a = Appearance::STILL;
-        assert!(FilmGpu::supported(&look, &a));
-        assert!(FilmGpu::supported(&look, &Appearance { breathe: 0.1, ..a }));
+        assert!(StudioGpu::supported(&look, &a));
+        assert!(StudioGpu::supported(
+            &look,
+            &Appearance { breathe: 0.1, ..a }
+        ));
         look.stops = vec![0x102030; 65];
-        assert!(!FilmGpu::supported(&look, &a));
+        assert!(!StudioGpu::supported(&look, &a));
     }
 
     #[test]
@@ -621,7 +678,7 @@ mod tests {
 
     #[test]
     fn optional_device_skips_cleanly() {
-        if let Ok(gpu) = FilmGpu::new(
+        if let Ok(gpu) = StudioGpu::new(
             &Look {
                 lines: 0.0,
                 ..Look::builtin("ice").unwrap()

@@ -58,7 +58,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let (mut read_s, mut shade_s, mut write_s, mut images) = (0.0, 0.0, 0.0, 0);
     // Studio looks shade on the wgpu GPU path under --gpu on (SHAD-08), one device for
     // the whole run; any failure falls back to the CPU look for the rest of it.
-    let mut gpu: Option<crate::film_gpu::FilmGpu> = None;
+    let mut gpu: Option<fd_shade::gpu::StudioGpu> = None;
     let mut gpu_off = !gpu_on;
     for (k, f) in frames.iter().enumerate() {
         let time = t0 + if fps > 0.0 { k as f64 / fps } else { 0.0 };
@@ -125,7 +125,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
 /// The studio still on the GPU, opening the device (or reopening it for a new image
 /// size) as needed; `None`, after saying why, when the CPU must shade instead.
 fn gpu_still(
-    gpu: &mut Option<crate::film_gpu::FilmGpu>,
+    gpu: &mut Option<fd_shade::gpu::StudioGpu>,
     a: &crate::args::Args,
     h: &fd_samples::Header,
     samples: &fd_samples::Samples,
@@ -140,7 +140,7 @@ fn gpu_still(
                 return None;
             }
         };
-        match crate::film_gpu::FilmGpu::new(&look, look_at, (w, ht), 1) {
+        match fd_shade::gpu::StudioGpu::new(&look, look_at, (w, ht), 1) {
             Ok(g) => {
                 if gpu.is_none() {
                     eprintln!("fd shade: wgpu GPU shading on {}", g.name);

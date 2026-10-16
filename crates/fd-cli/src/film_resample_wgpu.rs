@@ -1,10 +1,8 @@
 //! Film tent resample on wgpu (SHAD-06): the WGSL port of `keyframe::resample`,
 //! including rotated frames. Test-only until the film GPU path is wired to it.
 
-use crate::keyframe::Resample;
-use crate::wgpu_compute::{bytes, dispatch, words, Binding};
-
-const SHADER: &str = include_str!("../shaders/film_resample.wgsl");
+use fd_shade::gpu::testkit::{bytes, dispatch, words, Binding};
+use fd_shade::gpu::{Resample, RESAMPLE as SHADER};
 
 /// Resample full-frame packed RGB keyframes (`r | g << 8 | b << 16`; only each `rect`
 /// is read) into the output frame. Returns the adapter name and the packed output.
@@ -40,7 +38,7 @@ pub(crate) fn run(
 mod tests {
     use super::*;
     use crate::keyframe::{needed_rect, resample};
-    use crate::wgpu_compute::or_skip;
+    use fd_shade::gpu::testkit::or_skip;
     use fd_shade::Rgb8;
 
     /// A smooth gradient with per-texel hash noise, so a misplaced tap or weight shows.
