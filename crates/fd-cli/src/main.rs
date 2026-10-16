@@ -9,6 +9,8 @@ mod control;
 mod explore;
 mod film;
 mod film_gpu;
+#[cfg(test)]
+mod film_prepare_wgpu;
 mod filmcheck;
 mod jetaa;
 mod keyframe;
