@@ -30,8 +30,17 @@ ash/GLSL code deleted.
   faster on the RX 5700 XT. Two-level float32 references are killed. Float-float needs a
   reassociation guard and an fma self-test (RADV splits fma).
 
+- SHAD-03..10, FIX-58/59, GPU-14 (2026-10-16): the studio look runs as WGSL on wgpu
+  (prepare, shade, tent resample: `fd_shade::gpu`, `crates/fd-shade/shaders/`) for `fd film
+  --gpu on` (rotated films, lines, haze, breathing, up to 64 stops) and `fd shade --gpu on`
+  (stills at any ss), f32 and integer arithmetic only, on any adapter: hardware Vulkan,
+  lavapipe, or DX12 WARP on Windows without a Vulkan driver (DXC-compiled). Palette band
+  and line positions reproduce the CPU's f64 exactly via soft f64 in integers. CI runs the
+  GPU tests on lavapipe (Linux) and WARP (Windows). The ash/GLSL/shaderc stack and
+  `build.rs` are gone.
+
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
-SHAD-02 (studio look once, in f32-only WGSL) → GPU-14 (delete the ash/shaderc stack),
+SHAD-11 (the studio look exists once: retire fd-shade's CPU studio shading),
 BENC-10 (whole-film GPU vs all-core CPU race), GPU-21 (zone output stays on the GPU into
 shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
 frames on the GPU), GPU-23 (extended-range zones on the GPU) → CLEA-04 (CPU zone copy
