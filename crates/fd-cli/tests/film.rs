@@ -247,3 +247,86 @@ fn film_matches_frozen_reference() {
     eprintln!("5 rotating frames within {worst} level(s) of the frozen CPU studio");
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// GPU-21: GPU zone keyframes shaded on the zone kernel's device (resident) give the
+/// same raw film as reading them back (FD_ZONE_READBACK=1), and only one validity word
+/// per zone keyframe leaves the GPU. Skips where no wgpu FP64 Vulkan device exists.
+#[test]
+fn gpu_zone_resident() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("fd-gpu21-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let zone = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/zones/v0-core.zone");
+    let run = |readback: bool| {
+        let raw = dir.join(format!("raw-{readback}"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+        cmd.args([
+            "film",
+            "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502",
+            "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922",
+            "--from", "1e-29", "--to", "1e-30", "--seconds", "1", "--fps", "8",
+            "--size", "320x180", "--keyframes", "2", "--iter", "100000",
+            "--preset", "master-ice", "--gpu-kernel", "mixed", "--crf", "30",
+            "--x264", "ultrafast", "--zone",
+        ])
+        .arg(&zone)
+        .arg("--raw-dir")
+        .arg(&raw)
+        .arg("--mp4")
+        .arg(dir.join(format!("{readback}.mp4")));
+        if readback {
+            cmd.env("FD_ZONE_READBACK", "1");
+        } else {
+            cmd.env_remove("FD_ZONE_READBACK");
+        }
+        let out = checked(cmd.output().unwrap(), "film");
+        let log = String::from_utf8_lossy(&out.stderr).into_owned();
+        let report = String::from_utf8_lossy(&out.stdout).into_owned();
+        let mut names: Vec<_> = fs::read_dir(&raw)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "rgb"))
+            .collect();
+        names.sort();
+        let frames: Vec<u8> = names.iter().flat_map(|p| fs::read(p).unwrap()).collect();
+        (log, report, frames)
+    };
+    let field = |report: &str, key: &str| -> u64 {
+        let at = report.find(&format!("\"{key}\":")).unwrap() + key.len() + 3;
+        report[at..]
+            .split(|c: char| !c.is_ascii_digit())
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let (log, report, resident) = run(false);
+    if log.contains("using CPU zone") {
+        eprintln!("skipped: no wgpu FP64 zone device ({log})");
+        return;
+    }
+    assert!(
+        log.contains("(resident)"),
+        "zone keyframes did not stay on the GPU: {log}"
+    );
+    let zone_keyframes = log.matches("(resident)").count() as u64;
+    assert_eq!(
+        field(&report, "zone_readback_bytes"),
+        4 * zone_keyframes,
+        "{report}"
+    );
+    let (log_b, report_b, readback) = run(true);
+    assert!(!log_b.contains("(resident)"), "{log_b}");
+    assert!(field(&report_b, "zone_readback_bytes") > 4 * zone_keyframes);
+    assert_eq!(resident.len(), 8 * 320 * 180 * 3);
+    assert!(resident == readback, "resident and readback films differ");
+    eprintln!(
+        "{zone_keyframes} resident zone keyframes, {} bytes read back (readback path {} bytes); raw films identical",
+        field(&report, "zone_readback_bytes"),
+        field(&report_b, "zone_readback_bytes")
+    );
+    fs::remove_dir_all(dir).unwrap();
+}

@@ -72,6 +72,7 @@ impl Kernel {
 /// Holds the device, pipeline and buffers across successive keyframes.
 pub(crate) struct Renderer {
     mode: Kernel,
+    opened: Option<Opened>,
     gpu: Option<Gpu>,
     layout: Option<(usize, usize, [i32; 3])>,
 }
@@ -80,31 +81,42 @@ impl Renderer {
     pub(crate) fn new(mode: Kernel) -> Self {
         Self {
             mode,
+            opened: None,
             gpu: None,
             layout: None,
         }
     }
+
+    /// The zone kernel's device for `count`-sample keyframes (opened on first use), so
+    /// the studio look can shade its output in place (GPU-21): adapter name, device
+    /// and queue.
+    pub(crate) fn device(
+        &mut self,
+        count: usize,
+    ) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
+        let o = self.open(count)?;
+        Ok((o.name.clone(), o.device.clone(), o.queue.clone()))
+    }
+
+    fn open(&mut self, count: usize) -> Result<&Opened, String> {
+        if self.opened.is_none() {
+            self.opened = Some(Opened::new(count, self.mode)?);
+        }
+        Ok(self.opened.as_ref().expect("opened"))
+    }
 }
 
-struct Gpu {
+/// The FP64 wgpu device a mode needs, with its adapter's limits.
+struct Opened {
+    name: String,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::ComputePipeline,
-    group: wgpu::BindGroup,
-    constants: wgpu::Buffer,
-    /// Sample columns as the host stores them: nu f64, de f32, normal | class << 16.
-    outputs: [wgpu::Buffer; 3],
-    /// The three columns back to back, mapped for reading after each dispatch.
-    staging: wgpu::Buffer,
-    name: String,
-    mode: Kernel,
-    dispatch: (u32, u32),
+    limits: wgpu::Limits,
 }
 
-impl Gpu {
-    fn new(count: usize, constants: &[f64], mode: Kernel) -> Result<Self, String> {
+impl Opened {
+    fn new(count: usize, mode: Kernel) -> Result<Self, String> {
         let required = mode.features();
-        let const_bytes = std::mem::size_of_val(constants) as u64;
         let column_bytes = (count as u64).checked_mul(8).ok_or("GPU grid overflow")?;
         let groups = count.div_ceil(64) as u64;
         // The binary64 kernels are proven on Vulkan only (GPU-12/19/20); other
@@ -125,7 +137,6 @@ impl Gpu {
                         && groups.div_ceil(x)
                             <= u64::from(limits.max_compute_workgroups_per_dimension)
                         && column_bytes <= limits.max_storage_buffer_binding_size
-                        && const_bytes <= limits.max_storage_buffer_binding_size
                         && 2 * column_bytes <= limits.max_buffer_size
                 })
                 .collect();
@@ -142,16 +153,59 @@ impl Gpu {
         };
         let name = adapter.get_info().name;
         let limits = adapter.limits();
-        let per_dim = u64::from(limits.max_compute_workgroups_per_dimension);
-        let x = groups.min(per_dim);
-        let dispatch = (x as u32, groups.div_ceil(x) as u32);
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("fd zone"),
             required_features: required,
-            required_limits: limits,
+            required_limits: limits.clone(),
             ..Default::default()
         }))
         .map_err(|e| format!("wgpu device: {e}"))?;
+        Ok(Self {
+            name,
+            device,
+            queue,
+            limits,
+        })
+    }
+}
+
+struct Gpu {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    pipeline: wgpu::ComputePipeline,
+    group: wgpu::BindGroup,
+    constants: wgpu::Buffer,
+    /// Sample columns as the host stores them: nu f64, de f32, normal | class << 16.
+    outputs: [wgpu::Buffer; 3],
+    /// The three columns back to back, mapped for reading after each dispatch.
+    staging: wgpu::Buffer,
+    name: String,
+    mode: Kernel,
+    dispatch: (u32, u32),
+}
+
+impl Gpu {
+    fn new(opened: &Opened, count: usize, constants: &[f64], mode: Kernel) -> Result<Self, String> {
+        let const_bytes = std::mem::size_of_val(constants) as u64;
+        let column_bytes = (count as u64).checked_mul(8).ok_or("GPU grid overflow")?;
+        let groups = count.div_ceil(64) as u64;
+        let limits = &opened.limits;
+        let per_dim = u64::from(limits.max_compute_workgroups_per_dimension);
+        let x = groups.min(per_dim);
+        if x == 0
+            || groups.div_ceil(x) > per_dim
+            || column_bytes > limits.max_storage_buffer_binding_size
+            || const_bytes > limits.max_storage_buffer_binding_size
+            || 2 * column_bytes > limits.max_buffer_size
+        {
+            return Err("zone keyframe exceeds the wgpu device's limits".into());
+        }
+        let dispatch = (x as u32, groups.div_ceil(x) as u32);
+        let (name, device, queue) = (
+            opened.name.clone(),
+            opened.device.clone(),
+            opened.queue.clone(),
+        );
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fd zone kernel"),
@@ -229,14 +283,8 @@ impl Gpu {
         })
     }
 
-    /// Run one keyframe and hand the mapped columns to `read`.
-    fn dispatch<R>(
-        &self,
-        constants: &[f64],
-        count: usize,
-        read: impl FnOnce(&Columns) -> R,
-    ) -> Result<R, String> {
-        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    /// Record one keyframe's kernel dispatch after uploading its constants.
+    fn encode(&self, constants: &[f64]) -> wgpu::CommandEncoder {
         let bytes: Vec<u8> = constants.iter().flat_map(|v| v.to_ne_bytes()).collect();
         self.queue.write_buffer(&self.constants, 0, &bytes);
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -246,6 +294,28 @@ impl Gpu {
             pass.set_bind_group(0, &self.group, &[]);
             pass.dispatch_workgroups(self.dispatch.0, self.dispatch.1, 1);
         }
+        encoder
+    }
+
+    /// Run one keyframe, leaving its columns on the device for the studio look.
+    fn run(&self, constants: &[f64]) -> Result<(), String> {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        self.queue.submit([self.encode(constants).finish()]);
+        match pollster::block_on(scope.pop()) {
+            Some(e) => Err(format!("wgpu zone dispatch rejected: {e}")),
+            None => Ok(()),
+        }
+    }
+
+    /// Run one keyframe and hand the mapped columns to `read`.
+    fn dispatch<R>(
+        &self,
+        constants: &[f64],
+        count: usize,
+        read: impl FnOnce(&Columns) -> R,
+    ) -> Result<R, String> {
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut encoder = self.encode(constants);
         let n = count as u64;
         let mut at = 0;
         for (buffer, size) in self.outputs.iter().zip([8 * n, 4 * n, 4 * n]) {
@@ -295,7 +365,7 @@ impl Gpu {
 /// Probe the FP64 wgpu stack; unavailable devices are not correctness failures.
 #[cfg(test)]
 fn probe() -> Result<String, String> {
-    Ok(Gpu::new(1, &[0.0; 32], Kernel::F64)?.name.clone())
+    Ok(Renderer::new(Kernel::F64).device(1)?.0)
 }
 
 /// Sample all columns on the FP64 compute device.
@@ -319,11 +389,7 @@ impl Renderer {
             .ok_or("GPU grid overflow")?;
         // Keyframes share a sample grid and a zone packing shape.
         let t = Instant::now();
-        let layout = (count, constants.len(), specialisation(&constants));
-        if self.layout != Some(layout) || self.gpu.is_none() {
-            self.gpu = Some(Gpu::new(count, &constants, self.mode)?);
-            self.layout = Some(layout);
-        }
+        self.prepare(count, &constants)?;
         let init = t.elapsed();
         let gpu = self.gpu.as_ref().unwrap();
         let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
@@ -344,6 +410,51 @@ impl Renderer {
             start.elapsed().as_secs_f64() * 1e3,
         );
         Ok((header, samples))
+    }
+}
+
+impl Renderer {
+    /// Build (or keep) the pipeline and buffers for this keyframe's grid and zone shape.
+    fn prepare(&mut self, count: usize, constants: &[f64]) -> Result<(), String> {
+        let layout = (count, constants.len(), specialisation(constants));
+        if self.layout != Some(layout) || self.gpu.is_none() {
+            self.open(count)?;
+            let opened = self.opened.as_ref().expect("opened");
+            self.gpu = Some(Gpu::new(opened, count, constants, self.mode)?);
+            self.layout = Some(layout);
+        }
+        Ok(())
+    }
+
+    /// Render keyframe `id` and hand its columns to `studio` on the device, with no
+    /// sample readback (GPU-21): `studio` must be on this renderer's device
+    /// ([`Renderer::device`]). `None` when the columns failed the validity check.
+    pub(crate) fn render_resident(
+        &mut self,
+        view: &View,
+        p: &Params,
+        zone: &Zone,
+        studio: &mut fd_shade::gpu::StudioGpu,
+        id: usize,
+    ) -> Result<Option<Header>, String> {
+        let start = Instant::now();
+        let (mut header, constants) = zone.gpu_f64_input(view, p)?;
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
+        let count = (p.nx as usize)
+            .checked_mul(p.ny as usize)
+            .ok_or("GPU grid overflow")?;
+        self.prepare(count, &constants)?;
+        let gpu = self.gpu.as_ref().unwrap();
+        gpu.run(&constants)?;
+        let [nu, de, word] = &gpu.outputs;
+        let valid = studio.adopt_key(id, [nu, de, word], (p.nx as usize, p.ny as usize))?;
+        eprintln!(
+            "fd: wgpu {} zone on {} (resident): whole-frame {:.3} ms",
+            gpu.mode.label(),
+            gpu.name,
+            start.elapsed().as_secs_f64() * 1e3,
+        );
+        Ok(valid.then_some(header))
     }
 }
 

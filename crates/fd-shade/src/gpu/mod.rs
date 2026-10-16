@@ -26,6 +26,8 @@ pub const SHADE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
     include_str!("../../shaders/film_shade.wgsl")
 );
+/// Repacks the zone kernel's device columns into studio samples (GPU-21).
+const REPACK: &str = include_str!("../../shaders/zone_repack.wgsl");
 /// Packs the one-word-per-pixel output into RGB24 bytes for readback (SHAD-13).
 const PACK: &str = include_str!("../../shaders/rgb_pack.wgsl");
 /// The tent resample source: two shaded keyframes into one (possibly rotated) frame.
@@ -295,6 +297,7 @@ pub struct StudioGpu {
     resample: wgpu::ComputePipeline,
     still: wgpu::ComputePipeline,
     pack: wgpu::ComputePipeline,
+    repack: wgpu::ComputePipeline,
     keys: Vec<Key>,
     shaded: [Option<wgpu::Buffer>; 2],
     palette: wgpu::Buffer,
@@ -331,10 +334,27 @@ impl StudioGpu {
         if !Self::supported(l, a) {
             return Err("studio look density or stop count is out of range".into());
         }
+        let (name, device, queue) = testkit::open_device("fd film")?;
+        Self::on_device(name, device, queue, l, a, out, multiple)
+    }
+
+    /// As [`StudioGpu::new`], on an already open device: the zone kernel's, so its
+    /// keyframes reach the shader without leaving the GPU ([`StudioGpu::adopt_key`]).
+    pub fn on_device(
+        name: String,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        l: &Look,
+        a: &Appearance,
+        out: (usize, usize),
+        multiple: usize,
+    ) -> Result<Self, String> {
+        if !Self::supported(l, a) {
+            return Err("studio look density or stop count is out of range".into());
+        }
         if multiple == 0 || out.0 == 0 || out.1 == 0 {
             return Err("invalid keyframe dimensions".into());
         }
-        let (name, device, queue) = testkit::open_device("fd film")?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let pipeline = |source: &str, entry: &str| {
             let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -352,7 +372,7 @@ impl StudioGpu {
         };
         let (prepare, shade) = (pipeline(PREPARE, "main"), pipeline(SHADE, "main"));
         let (resample, still) = (pipeline(RESAMPLE, "main"), pipeline(SHADE, "still"));
-        let pack = pipeline(PACK, "main");
+        let (pack, repack) = (pipeline(PACK, "main"), pipeline(REPACK, "main"));
         let palette = storage(&device, PALETTE_BYTES, false);
         queue.write_buffer(&palette, 0, &palette_bytes(l));
         // The exact CPU tent gamma-decode table.
@@ -376,6 +396,7 @@ impl StudioGpu {
             resample,
             still,
             pack,
+            repack,
             keys: Vec::new(),
             shaded: [None, None],
             palette,
@@ -433,6 +454,91 @@ impl StudioGpu {
         });
         self.queue.write_buffer(&buffer, 0, bytes);
         buffer
+    }
+
+    /// Take keyframe `id` (`full` samples, one per pixel) from the zone kernel's device
+    /// columns `nu` (f64 bits), `de` (f32) and `word` (normal | class << 16) without a
+    /// host round trip: a repack pass writes the studio's sample words, and the host
+    /// reads back one validity word. Returns false, adopting nothing, when a sample has
+    /// an invalid class or an escaped one non-finite columns (DEC-10).
+    pub fn adopt_key(
+        &mut self,
+        id: usize,
+        columns: [&wgpu::Buffer; 3],
+        full: (usize, usize),
+    ) -> Result<bool, String> {
+        self.keys.retain(|k| k.id != id);
+        let count = full.0 * full.1;
+        let len = (count as u64)
+            .checked_mul(32)
+            .ok_or("GPU keyframe byte count overflow")?;
+        let limits = self.device.limits();
+        if len > limits.max_storage_buffer_binding_size || len > limits.max_buffer_size {
+            return Err("keyframe exceeds the adapter's storage buffer limit".into());
+        }
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let samples = storage(&self.device, len / 2, false);
+        let flag = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fd film keyframe validity"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_SRC
+                | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let flag_read = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fd film keyframe flag"),
+            size: 4,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let params = self.uniform(&[count as u32, 0, 0, 0].map(u32::to_ne_bytes).concat());
+        let [nu, de, word] = columns;
+        let group = self.group(&self.repack, &[nu, de, word, &samples, &flag, &params]);
+        let blocks = (count as u32).div_ceil(64);
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.clear_buffer(&flag, 0, None);
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.repack);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(blocks.min(65535), blocks.div_ceil(65535), 1);
+        }
+        encoder.copy_buffer_to_buffer(&flag, 0, &flag_read, 0, 4);
+        self.queue.submit([encoder.finish()]);
+        let (tx, rx) = mpsc::channel();
+        flag_read.map_async(wgpu::MapMode::Read, .., move |m| {
+            let _ = tx.send(m);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| format!("wgpu poll: {e}"))?;
+        rx.recv()
+            .map_err(|e| format!("wgpu map callback: {e}"))?
+            .map_err(|e| format!("wgpu map: {e}"))?;
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            return Err(format!("wgpu keyframe repack: {e}"));
+        }
+        let invalid = {
+            let view = flag_read
+                .get_mapped_range(..)
+                .map_err(|e| format!("wgpu mapped range: {e}"))?;
+            u32::from_ne_bytes([view[0], view[1], view[2], view[3]])
+        };
+        flag_read.unmap();
+        if invalid != 0 {
+            return Ok(false);
+        }
+        let prepared = storage(&self.device, len, true);
+        self.keys.push(Key {
+            id,
+            full,
+            ss: 1,
+            samples,
+            prepared,
+            density: None,
+        });
+        Ok(true)
     }
 
     /// Upload one keyframe's raw samples, once.

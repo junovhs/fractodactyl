@@ -576,6 +576,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         r.keyframe_sample_shade = k.sample_shade_seconds;
         r.keyframe_resample = k.resample_seconds;
         r.gpu_device = k.gpu_device().map(str::to_owned);
+        r.zone_readback_bytes = k.zone_readback_bytes;
     }
     drop(pipe);
     let status = enc.wait().map_err(|e| format!("ffmpeg: {e}"))?;
@@ -1095,6 +1096,8 @@ struct Report {
     seconds: [f64; 3],
     shade: f64,
     gpu_device: Option<String>,
+    /// Bytes of wgpu zone kernel output read back to the host (GPU-21).
+    zone_readback_bytes: u64,
     keyframe_prepare: f64,
     keyframe_sample_shade: f64,
     keyframe_resample: f64,
@@ -1131,7 +1134,7 @@ impl Report {
         format!(
             "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
-             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
+             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"zone_readback_bytes\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
             crate::bench::q(mp4),
             n as f64 / fps,
@@ -1144,6 +1147,7 @@ impl Report {
             self.shade,
             self.shade / n as f64,
             self.gpu_device.as_deref().map(crate::bench::q).unwrap_or_else(|| "null".into()),
+            self.zone_readback_bytes,
             self.keyframe_prepare,
             self.keyframe_sample_shade,
             self.keyframe_resample,

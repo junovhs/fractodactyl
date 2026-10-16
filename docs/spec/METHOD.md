@@ -2780,3 +2780,30 @@ CPU studio of the last build that had one (`fd --gpu off` at fcab2b5), using
 
 The remaining SHAD-02 requirement, the studio look on the RTX 3050 Ti laptop's Intel
 Iris Xe (no f64), is SHAD-12 and needs that laptop.
+
+### GPU-21: zone keyframes stay on the GPU into shading, RX 5700 XT (2026-10-16)
+
+With `--gpu-kernel`, the studio host (`StudioGpu::on_device`) now runs on the zone
+kernel's wgpu device. Each GPU zone keyframe's columns are repacked into studio samples
+on the device (`shaders/zone_repack.wgsl`). The DEC-10 validity check (invalid class,
+or non-finite nu/de on an escaped sample) folds into that pass as one flag word, which
+is the only thing read back. `FD_ZONE_READBACK=1` keeps the old readback path. The
+fd-film/1 report gains `zone_readback_bytes`.
+
+**Equivalence.** `gpu_zone_resident` (GPU-02 path, 320x180, 8 frames) produces
+byte-identical raw RGB24 both ways. It reads back 20 bytes for 5 resident keyframes,
+against 18,432,000 bytes on the readback path.
+
+**BENC-10 arm C, resident** (same GPU-02 film and box, after SHAD-13; three runs):
+
+| | BENC-10 arm C | GPU-21 resident (median) |
+|---|---|---|
+| wall | 36.6 s | **34.5 s** (34.3 / 34.5 / 35.1) |
+| keyframe render | 12.5 s | 11.0 s |
+| shading | 9.8 s | 4.5 s |
+| encode wait | 10.3 s | 14.7 s |
+| zone bytes read back | ~2.2 GB (67 x 4K keyframes x 16 B/sample) | 268 (67 x 4) |
+
+GPU work for this film now totals about 15.5 s. x264 (`--x264 slow`, crf 16) has
+become the bottleneck: the wall-time saving is smaller than the shading saving
+because the film now waits on the encoder. The RTX 3050 Ti row is BENC-11.
