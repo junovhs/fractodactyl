@@ -2745,3 +2745,38 @@ Evidence: local films, reports and filmcheck logs in `out/benc10/`, kept
 locally and not committed. Each arm has one extra `--raw-dir` run for
 filmcheck, so raw-frame writing is not in the timing runs. The RTX 3050 Ti
 laptop rows are BENC-11.
+
+### SHAD-02: closing gate for the one WGSL studio look, RX 5700 XT (2026-10-16)
+
+The studio look exists once, as WGSL (`crates/fd-shade/shaders/`, SHAD-03..11). The
+GPU-06 film (`scripts/gpu06_round2.sh` arguments: master-ice, `--keyframes 2`, 1e-20
+to 2.5e-21, 40 s at 30 fps) was rendered by the WGSL-only `fd` and compared with the
+CPU studio of the last build that had one (`fd --gpu off` at fcab2b5), using
+`tools/research/gpu06/compare_raw.py` on raw RGB24 before x264
+(`out/shad02/run.sh`).
+
+| Gate | Result |
+|---|---|
+| 320x180 frames 0..3 / 600..603 | max 1 level, 0/518,400 channels over 1, both windows: PASS |
+| 1920x1080 frames 0..3 / 600..603 | max 1 level, 0/18,662,400 channels over 1, both windows: PASS (after FIX-60) |
+| 1080p shade, 1200 frames | 0.00889 s/frame, median of 3 (limit <= 0.010): PASS (after SHAD-13) |
+| 4K shade, 120 frames | 0.0359 s/frame (limit < 0.040): PASS |
+| Vulkan validation layer | no message from our shaders. The layer reports two messages per device opening (`VUID-VkPhysicalDeviceProperties2-pNext-pNext`, `VUID-VkDescriptorPoolCreateInfo-poolSizeCount-arraylength`) from wgpu's own adapter queries and descriptor pools |
+| CI | lavapipe (Linux) and DX12 WARP (Windows) run the frozen-reference studio tests with no fallback (run 38888689608) |
+
+**What the gate found on the way:**
+- **FIX-60.** Boundary samples carry subnormal DE (1e-45..1e-38). The CPU studio hazed
+  them at the darkest tone, but GPUs flush the value to zero and skipped haze, up to
+  62 levels brighter on 18 of 8.3M 4K samples. The haze gate now reads DE's bits. The
+  small CI fixtures never contained such a sample, which is why the 1080p frames found
+  it first.
+- **SHAD-13.** The 1080p shade time was 0.0101-0.0104 s/frame because the host converted
+  each RGBA output frame to RGB on one thread (2.2 ms). A threaded host copy was slower
+  (0.014-0.015 s/frame, competing with x264), so the output is now packed to RGB24 on
+  the GPU and copied with one memcpy.
+- **FIX-61.** On Windows, `f64::exp` differs in the last bit, so one band-edge sample of
+  fd-shade's synthetic fixture shaded a different band. The frozen test now reads the
+  fixture's exact bits from `src/gpu/frozen/fixture.fds`.
+
+The remaining SHAD-02 requirement, the studio look on the RTX 3050 Ti laptop's Intel
+Iris Xe (no f64), is SHAD-12 and needs that laptop.
