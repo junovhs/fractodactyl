@@ -3235,3 +3235,33 @@ reach on this orbit. `float_spans_deep_zone_ranges`:
 - 1e-1000, 1e500 and -2.5e-37 round-trip through 40-digit decimal to 1e-38 relative;
 - frexp gives exponents -3321, 1661 and -121;
 - `to_f64` is exact at 1e-300 and 0 at 1e-1000.
+
+### PROB-31: `fd zone` finds a zone's structure in Rust (2026-10-17)
+
+`fd zone RE IM [--max-iter N]` (crates/fd-cli/src/zone_build.rs, on PROB-30's
+`fd_fixed::Complex`) prints one fd-zone/1 JSON line. It ports zone_seed.py's `nucleus` and
+`misiurewicz`, and koenigs_tail.py's cycle Newton:
+- **Period:** the record return, i.e. the n <= N with the smallest |z_n| on the given
+  centre's orbit, at its own precision plus 20 digits.
+- **Nucleus:** Newton on z_p(c) = 0. It works at koenigs_bench_consts.py's digit rule,
+  max(80, 2(50 + (p - 764)/16) + 70), which gives 170 for v0.
+- **Misiurewicz relation:** (q, r) minimises D = |(z_{q+r} - z_q)/(u_{q+r} - u_q)| over
+  r <= 8 and q < p/2, keeping a near tie (within 0.1%) at the shorter cycle, then reduced
+  to the smallest preperiod with the same D.
+- **Cycle:** Newton on f^r(a) = a from z_q gives A; rho is the product of 2a over the
+  cycle.
+- **Laps:** the run of |z_{n+r} - z_n| < 1e-2 from n = q, divided by r.
+
+It refuses with a reason when there is no relation, when the cycle is attracting, or when
+there are fewer than 2 laps.
+
+**Check** (`cargo test -p fd-cli --test zone_build zone_report_v0`). From bench/path-atlas-v0.txt's
+centre in 23 ms:
+- period 764 and M(24, 2), with 341 laps;
+- c_exact equal to v0-core.zone's to the 75+ digits it carries;
+- alpha (-0.74970359168765, 0.2627926803571256) and rho (1.0268324365902792,
+  0.5249622092351904) printed bit-for-bit as in v0-core.zone.
+
+The classic valley centre (-0.743643887037158704752191506114774,
+0.131825904205311970493132056385139) is refused: its period-P orbit picks M(468, 2) but
+does not shadow the cycle for even one lap.

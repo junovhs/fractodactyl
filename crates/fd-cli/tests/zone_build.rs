@@ -1,0 +1,105 @@
+//! PROB-12's lemmas: `fd zone` reproduces the committed Python-generated v0 zone
+//! (bench/zones/v0-core.zone).
+use fd_fixed::{bits_for_digits, Float};
+use std::path::Path;
+use std::process::Command;
+
+fn root() -> &'static Path {
+    Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+}
+
+/// The v0 zone's lines, by key.
+fn v0_zone() -> Vec<Vec<String>> {
+    std::fs::read_to_string(root().join("bench/zones/v0-core.zone"))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| l.split_whitespace().map(String::from).collect())
+        .collect()
+}
+
+fn line<'a>(zone: &'a [Vec<String>], key: &str) -> &'a [String] {
+    &zone.iter().find(|l| l[0] == key).unwrap()[1..]
+}
+
+/// The first value of `"key":` in a one-line JSON report (number or string).
+fn field<'a>(json: &'a str, key: &str) -> &'a str {
+    let at = json
+        .find(&format!("\"{key}\":"))
+        .unwrap_or_else(|| panic!("{key}: {json}"));
+    let rest = &json[at + key.len() + 3..];
+    let rest = rest.trim_start_matches(['[', '"']);
+    &rest[..rest.find([',', '"', ']', '}']).unwrap()]
+}
+
+/// The pair after `"key":[`.
+fn pair(json: &str, key: &str) -> (f64, f64) {
+    let at = json.find(&format!("\"{key}\":[")).unwrap() + key.len() + 4;
+    let rest = &json[at..];
+    let body = &rest[..rest.find(']').unwrap()];
+    let mut it = body
+        .split(',')
+        .map(|s| s.trim_matches('"').parse::<f64>().unwrap());
+    (it.next().unwrap(), it.next().unwrap())
+}
+
+fn rel(a: (f64, f64), b: (f64, f64)) -> f64 {
+    (a.0 - b.0).hypot(a.1 - b.1) / b.0.hypot(b.1)
+}
+
+#[test]
+fn zone_report_v0() {
+    let atlas = std::fs::read_to_string(root().join("bench/path-atlas-v0.txt")).unwrap();
+    let centre: Vec<&str> = atlas
+        .lines()
+        .find(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .unwrap()
+        .split_whitespace()
+        .collect();
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(["zone", centre[0], centre[1]])
+        .output()
+        .unwrap();
+    let json = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    eprintln!("{json}");
+    assert!(json.contains("\"schema\":\"fd-zone/1\""), "{json}");
+    assert_eq!(field(&json, "period"), "764");
+    assert_eq!((field(&json, "q"), field(&json, "r")), ("24", "2"));
+    let zone = v0_zone();
+    // c_exact: the file carries 75+ digits; compare there.
+    let bits = bits_for_digits(120);
+    let c = line(&zone, "c_exact");
+    let at = json.find("\"c_exact\":[").unwrap() + 11;
+    let got: Vec<&str> = json[at..json[at..].find(']').unwrap() + at]
+        .split(',')
+        .map(|s| s.trim_matches('"'))
+        .collect();
+    for k in 0..2 {
+        let (a, b) = (
+            Float::parse(got[k], bits).unwrap(),
+            Float::parse(&c[k], bits).unwrap(),
+        );
+        let (m, e) = a.sub(&b).div(&b).abs().frexp();
+        let digits = -(m.log2() + e as f64) / std::f64::consts::LOG2_10;
+        assert!(digits >= 75.0, "c_exact[{k}] agrees to {digits:.1} digits");
+    }
+    let num = |k: &str| {
+        let l = line(&zone, k);
+        (l[0].parse().unwrap(), l[1].parse().unwrap())
+    };
+    for key in ["alpha", "rho"] {
+        let r = rel(pair(&json, key), num(key));
+        assert!(
+            r < 1e-12,
+            "{key}: {:?} vs {:?} ({r:e})",
+            pair(&json, key),
+            num(key)
+        );
+    }
+    assert!(field(&json, "laps").parse::<u64>().unwrap() >= 2);
+}

@@ -24,6 +24,7 @@ mod render;
 mod reuse;
 mod schedule;
 mod shade;
+mod zone_build;
 mod zone_ff;
 mod zone_gpu;
 
@@ -92,6 +93,7 @@ usage:
           [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]
   fd explore [--port 8737] [--threads N]   (local browser explorer)
+  fd zone RE IM [--max-iter N]   (zone structure report: nucleus, M(q,r), A, rho)
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error";
 
@@ -122,6 +124,7 @@ fn main() {
         Some("filmcheck") => filmcheck::run(&argv[1..]),
         Some("lod") => lod::run(&argv[1..]),
         Some("explore") => explore::run(&argv[1..]),
+        Some("zone") => zone_build::run(&argv[1..]),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {
