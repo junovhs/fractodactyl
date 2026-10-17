@@ -9,7 +9,8 @@ FD=${FD:-target/release/fd}
 CHROME=${CHROME:-google-chrome}
 PORT=${PORT:-8791}
 tmp=$(mktemp -d)
-trap 'kill $(jobs -p) 2>/dev/null || true; wait 2>/dev/null; rm -rf "$tmp"' EXIT
+# Chrome forks helpers that outlive the job: stop them all by profile, keep the exit status.
+trap 'rc=$?; kill $(jobs -p) 2>/dev/null; pkill -f "user-data-dir=$tmp/chrome" 2>/dev/null; wait 2>/dev/null; sleep 0.3; rm -rf "$tmp" 2>/dev/null; exit $rc' EXIT
 "$FD" explore --port "$PORT" --capture "$tmp/probe.json" >"$tmp/fd.log" 2>&1 &
 for _ in $(seq 100); do curl -sf "http://127.0.0.1:$PORT/looks" >/dev/null && break; sleep 0.1; done
 "$CHROME" --headless=new --no-first-run --user-data-dir="$tmp/chrome" --window-size=1280,720 \
