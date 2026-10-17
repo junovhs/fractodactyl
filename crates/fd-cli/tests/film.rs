@@ -304,7 +304,7 @@ fn gpu_zone_resident() {
             .unwrap()
     };
     let (log, report, resident) = run(false);
-    if log.contains("using CPU zone") {
+    if log.contains("using the CPU zone") {
         eprintln!("skipped: no wgpu FP64 zone device ({log})");
         return;
     }

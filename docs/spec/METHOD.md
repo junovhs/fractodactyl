@@ -3071,3 +3071,78 @@ FD_REQUIRE_GPU=1, and `gpu_zone_f32only_parity` no longer exempts Windows.
 RX 5700 XT and on lavapipe, `gpu_zone_extended_parity` (rungs k=409 and k=7676)
 still shows 0 class differences and 0 nu/DE/normal failures after the split. On the
 RX 5700 XT, f32-only keyframes after the first take 13-45 ms with the split.
+
+### CLEA-06: GPU-first --zone routing and frozen zone fixtures (2026-10-17)
+
+`fd render`, `fd control` and `fd film` now send every `--zone` frame to the wgpu zone
+kernel by default. `zone_gpu::choose` picks the kernel when `--gpu-kernel` is absent:
+- binary64 (`f64`) for ordinary zones;
+- `f32only` for extended-range zones, the only GPU kernel for those.
+
+Without an f64-capable GPU, the renderer opens the f32-only kernel instead, on a
+software adapter if need be (DEC-28). `--gpu-kernel cpu` keeps the CPU zone.
+
+A frame no GPU stage takes renders on the CPU zone, with one stderr line, and the
+renderer stays on for the next frame. Before, a declined keyframe switched the GPU off
+for the rest of the film. A device failure also falls back to the CPU zone, and drops
+the renderer for later frames. Two other fixes on the way:
+- Per-frame films (no `--keyframes`) now keep one renderer. Before, each frame opened
+  a new device, and only with `--gpu-kernel f64`.
+- The header's kernel tag now names the kernel actually used, after a fallback to
+  f32only.
+
+**Why binary64, not mixed.** On the fixtures below, mixed misses the strict bar on 3 of
+24 frames: 6 samples have DE off by 0.2-0.3%, and 1 has its normal off by 1.4 degrees.
+binary64 and f32only pass every frame. On the RX 5700 XT, at steady state over 5 frames
+at 1080p:
+
+| frame | CPU zone (24 threads) | f64 | mixed | f32only |
+|---|---|---|---|---|
+| deep, 1e-40 | 105 ms | 50 ms | 52 ms | 93 ms |
+| mid, 2.7e-13 | 173 ms | 48 ms | 48 ms | 133 ms |
+
+**Fixtures.** `crates/fd-cli/tests/fixtures/zones` holds three zones:
+- `v0.zone` (71 KB): the v0 zone without its tail-patch tree (`leaf`/`node`/`patch_root`).
+- `rung409.zone` and `rung7676.zone` (5 KB and 8 KB): the ladder-rung zones from
+  `make_zone.sh`, without their patch trees and without the `ref` lines. Those lines
+  feed only the mid-band operator; the CPU zone's output is byte-identical without them.
+
+`frames/` holds 24 CPU-zone frames frozen at 96x54 (1.9 MB):
+- PROB-08's six deep frames, 1e-35 to 2e-48;
+- KERN-02's ten mid-band frames, path-atlas rows 100-400;
+- the k=409 and k=7676 rung frames at 5000/500/50/5 minibrot sizes (`max_iter` 40P).
+
+`FD_REGENERATE_FIXTURES=1` rewrites them with `--gpu-kernel cpu`.
+
+**The mid-band kernel on WARP.** `zone_mid32.wgsl` compiled to 168k DXIL lines, more
+than three times what WARP runs (CLEA-05). Three changes bring it under the limit:
+- `fallback()` had ten call sites, each a full inlined copy; it now has one.
+- `zone_mid32.wgsl` is two entry points: `main` up to the Koenigs jump, and
+  `main_finish` for the escape finish or the fallback orbit. They share 8 words of
+  per-sample state.
+- The duplicate `eval_k`/`eval_kp` sites are merged.
+
+The two entries compile to 44k and 18k lines. Two more changes apply to every
+f32-only kernel:
+- **Branch-free `ce_add`.** It aligns the smaller exponent with selects instead of an
+  if/else, since DXC compiled both arms at every call site. zone32's entries go from
+  37k/35k to 30k/32k lines.
+- **Explicit bind-group layout for split kernels.** The mid kernel's `main` writes no
+  output column, so its automatic layout lacked bindings 1-3.
+
+The f32-only mid kernel's first pipeline now compiles in 1.2 s on RADV, down from 11 s.
+gpu_zone_mid_parity's numbers are unchanged: 0 shaded pixels off, 0 class mismatches,
+and the same per-frame counts of samples over 1e-3 px.
+
+**Check** (`zone_fixtures`, `fd render --zone` with no `--gpu-kernel`, against the
+frozen frames). Bar: class mismatches, nu over 1e-3 px, DE over 0.2%, normal over 0.2
+degrees.
+
+| adapter | kernel used | frames passing | worst nu px |
+|---|---|---|---|
+| RX 5700 XT | f64 (rung7676: f32only) | 24 / 24 | 4.3e-7 |
+| lavapipe | f32only | 24 / 24 | 2.8e-6 |
+| WARP (CI) | f32only | 24 / 24 | 9.0e-6 |
+
+In CI the Linux job runs it on lavapipe with FD_REQUIRE_GPU=1 (a frame not on wgpu
+fails), and the Windows job runs it on WARP in its own step, taking 9 minutes.

@@ -183,8 +183,18 @@ impl<'a> Keyframes<'a> {
             rotation: 0.0,
         };
         let t = std::time::Instant::now();
-        let covered = match self.zone {
-            Some(zone) if self.zone_renderer.is_some() => zone_covers(&view, &self.p, zone)?,
+        let covered = match (self.zone, self.zone_renderer.as_ref()) {
+            (Some(zone), Some(renderer)) if zone_covers(&view, &self.p, zone)? => {
+                // A keyframe no GPU stage takes renders on the CPU zone; the renderer
+                // stays on for the next one (CLEA-06).
+                match renderer.declines(&view, &self.p, zone) {
+                    Some(why) => {
+                        eprintln!("fd film: the wgpu zone kernel declines keyframe {j} ({why}); using the CPU zone");
+                        false
+                    }
+                    None => true,
+                }
+            }
             _ => false,
         };
         if covered && self.resident {
@@ -206,7 +216,7 @@ impl<'a> Keyframes<'a> {
             }
             self.zone_renderer = None;
             self.zone_readback_bytes += 4;
-            let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, false)?;
+            let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, &mut None)?;
             self.rendered.push((j, t.elapsed().as_secs_f64(), used));
             self.cache.push((j, self.width(j), h, s));
             return Ok(());
@@ -223,9 +233,9 @@ impl<'a> Keyframes<'a> {
             Some(Err(e)) => {
                 eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone");
                 self.zone_renderer = None;
-                render_frame_kernel(&view, &self.p, self.zone, false)?
+                render_frame_kernel(&view, &self.p, self.zone, &mut None)?
             }
-            None => render_frame_kernel(&view, &self.p, self.zone, false)?,
+            None => render_frame_kernel(&view, &self.p, self.zone, &mut None)?,
         };
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         self.cache.push((j, self.width(j), h, s));

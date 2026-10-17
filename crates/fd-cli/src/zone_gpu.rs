@@ -21,6 +21,46 @@ pub(crate) enum Kernel {
     F32Only,
 }
 
+/// The zone kernel for a `--zone` frame source (CLEA-06): `--gpu-kernel cpu` keeps the
+/// CPU zone; no flag picks binary64, or f32only for an extended-range zone (the only GPU
+/// kernel for those). Both meet the strict bar on the committed fixtures, which mixed
+/// does not (a few samples' DE off by up to 0.3%); on the RX 5700 XT binary64 is as fast
+/// as mixed at 1080p (50 vs 52 ms deep, 48 vs 48 ms mid; f32only 93 and 133 ms). Without
+/// an f64-capable GPU the renderer opens the f32-only kernel instead, on a software
+/// adapter if need be (DEC-28).
+pub(crate) fn choose(flag: Option<&str>, zone: &Zone) -> Result<Option<Kernel>, String> {
+    match flag {
+        Some("cpu") => Ok(None),
+        Some(value) => Kernel::parse(value).map(Some),
+        None if zone.extended() => Ok(Some(Kernel::F32Only)),
+        None => Ok(Some(Kernel::F64)),
+    }
+}
+
+/// One zone-covered frame: the wgpu zone kernel when `gpu` holds a renderer, else the
+/// CPU zone. A frame no GPU stage takes, or a renderer error, falls back to the CPU
+/// zone with one stderr line; an error also drops the renderer for later frames.
+pub(crate) fn render_zone_frame(
+    gpu: &mut Option<Renderer>,
+    view: &View,
+    p: &Params,
+    zone: &Zone,
+) -> Result<(Header, Samples), String> {
+    if let Some(renderer) = gpu.as_mut() {
+        match renderer.render_or_decline(view, p, zone) {
+            Ok(Ok(frame)) => return Ok(frame),
+            Ok(Err(why)) => eprintln!(
+                "fd: the wgpu zone kernel declines this frame ({why}); using the CPU zone"
+            ),
+            Err(e) => {
+                eprintln!("fd: wgpu zone unavailable ({e}); using the CPU zone");
+                *gpu = None;
+            }
+        }
+    }
+    fd_kernel::render_zone(view, p, zone).map(|(h, s, _, _)| (h, s))
+}
+
 impl Kernel {
     pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value {
@@ -29,7 +69,7 @@ impl Kernel {
             "mixed" => Ok(Self::Mixed),
             "f32only" => Ok(Self::F32Only),
             _ => Err(format!(
-                "--gpu-kernel: expected f64, f32, mixed or f32only, got {value:?}"
+                "--gpu-kernel: expected cpu, f64, f32, mixed or f32only, got {value:?}"
             )),
         }
     }
@@ -174,6 +214,11 @@ fn inputs(
 }
 
 impl Renderer {
+    /// Why no GPU stage takes this frame (the CPU zone renders it), or None.
+    pub(crate) fn declines(&self, view: &View, p: &Params, zone: &Zone) -> Option<String> {
+        inputs(view, p, zone, self.mode).err()
+    }
+
     pub(crate) fn new(mode: Kernel) -> Self {
         Self {
             mode,
@@ -295,16 +340,22 @@ impl Opened {
     }
 }
 
-/// Bytes of per-sample state between the f32-only kernel's two entry points
-/// (zone32.wgsl STATE_WORDS).
-const STATE_BYTES: u64 = 9 * 4;
+/// The f32-only kernels' second entry point and the bytes of per-sample state it reads
+/// (zone32.wgsl and zone_mid32.wgsl STATE_WORDS): each kernel is two entry points so
+/// that neither is too large for DX12 WARP (CLEA-05, CLEA-06).
+fn second_entry(stage: Stage) -> (&'static str, u64) {
+    match stage {
+        Stage::Deep | Stage::Extended(_) => ("main_front", 9 * 4),
+        Stage::Mid => ("main_finish", 8 * 4),
+    }
+}
 
 struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     group: wgpu::BindGroup,
-    /// The f32-only kernel's second entry point (approach and finish) and its group;
+    /// The f32-only kernel's second entry point (second_entry) and its group;
     /// the per-sample state between the two lives in a device-only buffer (CLEA-05).
     front: Option<(wgpu::ComputePipeline, wgpu::BindGroup)>,
     constants: wgpu::Buffer,
@@ -340,8 +391,9 @@ impl Gpu {
             return Err("zone keyframe exceeds the wgpu device's limits".into());
         }
         let dispatch = (x as u32, groups.div_ceil(x) as u32);
-        let split = mode == Kernel::F32Only && stage != Stage::Mid;
-        let state_bytes = column_bytes / 8 * STATE_BYTES;
+        let split = mode == Kernel::F32Only;
+        let (second, state_per_sample) = second_entry(stage);
+        let state_bytes = column_bytes / 8 * state_per_sample;
         if split
             && (state_bytes > limits.max_storage_buffer_binding_size
                 || state_bytes > limits.max_buffer_size)
@@ -388,10 +440,38 @@ impl Gpu {
             (Stage::Deep, Kernel::F32Only) => &all[..3],
             (Stage::Deep, _) => &all[..],
         };
+        // A split kernel's entries share one bind group, so its layout is explicit: an
+        // entry's automatic layout lists only the bindings it touches.
+        let layout = split.then(|| {
+            let entries: Vec<_> = (0..5)
+                .map(|binding| wgpu::BindGroupLayoutEntry {
+                    binding,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: binding == 0,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                })
+                .collect();
+            let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("fd zone"),
+                entries: &entries,
+            });
+            let pipeline = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("fd zone"),
+                bind_group_layouts: &[Some(&group)],
+                immediate_size: 0,
+            });
+            (group, pipeline)
+        });
         let entry = |name| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("fd zone kernel"),
-                layout: None,
+                layout: layout.as_ref().map(|(_, pipeline)| pipeline),
                 module: &module,
                 entry_point: Some(name),
                 compilation_options: wgpu::PipelineCompilationOptions {
@@ -438,18 +518,13 @@ impl Gpu {
             .collect();
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fd zone"),
-            layout: &pipeline.get_bind_group_layout(0),
+            layout: &match &layout {
+                Some((group, _)) => group.clone(),
+                None => pipeline.get_bind_group_layout(0),
+            },
             entries: &entries,
         });
-        let front = split.then(|| {
-            let pipeline = entry("main_front");
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("fd zone front"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &entries,
-            });
-            (pipeline, group)
-        });
+        let front = split.then(|| (entry(second), group.clone()));
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("wgpu zone pipeline rejected: {e}"));
         }
@@ -560,7 +635,8 @@ fn probe() -> Result<String, String> {
 }
 
 /// Sample all columns on the FP64 compute device.
-pub(crate) fn render(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples), String> {
+#[cfg(test)]
+fn render(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples), String> {
     Renderer::new(Kernel::F64).render(view, p, zone)
 }
 
@@ -571,9 +647,22 @@ impl Renderer {
         p: &Params,
         zone: &Zone,
     ) -> Result<(Header, Samples), String> {
+        self.render_or_decline(view, p, zone)?
+    }
+
+    /// [`Renderer::render`], with a frame no GPU stage takes as the inner error and a
+    /// device or pipeline failure as the outer one.
+    pub(crate) fn render_or_decline(
+        &mut self,
+        view: &View,
+        p: &Params,
+        zone: &Zone,
+    ) -> Result<Result<(Header, Samples), String>, String> {
         let start = Instant::now();
-        let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
-        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
+        let (stage, mut header, constants) = match inputs(view, p, zone, self.mode) {
+            Ok(frame) => frame,
+            Err(why) => return Ok(Err(why)),
+        };
         let prep = start.elapsed();
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
@@ -582,6 +671,8 @@ impl Renderer {
         let t = Instant::now();
         self.prepare(stage, count, &constants)?;
         let init = t.elapsed();
+        // After prepare: opening the device may have switched to the f32-only kernel.
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let gpu = self.gpu.as_ref().unwrap();
         let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
         let t = Instant::now();
@@ -600,7 +691,7 @@ impl Renderer {
             unpack.as_secs_f64() * 1e3,
             start.elapsed().as_secs_f64() * 1e3,
         );
-        Ok((header, samples))
+        Ok(Ok((header, samples)))
     }
 }
 
@@ -640,11 +731,11 @@ impl Renderer {
     ) -> Result<Option<Header>, String> {
         let start = Instant::now();
         let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
-        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
             .ok_or("GPU grid overflow")?;
         self.prepare(stage, count, &constants)?;
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let gpu = self.gpu.as_ref().unwrap();
         gpu.run(&constants)?;
         let [nu, de, word] = &gpu.outputs;
