@@ -12,8 +12,11 @@ use fd_fixed::{bits_for_digits, Complex, Float};
 use std::time::Instant;
 
 const USAGE: &str =
-    "usage: fd zone RE IM [--max-iter N (3000)] [--emit report|lines] [--patch-depth N (6)]";
+    "usage: fd zone RE IM [--period P | --max-iter N (3000)] [--patch-depth N (6)] \
+                     [-o ZONE | --emit report|lines]";
 
+/// Koenigs chart radius (make_zone.sh R0).
+const R0: f64 = 0.03;
 /// Biseries degree (make_zone.sh: koenigs_bench_consts.py DEGREE 4).
 const DEGREE: usize = 4;
 /// Koenigs series terms written (make_zone.sh: TERMS 12 and PSI_TERMS 18).
@@ -40,28 +43,44 @@ pub(crate) struct Seed {
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["max-iter", "emit", "patch-depth"])?;
+    let a = Args::parse(argv, &["max-iter", "emit", "patch-depth", "period", "o"])?;
     let [re, im] = a.positional.as_slice() else {
         return Err(USAGE.into());
     };
     let max_iter: usize = a.num("max-iter", 3000)?;
+    let period = a.str("period").map(str::parse::<usize>).transpose();
+    let period = period.map_err(|_| "--period: expected a whole number")?;
+    let depth: usize = a.num("patch-depth", 6)?;
     let t = Instant::now();
-    let s = seed(re, im, max_iter)?;
+    let s = seed(re, im, max_iter, period)?;
+    if let Some(out) = a.str("o") {
+        // The zone kernel's approach and jump are written for M(24, 2) (zone.wgsl: 23
+        // approach steps, a 2-cycle); other relations are reported, not written.
+        if (s.q, s.r) != (24, 2) {
+            return Err(format!(
+                "the zone kernel takes M(24,2) zones; this centre's relation is M({},{})",
+                s.q, s.r
+            ));
+        }
+        let text = zone_text(&s, depth);
+        std::fs::write(out, &text).map_err(|e| format!("{out}: {e}"))?;
+        println!(
+            "{{\"schema\":\"fd-zone/1\",\"written\":{},\"period\":{},\"q\":{},\"r\":{},\"laps\":{},\"digits\":{},\"bytes\":{},\"seconds\":{:.3}}}",
+            crate::bench::q(out),
+            s.period,
+            s.q,
+            s.r,
+            s.laps,
+            s.digits,
+            text.len(),
+            t.elapsed().as_secs_f64()
+        );
+        return Ok(());
+    }
     match a.str("emit").unwrap_or("report") {
         "report" => {}
         "lines" => {
-            let k = koenigs(&s, PATCH_PSI_TERMS);
-            let f = |z: &Complex| crate::zone_patch::C64(z.re.to_f64(), z.im.to_f64());
-            let psi: Vec<_> = k.psi.iter().map(f).collect();
-            let atlas = crate::zone_patch::build(
-                f(&s.alpha),
-                f(&s.rho),
-                &psi,
-                f(&s.c),
-                a.num("patch-depth", 6)?,
-            );
-            print!("{}", lines(&s, &return_map(&s, DEGREE), &k));
-            print!("{}", atlas.lines());
+            print!("{}", zone_text(&s, depth));
             return Ok(());
         }
         e => return Err(format!("--emit: expected report or lines, got {e:?}")),
@@ -122,14 +141,26 @@ fn digits_for(p: usize) -> usize {
     (2 * depth + 70).max(80)
 }
 
-pub(crate) fn seed(re: &str, im: &str, max_iter: usize) -> Result<Seed, String> {
-    // The record return at the given centre's own precision: the n with the smallest |z_n|.
-    let given = re.len().max(im.len()).max(40) + 20;
-    let c0 = Complex::parse(re, im, bits_for_digits(given))?;
-    let (z, _) = orbit(&c0, max_iter, bits_for_digits(given));
-    let p = (2..z.len())
-        .min_by(|&a, &b| log2_norm2(&z[a]).total_cmp(&log2_norm2(&z[b])))
-        .ok_or("the orbit escapes before any return")?;
+/// The zone at `re + i im`: the period is `period`, or else the record return (the n <=
+/// `max_iter` with the smallest |z_n| at the given centre's own precision).
+pub(crate) fn seed(
+    re: &str,
+    im: &str,
+    max_iter: usize,
+    period: Option<usize>,
+) -> Result<Seed, String> {
+    let p = match period {
+        Some(p) if p >= 2 => p,
+        Some(_) => return Err("--period must be at least 2".into()),
+        None => {
+            let given = re.len().max(im.len()).max(40) + 20;
+            let c0 = Complex::parse(re, im, bits_for_digits(given))?;
+            let (z, _) = orbit(&c0, max_iter, bits_for_digits(given));
+            (2..z.len())
+                .min_by(|&a, &b| log2_norm2(&z[a]).total_cmp(&log2_norm2(&z[b])))
+                .ok_or("the orbit escapes before any return")?
+        }
+    };
     let digits = digits_for(p);
     let bits = bits_for_digits(digits);
     let c = nucleus(&Complex::parse(re, im, bits)?, p, digits, bits)?;
@@ -255,6 +286,8 @@ fn cycle(
 /// u = (z - C)/scale and v = (c - C)/scale (PROB-07): u' = bias + sum a_ij u^i v^j.
 pub(crate) struct ReturnMap {
     pub(crate) scale: Float,
+    /// scale x 1e-3, exact as a decimal power of ten.
+    pub(crate) guard: Float,
     /// (i, j, a_ij) for 0 < i + j <= DEGREE, i outer.
     pub(crate) coeff: Vec<(usize, usize, Complex)>,
     pub(crate) bias: Complex,
@@ -264,7 +297,7 @@ pub(crate) struct ReturnMap {
 
 /// The zone scale, 10^floor(log10(size) / 2) for the minibrot size 1/|b dz/dc|
 /// (koenigs_bench_consts.py): return-map states scale as the square root of the size.
-fn scale(s: &Seed, bits: usize) -> Float {
+fn scale(s: &Seed, bits: usize) -> (Float, Float) {
     let one = Complex::from_i64(1, bits);
     let (mut z, mut dz) = (Complex::zero(bits), Complex::zero(bits));
     let mut log2_b = 0.0;
@@ -277,12 +310,13 @@ fn scale(s: &Seed, bits: usize) -> Float {
     }
     let log10_size = -(log2_b + log2_norm2(&dz) / 2.0) / std::f64::consts::LOG2_10;
     let k = (log10_size / 2.0).floor() as i64;
-    Float::parse(&format!("1e{k}"), bits).expect("power of ten parses")
+    let ten = |e: i64| Float::parse(&format!("1e{e}"), bits).expect("power of ten parses");
+    (ten(k), ten(k - 3))
 }
 
 pub(crate) fn return_map(s: &Seed, degree: usize) -> ReturnMap {
     let bits = s.c.re.precision();
-    let scale = scale(s, bits);
+    let (scale, guard) = scale(s, bits);
     let terms: Vec<(usize, usize)> = (0..=degree)
         .flat_map(|i| (0..=degree - i).map(move |j| (i, j)))
         .filter(|&(i, j)| i + j > 0)
@@ -323,6 +357,7 @@ pub(crate) fn return_map(s: &Seed, degree: usize) -> ReturnMap {
     ReturnMap {
         diag: diagonal(s, &scale, degree + 2),
         scale,
+        guard,
         coeff,
         bias,
     }
@@ -368,6 +403,17 @@ fn fx(z: &Complex) -> (f64, f64, i64) {
 }
 
 /// Zone-file lines (KERN-01's format) for the constants built so far.
+/// The whole zone file: constants, Koenigs chart and the tail patch atlas at `depth`.
+fn zone_text(s: &Seed, depth: usize) -> String {
+    let k = koenigs(s, PATCH_PSI_TERMS);
+    let f = |z: &Complex| crate::zone_patch::C64(z.re.to_f64(), z.im.to_f64());
+    let psi: Vec<_> = k.psi.iter().map(f).collect();
+    let atlas = crate::zone_patch::build(f(&s.alpha), f(&s.rho), &psi, f(&s.c), depth);
+    let mut o = lines(s, &return_map(s, DEGREE), &k);
+    o.push_str(&atlas.lines());
+    o
+}
+
 fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     use std::fmt::Write as _;
     let c = |z: &Complex| format!("{:?} {:?}", z.re.to_f64(), z.im.to_f64());
@@ -387,9 +433,25 @@ fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     let _ = writeln!(o, "c {}", c(&s.c));
     let _ = writeln!(o, "period {}", s.period);
     let _ = writeln!(o, "scale {:?} {}", 2.0 * sm, se - 1);
+    // The loop guard, scale x 1e-3 (koenigs_bench_consts.py `auto`; v0's 1e-28).
+    let (gm, ge) = m.guard.frexp();
+    let _ = writeln!(o, "guard {:?} {}", 2.0 * gm, ge - 1);
+    let _ = writeln!(o, "r0 {R0:?}");
     let _ = writeln!(o, "bias {}", c(&m.bias));
     let _ = writeln!(o, "alpha {}", c(&s.alpha));
     let _ = writeln!(o, "rho {}", c(&s.rho));
+    // C's critical orbit z_1 = C .. z_23 (the approach) and z_24 - A (the Koenigs entry).
+    let mut zs = vec![s.c.clone()];
+    for _ in 0..23 {
+        let next = zs.last().unwrap().sqr().add(&s.c);
+        zs.push(next);
+    }
+    let entry = zs[23].sub(&s.alpha);
+    let _ = writeln!(o, "z24_minus_alpha {}", c(&entry));
+    let _ = writeln!(o, "z24_minus_alpha_x {}", x(&entry));
+    for (i, z) in zs.iter().take(23).enumerate() {
+        let _ = writeln!(o, "orbit {i} {}", c(z));
+    }
     for (i, j, a) in &m.coeff {
         let _ = writeln!(o, "biseries {i} {j} {}", c(a));
     }
