@@ -300,17 +300,38 @@ fn zone_patches_v0() {
     .map(String::from)
     .collect();
     assert_eq!(got.len(), want.len());
-    let mut worst = 0.0f64;
+    let (mut worst, mut flips) = (0.0f64, 0);
     for (g, w) in got.iter().zip(&want) {
         let (gf, wf): (Vec<&str>, Vec<&str>) = (
             g.split_whitespace().collect(),
             w.split_whitespace().collect(),
         );
+        // Numbers within 1e-12 relative, integers (kid, leaf, nx, D) exact: the libm
+        // log/exp/sin/cos differ in the last bit between Linux and Windows MSVC.
+        assert_eq!(gf[0], wf[0]);
+        let close = |a: &str, b: &str| match (a.parse::<i64>(), b.parse::<i64>()) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => {
+                let (x, y): (f64, f64) = (a.parse().unwrap(), b.parse().unwrap());
+                (x - y).abs() <= 1e-12 * x.abs().max(y.abs()).max(1e-300)
+            }
+        };
         if gf[0] != "leaf" {
-            assert_eq!(g, w);
+            assert!(
+                gf.len() == wf.len() && gf[1..].iter().zip(&wf[1..]).all(|(a, b)| close(a, b)),
+                "{g} vs {w}"
+            );
             continue;
         }
-        assert_eq!(gf[..5], wf[..5], "leaf geometry or n");
+        assert!((1..4).all(|i| close(gf[i], wf[i])), "leaf geometry: {g}");
+        // n is the largest step count within TOL: a fit on its threshold can flip by one
+        // step between platforms. Such a leaf is equally valid; skip its coefficients.
+        let (gn, wn): (i64, i64) = (gf[4].parse().unwrap(), wf[4].parse().unwrap());
+        assert!((gn - wn).abs() <= 1, "leaf n {gn} vs {wn}");
+        if gn != wn {
+            flips += 1;
+            continue;
+        }
         let c = |f: &[&str], k: usize| -> (f64, f64) {
             (f[5 + 2 * k].parse().unwrap(), f[6 + 2 * k].parse().unwrap())
         };
@@ -322,8 +343,10 @@ fn zone_patches_v0() {
         }
         worst = worst.max(d / (1e-11 * c1.0.hypot(c1.1)));
     }
-    eprintln!("PROB-34: depth-2 atlas, worst polynomial difference {worst:.3} TOL");
-    assert!(worst <= 0.5);
+    eprintln!(
+        "PROB-34: depth-2 atlas, worst polynomial difference {worst:.3} TOL, {flips} n flips"
+    );
+    assert!(worst <= 0.5 && flips <= 2);
 }
 
 /// fd compare's strict bar between two frames: class mismatches, nu over 1e-3 px, DE

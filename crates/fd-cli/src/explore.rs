@@ -175,8 +175,19 @@ struct Server {
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["port", "threads", "zone", "capture"])?;
+    let a = Args::parse(
+        argv,
+        &["port", "threads", "zone", "capture", "exit-with-stdin"],
+    )?;
     let port: u16 = a.num("port", 8737)?;
+    // `--exit-with-stdin 1` (VIEW-06): stop when stdin closes, so a parent that holds
+    // the pipe (fd-viewer) takes this server down with it however it exits.
+    if a.str("exit-with-stdin") == Some("1") {
+        std::thread::spawn(|| {
+            let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
+            std::process::exit(0);
+        });
+    }
     let threads = a.num(
         "threads",
         std::thread::available_parallelism().map_or(1, |n| n.get()),

@@ -37,3 +37,19 @@ Verification on a Linux machine with Rust and a browser:
 Exercise drag/wheel navigation, save/reopen a place, snapshot and studio
 tuning. The Rust test covers page construction; an interactive browser test
 on Linux is still required.
+
+## Desktop window (VIEW-06)
+
+`fd-viewer` shows V2 in its own desktop window (Dioxus 0.7, as ../ishoo's window),
+with no browser:
+
+    cargo build --release -p fd-cli -p fd-viewer
+    target/release/fd-viewer            # or: fd-viewer --fd path/to/fd
+    target/release/fd-viewer --check    # start the renderer, fetch a render, exit
+
+It starts `fd explore --exit-with-stdin 1` on a free loopback port (from the repository
+root, so looks/, places/ and data/zones/ resolve) and loads /v2/ in a child webview
+filling a frameless window. The stone banner is the title bar: its three buttons
+minimise, maximise and close the window, dragging the banner moves it, the 6 px rim
+resizes it. The renderer exits whenever the window does (its stdin pipe closes).
+On Linux it needs WebKitGTK 4.1.
