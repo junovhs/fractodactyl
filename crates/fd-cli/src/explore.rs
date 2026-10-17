@@ -81,6 +81,22 @@ fn v2_page() -> String {
             box-shadow: 3px 4px 0 #241d47; }
           #live-menu button { text-align: left; padding: 8px 12px; cursor: pointer; }
           #live-menu button:hover, #live-menu button:focus { background: #0a2fd6; color: white; }
+          #live-menu hr { border: 0; border-top: 1px solid #b9a888; margin: 3px 4px; }
+          #live-dialog { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center;
+            background: rgba(20, 16, 40, .35); }
+          #live-dialog form { display: flex; flex-direction: column; gap: 10px; width: min(420px, 90vw);
+            padding: 14px 16px; background: #f7ecd8; color: #2c1d0c; border: 2px solid #313981;
+            box-shadow: 4px 5px 0 #241d47; }
+          #live-dialog h4 { margin: 0; font-size: 17px; font-weight: 800; }
+          #live-dialog p { margin: 0; font-size: 14px; line-height: 1.45; white-space: pre-line; }
+          #live-dialog label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; font-weight: 600; }
+          #live-dialog input, #live-dialog textarea { font: 14px monospace; padding: 5px 6px; background: #fffaf2;
+            border: 2px solid; border-color: #5f574d #fff #fff #5f574d; }
+          #live-dialog textarea { height: 72px; resize: vertical; }
+          #live-dialog .buttons { display: flex; justify-content: flex-end; gap: 8px; }
+          #live-dialog button { min-width: 84px; padding: 6px 14px; font-weight: 600; cursor: pointer;
+            background: #e9dcc2; border: 2px solid; border-color: #fff #5f574d #5f574d #fff; }
+          #live-dialog button[type=submit] { background: #0a2fd6; color: #fff; border-color: #6d86ff #071c86 #071c86 #6d86ff; }
           @media (max-width: 1080px) {
             .toolbar { gap: 3px; padding: 5px; }
             .tool { min-width: 0; gap: 4px; font-size: 13px; }
@@ -706,6 +722,37 @@ mod tests {
         assert!(embedded_page().contains(r#"/v2/embed.js"#));
         assert!(v2_asset("/v2/img/banner-band.png").is_some());
         assert!(v2_asset("/v2/img/../../Cargo.toml").is_none());
+    }
+
+    /// VIEW-07: drag pans and the wheel zooms, so the toolbar has no Zoom/Pan buttons;
+    /// saving is "Save this spot" in the Saved menu, not an unexplained Nest; dialogs are
+    /// in the page (WebKitGTK only showed native ones after a focus change); and the
+    /// sidebar lists colour looks, while places live in the Places menu.
+    #[test]
+    fn v2_controls_are_clear_and_dialogs_in_page() {
+        let page = v2_page();
+        for gone in [
+            "icon-zoom.png",
+            "icon-pan.png",
+            "icon-nest.png",
+            ">Nest<",
+            ">Presets<",
+        ] {
+            assert!(!page.contains(gone), "{gone}");
+        }
+        for tool in [
+            ">Explore<",
+            ">Places ",
+            ">Saved ",
+            ">Snapshot<",
+            r#"id="looks""#,
+        ] {
+            assert!(page.contains(tool), "{tool}");
+        }
+        for native in ["prompt(", "alert(", "confirm("] {
+            assert!(!V2_LIVE.contains(native), "{native}");
+        }
+        assert!(V2_LIVE.contains(r#"fetch("/looks")"#));
     }
 
     #[test]

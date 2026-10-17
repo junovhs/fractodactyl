@@ -192,13 +192,10 @@
 
     <div class="toolbar" data-stone="strip" data-seed="toolbar">
       <!-- icon slots: drop the owner's icon PNGs into .ico as <img> -->
-      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-zoom.png" alt=""></span>Zoom <span class="caret">▼</span></button>
-      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-pan.png" alt=""></span>Pan</button>
       <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-explore.png" alt=""></span>Explore</button>
-      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-fossils.png" alt=""></span>Fossils</button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-map.png" alt=""></span>Places <span class="caret">▼</span></button>
+      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-fossils.png" alt=""></span>Saved <span class="caret">▼</span></button>
       <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-snapshot.png" alt=""></span>Snapshot</button>
-      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-map.png" alt=""></span>Map</button>
-      <button class="tool" data-stone="sand"><span class="ico"><img src="img/icon-nest.png" alt=""></span>Nest</button>
     </div>
 
     <div class="body">
@@ -236,10 +233,9 @@
         </section>
 
         <section class="panel presets" data-stone="parch" data-seed="pre">
-          <h3><svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 1.5 L18.5 18 H1.5z" fill="#a24be6" stroke="#3d145e" stroke-width="1.6" stroke-linejoin="round"/></svg>Presets</h3>
-          <ul id="presets">
-            <li class="sel">Master Ice</li><li>Deep Blue</li><li>Stone Spiral</li><li>Icy Caverns</li><li>Midnight Fossil</li>
-            <li>Ocean Trench</li><li>Coral</li><li>Steel</li><li>Zebra</li><li>Random Discovery</li>
+          <h3><svg width="20" height="20" viewBox="0 0 20 20"><path d="M10 1.5 L18.5 18 H1.5z" fill="#a24be6" stroke="#3d145e" stroke-width="1.6" stroke-linejoin="round"/></svg>Looks</h3>
+          <ul id="looks">
+            <li class="sel">Master Ice</li><li>Ice</li><li>Coral</li><li>Steel</li><li>Zebra</li><li>Smoke</li>
           </ul>
         </section>
       </aside>
@@ -398,8 +394,8 @@ function render() {
   const t = setInterval(() => { p = Math.min(100, p + 4 + Math.random() * 9); bar.style.width = p + '%'; if (p >= 100) { clearInterval(t); status.textContent = 'Ready'; } }, 140);
 }
 render();
-document.querySelectorAll('#presets li').forEach(li => li.addEventListener('click', () => {
-  document.querySelectorAll('#presets li').forEach(x => x.classList.remove('sel')); li.classList.add('sel'); render(); }));
+document.querySelectorAll('#looks li').forEach(li => li.addEventListener('click', () => {
+  document.querySelectorAll('#looks li').forEach(x => x.classList.remove('sel')); li.classList.add('sel'); render(); }));
 let z = 0; const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 const fmt = n => { const e = Math.floor(Math.log10(n)); return (n / 10 ** e).toFixed(1) + ' × 10' + [...String(e)].map(d => SUP[d]).join(''); };
 function setZoom(dz) { z = Math.max(0, Math.min(3, z + dz)); document.getElementById('frame').style.transform = `scale(${2 ** z})`;

@@ -5,6 +5,10 @@
   document.documentElement.classList.add("embedded");
   const origin = location.origin;
   let placeName = "Whole set";
+  // VIEW-07: the shell picks the opening look, so take the page's remembered one away
+  // from its own restore (which would race the shell) and hand it over with "ready".
+  let remembered = null;
+  try { remembered = localStorage.getItem("fd.navLook"); localStorage.removeItem("fd.navLook"); } catch (e) {}
   const send = (type, extra) => parent.postMessage(Object.assign({ source: "fd-explorer-embed", type: type }, extra || {}), origin);
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   function setZoom(delta) {
@@ -58,10 +62,11 @@
         placeName = m.name || "Custom coordinates";
         jump({ name: placeName, re: m.re, im: m.im, w: m.width, iter: Number(m.iter) || 5000 });
         break;
+      case "hello": sendReady(); return;
       case "zoom": setZoom(clamp(Number(m.delta) || 0, -1, 1)); break;
       case "pan": pan(clamp(Number(m.x) || 0, -2, 2), clamp(Number(m.y) || 0, -2, 2)); break;
       case "look":
-        if (PALETTES[m.name]) {
+        if (PALETTES[m.name] && !m.studio) {
           look.pal = m.name; setNavLook(null);
         } else {
           setNavLook({ name: m.name, look: await fetchLook(m.name) });
@@ -111,6 +116,11 @@
     }
   });
   setInterval(currentState, 300);
-  send("ready");
+  // The shell's script can load after this frame (first, uncached load), so it also asks
+  // with "hello" and gets "ready" again.
+  function sendReady() {
+    send("ready", { places: PRESETS.map(function (p) { return p.name; }), look: remembered });
+  }
+  sendReady();
   currentState();
 })();

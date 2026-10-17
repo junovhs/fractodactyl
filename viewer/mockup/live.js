@@ -6,61 +6,150 @@
   const $$ = s => Array.from(document.querySelectorAll(s));
   const frame = $("#live-view");
   const bar = $("#bar"), status = $("#status");
-  const places = [
-    { index: 1, look: "ice" },    // Master Ice / Seahorse Valley
-    { index: 5, look: "ice" },    // Deep Blue
-    { index: 4, look: "smoke" },  // Stone Spiral
-    { index: 7, look: "ice" },    // Icy Caverns
-    { index: 3, look: "steel" },  // Midnight Fossil
-    { index: 2, look: "ice" },    // Ocean Trench
-    { index: 1, look: "coral" },  // Coral
-    { index: 8, look: "steel" },  // Steel
-    { index: 0, look: "zebra" }   // Zebra
-  ];
-  let ready = false, initialized = false, snapshot = null, menuBox = null;
+  // Built-in places (fd explore's PRESETS, sent with "ready"); index 0 is the whole set.
+  let places = ["Whole set"];
+  let looks = [];
+  let ready = false, initialized = false, snapshot = null, menuBox = null, dialogBox = null;
   const pending = [];
   function tell(cmd, extra) {
     const message = Object.assign({ source: "fd-v2-ui", cmd: cmd }, extra || {});
     if (!ready) pending.push(message);
     else frame.contentWindow.postMessage(message, location.origin);
   }
+  // A notice holds the status line for a few seconds before the live state takes it back.
+  let noticeUntil = 0;
   function notice(text, error) {
+    noticeUntil = performance.now() + 3500;
     status.textContent = text;
     status.style.color = error ? "#8c122a" : "";
   }
-  function choose(n) {
-    if (n === 9) n = Math.floor(Math.random() * places.length);
-    const p = places[n];
-    if (!p) return;
-    $$("#presets li").forEach((li, i) => {
-      li.classList.toggle("sel", i === n);
-      li.setAttribute("aria-selected", i === n ? "true" : "false");
+  // VIEW-07: dialogs live in the page. WebKitGTK showed the native prompt and alert boxes in the
+  // frameless window only after it lost and regained focus. Resolves to the field values,
+  // or null when cancelled.
+  function dialog(title, text, fields, okLabel) {
+    closeDialog();
+    return new Promise(resolve => {
+      const shade = document.createElement("div");
+      shade.id = "live-dialog";
+      const box = document.createElement("form");
+      const h = document.createElement("h4");
+      h.textContent = title;
+      box.append(h);
+      if (text) {
+        const p = document.createElement("p");
+        p.textContent = text;
+        box.append(p);
+      }
+      const inputs = (fields || []).map(f => {
+        const label = document.createElement("label");
+        label.textContent = f.label;
+        const input = document.createElement(f.multiline ? "textarea" : "input");
+        input.value = f.value || "";
+        input.spellcheck = false;
+        if (f.readonly) input.readOnly = true;
+        label.append(input);
+        box.append(label);
+        return input;
+      });
+      const row = document.createElement("div");
+      row.className = "buttons";
+      const finish = value => { closeDialog(); resolve(value); };
+      if (fields && fields.length) {
+        const cancel = document.createElement("button");
+        cancel.type = "button";
+        cancel.textContent = "Cancel";
+        cancel.onclick = () => finish(null);
+        row.append(cancel);
+      }
+      const ok = document.createElement("button");
+      ok.type = "submit";
+      ok.textContent = okLabel || "OK";
+      row.append(ok);
+      box.append(row);
+      box.onsubmit = e => { e.preventDefault(); finish(inputs.map(i => i.value.trim())); };
+      shade.onpointerdown = e => { if (e.target === shade) finish(null); };
+      box.onkeydown = e => { if (e.key === "Escape") { e.preventDefault(); finish(null); } };
+      shade.append(box);
+      document.body.append(shade);
+      dialogBox = shade;
+      const first = inputs[0] || ok;
+      first.focus();
+      if (inputs[0]) inputs[0].select();
     });
-    tell("jump", { index: p.index });
-    tell("look", { name: p.look });
   }
+  function closeDialog() {
+    if (dialogBox) { dialogBox.remove(); dialogBox = null; }
+  }
+  function goTo(index) {
+    if (index < 0 || index >= places.length) return;
+    tell("jump", { index: index });
+  }
+  function explore() {
+    // A different built-in landmark each time (never the whole set).
+    const here = snapshot ? places.indexOf(snapshot.location) : -1;
+    const options = places.map((_, i) => i).filter(i => i > 0 && i !== here);
+    if (options.length) goTo(options[Math.floor(Math.random() * options.length)]);
+  }
+  function lookTitle(name) {
+    return name.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  }
+  function setLook(name) {
+    tell("look", { name: name, studio: true });
+  }
+  function showLooks(current) {
+    $$("#looks li").forEach(li => {
+      const on = li.dataset.look === current;
+      li.classList.toggle("sel", on);
+      li.setAttribute("aria-selected", on ? "true" : "false");
+    });
+  }
+  let looksLoaded = null;
+  async function loadLooks() {
+    try {
+      const r = await fetch("/looks");
+      if (!r.ok) throw Error(await r.text());
+      looks = (await r.text()).split("\n").filter(Boolean);
+    } catch (err) { notice(String(err), true); return; }
+    // Your own looks (looks/*.look, e.g. master-ice) first, then the built-ins.
+    looks.sort((a, b) => (BUILTIN_LOOKS.includes(a) - BUILTIN_LOOKS.includes(b)) || a.localeCompare(b));
+    const list = $("#looks");
+    list.replaceChildren(...looks.map(name => {
+      const li = document.createElement("li");
+      li.textContent = lookTitle(name);
+      li.dataset.look = name;
+      li.tabIndex = 0;
+      li.setAttribute("role", "option");
+      li.onclick = () => setLook(name);
+      li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setLook(name); } };
+      return li;
+    }));
+    if (snapshot) showLooks(snapshot.look);
+  }
+  const BUILTIN_LOOKS = ["ice", "coral", "steel", "zebra", "smoke"];
   function zoom(n) { tell("zoom", { delta: n > 0 ? -Math.log10(2) : Math.log10(2) }); }
   function pan(x, y) { tell("pan", { x: x, y: y }); }
-  function save() {
-    const value = prompt("Save this location as a place (letters, digits, - or _):", "my_discovery");
-    if (value !== null) tell("save", { name: value.trim() });
+  async function save() {
+    const v = await dialog("Save this spot",
+      "Saved spots appear under Saved, and fd film --place NAME can render them.",
+      [{ label: "Name (letters, digits, - or _)", value: "my_discovery" }], "Save");
+    if (v && v[0]) tell("save", { name: v[0] });
   }
   function screenshot() { tell("snapshot"); }
   function copyCoords() {
     if (!snapshot) return;
     const coords = snapshot.re + " " + snapshot.im + " " + snapshot.width;
+    const fallback = () => dialog("Exact coordinates", "Copy them from here:", [{ label: "re im width", value: coords, multiline: true, readonly: true }], "Done");
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(coords).then(() => notice("Copied exact coordinates")).catch(() => prompt("Copy coordinates:", coords));
-    } else prompt("Copy coordinates:", coords);
+      navigator.clipboard.writeText(coords).then(() => notice("Copied exact coordinates")).catch(fallback);
+    } else fallback();
   }
-  function gotoCoords() {
-    const re = prompt("Real coordinate:", snapshot ? snapshot.re : "-0.743643887");
-    if (re === null) return;
-    const im = prompt("Imaginary coordinate:", snapshot ? snapshot.im : "0.131825904");
-    if (im === null) return;
-    const width = prompt("Horizontal width (e.g. 1e-12):", snapshot ? snapshot.width : "0.0065");
-    if (width === null) return;
-    tell("jump-place", { name: "Coordinates", re: re.trim(), im: im.trim(), width: width.trim(), iter: 5000 });
+  async function gotoCoords() {
+    const v = await dialog("Go to coordinates", null, [
+      { label: "Real", value: snapshot ? snapshot.re : "-0.743643887" },
+      { label: "Imaginary", value: snapshot ? snapshot.im : "0.131825904" },
+      { label: "Width (e.g. 1e-12)", value: snapshot ? snapshot.width : "0.0065" }
+    ], "Go");
+    if (v) tell("jump-place", { name: "Coordinates", re: v[0], im: v[1], width: v[2], iter: 5000 });
   }
   function closeMenu() {
     if (menuBox) { menuBox.remove(); menuBox = null; }
@@ -70,6 +159,7 @@
     const box = document.createElement("div");
     box.id = "live-menu";
     items.forEach(item => {
+      if (!item) { box.append(document.createElement("hr")); return; }
       const b = document.createElement("button");
       b.type = "button";
       b.textContent = item[0];
@@ -83,31 +173,37 @@
     box.style.top = Math.min(innerHeight - box.offsetHeight - 8, r.bottom + 3) + "px";
     menuBox = box;
   }
-  async function fossils(anchor) {
+  function placesMenu(anchor) {
+    menu(anchor, places.map((name, i) => [(i < 10 ? ((i + 1) % 10) + "  " : "") + name, () => goTo(i)]));
+  }
+  async function savedMenu(anchor) {
+    let rows = [];
     try {
       const r = await fetch("/places");
       if (!r.ok) throw Error(await r.text());
-      const rows = (await r.text()).split("\n").filter(Boolean).map(row => row.split("\t"));
-      if (!rows.length) { notice("No saved fossils yet. Use Nest to save a discovery."); return; }
-      menu(anchor, rows.map(row => [row[0] + "  ·  " + row[3], () => {
-        tell("jump-place", { name: row[0], re: row[1], im: row[2], width: row[3], iter: Number(row[4]) || 5000 });
-      }]));
+      rows = (await r.text()).split("\n").filter(Boolean).map(row => row.split("\t"));
     } catch (err) { notice(String(err), true); }
+    menu(anchor, [["Save this spot…", save], null].concat(rows.length ? rows.map(row => [row[0] + "  ·  " + row[3], () => {
+      tell("jump-place", { name: row[0], re: row[1], im: row[2], width: row[3], iter: Number(row[4]) || 5000 });
+    }]) : [["(no saved spots yet)", () => {}]]));
   }
   function showHelp() {
-    alert("Fractodactyl Explorer V2\n\nDrag the fractal to pan; wheel over it to zoom at the cursor. The arrow pad moves the camera and + / - zoom in or out. Presets change real locations and studio looks. Fossils opens saved places; Nest saves your current place. Snapshot exports a PNG. Map returns to the whole Mandelbrot set. View > Studio Look opens the original live look editor.\n\nAll rendering uses fd explore running on your machine.");
+    dialog("Controls", "Drag the fractal to pan. Use the mouse wheel to zoom in or out at the cursor; the arrow keys and + / - work too.\n\n" +
+      "Explore jumps to a random landmark. Places lists the landmarks (keys 1–9, 0). Saved holds the spots you saved with Save this spot. " +
+      "Snapshot saves a PNG (key S). Looks in the sidebar change only the colours; L opens the look studio, space pauses the colour flow.\n\n" +
+      "All rendering uses fd explore on your machine.");
   }
   function fullscreen() {
     if (document.fullscreenElement) document.exitFullscreen();
     else document.documentElement.requestFullscreen().catch(err => notice(String(err), true));
   }
   const menus = [
-    [["Snapshot PNG", screenshot], ["Save current place", save], ["Open classic viewer", () => { location.href = "/"; }]],
+    [["Snapshot PNG", screenshot], ["Save this spot…", save], ["Open classic viewer", () => { location.href = "/"; }]],
     [["Go to coordinates…", gotoCoords], ["Copy exact coordinates", copyCoords], ["Reset look", () => tell("reset-look")]],
     [["Toggle sidebar", () => $(".sidebar").classList.toggle("closed")], ["Studio Look (L)", () => tell("studio")], ["Fullscreen", fullscreen]],
-    [["Seahorse Valley", () => choose(0)], ["Whole Mandelbrot Set", () => tell("jump", { index: 0 })], ["Random discovery", () => choose(9)], ["Saved fossils…", () => fossils($$(".menubar span")[3])]],
+    [["Places…", () => placesMenu($$(".menubar span")[3])], ["Random landmark", explore], ["Saved spots…", () => savedMenu($$(".menubar span")[3])], ["Whole Mandelbrot set", () => goTo(0)]],
     [["Pause / resume flow", () => tell("pause")], ["Studio Look", () => tell("studio")], ["Reset look", () => tell("reset-look")]],
-    [["Controls and shortcuts", showHelp], ["About Fractodactyl", () => alert("Fractodactyl Explorer V2\nLinux UI built around the real fd Mandelbrot renderer.")]]
+    [["Controls and shortcuts", showHelp], ["About Fractodactyl", () => dialog("About Fractodactyl", "Fractodactyl Explorer V2: the stone viewer around the real fd Mandelbrot renderer.")]]
   ];
   $$(".menubar span").forEach((entry, i) => {
     entry.tabIndex = 0;
@@ -116,32 +212,21 @@
     entry.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); entry.click(); } };
   });
   const tools = $$(".toolbar .tool");
-  const handlers = [
-    () => menu(tools[0], [["Zoom in (+)", () => zoom(1)], ["Zoom out (-)", () => zoom(-1)], ["Whole set", () => tell("jump", { index: 0 })]]),
-    () => { frame.contentWindow.focus(); notice("Drag the fractal or use the arrow pad to pan."); },
-    () => choose(9),
-    () => fossils(tools[3]),
-    screenshot,
-    () => tell("jump", { index: 0 }),
-    save
-  ];
-  tools.forEach((button, i) => { button.onclick = handlers[i]; button.title = ["Zoom options", "Drag to pan", "Discover another location", "Open saved places", "Save image as PNG", "Whole set map", "Save your location"][i]; });
+  const handlers = [explore, () => placesMenu(tools[1]), () => savedMenu(tools[2]), screenshot];
+  const tips = ["Jump to a random landmark", "Go to a landmark", "Your saved spots, and save this one", "Save the view as a PNG"];
+  tools.forEach((button, i) => { button.onclick = handlers[i]; button.title = tips[i]; });
   const dpad = $$(".dpad .dbtn");
   const moves = [[0, -0.22], [-0.22, 0], null, [0.22, 0], [0, 0.22]];
-  dpad.forEach((b, i) => b.onclick = () => { if (moves[i]) pan(moves[i][0], moves[i][1]); else choose(0); });
+  dpad.forEach((b, i) => b.onclick = () => { if (moves[i]) pan(moves[i][0], moves[i][1]); else goTo(0); });
+  dpad[2].title = "Whole set";
   $("#zoomIn").onclick = () => zoom(1);
   $("#zoomOut").onclick = () => zoom(-1);
-  $$("#presets li").forEach((li, i) => {
-    li.tabIndex = 0;
-    li.setAttribute("role", "option");
-    li.onclick = () => choose(i);
-    li.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); choose(i); } };
-  });
+  looksLoaded = loadLooks();
   $(".navthumb").role = "button";
   $(".navthumb").title = "Whole set overview";
   $(".navthumb").tabIndex = 0;
-  $(".navthumb").onclick = () => tell("jump", { index: 0 });
-  $(".navthumb").onkeydown = e => { if (e.key === "Enter") tell("jump", { index: 0 }); };
+  $(".navthumb").onclick = () => goTo(0);
+  $(".navthumb").onkeydown = e => { if (e.key === "Enter") goTo(0); };
   const sb = $$(".vscroll .sbtn");
   if (sb[0]) sb[0].onclick = () => pan(0, -0.2);
   if (sb[1]) sb[1].onclick = () => pan(0, 0.2);
@@ -179,7 +264,7 @@
   }
   addEventListener("pointerdown", e => { if (menuBox && !menuBox.contains(e.target) && !e.target.closest(".menubar,.toolbar")) closeMenu(); }, true);
   addEventListener("keydown", e => {
-    if (e.target.matches("input,select,textarea")) return;
+    if (dialogBox || e.target.matches("input,select,textarea")) return;
     if (e.key === "Escape") { closeMenu(); return; }
     if (e.key === "+" || e.key === "=") zoom(1);
     else if (e.key === "-") zoom(-1);
@@ -192,7 +277,7 @@
     else if (e.key === " ") { e.preventDefault(); tell("pause"); }
     else if ("1234567890".includes(e.key)) {
       const n = "1234567890".indexOf(e.key);
-      if (n >= 0) tell("jump", { index: n });
+      if (n >= 0) goTo(n);
     } else return;
     e.preventDefault();
   });
@@ -214,10 +299,11 @@
       values[2].title = s.re + " + " + s.im + "i";
     }
     if (iterationCell) iterationCell.textContent = "Iter: " + Number(s.iter).toLocaleString();
+    showLooks(s.look);
     if (coordinateCell) coordinateCell.textContent = s.kernel ? "Kernel: " + s.kernel : "Rendering…";
     bar.style.width = Math.round(100 * s.progress) + "%";
     if (s.error) notice(s.error, true);
-    else {
+    else if (performance.now() >= noticeUntil) {
       status.style.color = "";
       status.textContent = s.studio ? (s.progress === 1 ? "Studio look · ready" : "Studio look · rendering…") :
         s.refining ? "Exploring · refining " + s.level + "/" + s.levels : "Ready · " + s.look;
@@ -228,8 +314,13 @@
     const m = e.data;
     if (m.type === "ready") {
       ready = true;
+      if (Array.isArray(m.places) && m.places.length) places = m.places;
       while (pending.length) frame.contentWindow.postMessage(pending.shift(), location.origin);
-      if (!initialized) { initialized = true; choose(0); }
+      if (!initialized) {
+        initialized = true;
+        goTo(1);
+        looksLoaded.then(() => setLook(looks.includes(m.look) ? m.look : looks.includes("master-ice") ? "master-ice" : "ice"));
+      }
     } else if (m.type === "state") showState(m.state);
     else if (m.type === "notice") notice(m.message, m.error);
     else if (m.type === "snapshot") {
@@ -241,4 +332,6 @@
     }
   });
   notice("Connecting to fd explorer…");
+  // VIEW-07: the frame may have said "ready" before this script ran; ask it again.
+  try { frame.contentWindow.postMessage({ source: "fd-v2-ui", cmd: "hello" }, location.origin); } catch (e) {}
 })();
