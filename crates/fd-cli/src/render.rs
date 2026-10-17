@@ -1,8 +1,8 @@
 //! `fd render`: compute samples and write a `.fds` file. No colour happens here.
 use crate::args::Args;
 use fd_kernel::{
-    render_bla, render_refined, render_with, render_zone, zone_covers, BlaStats, Params,
-    Refinement, Stats, Tier, Zone, FINAL,
+    render_bla, render_refined, render_with, zone_covers, BlaStats, Params, Refinement, Stats,
+    Tier, Zone, FINAL,
 };
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
@@ -28,19 +28,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         ])
         .collect();
     let a = Args::parse(argv, &known)?;
-    // f64: binary64 zone kernel; f32only: no f64 anywhere, and the only GPU kernel for
-    // extended-range zones (GPU-23).
-    let gpu = match a.str("gpu-kernel") {
-        None => None,
-        Some("f64") => Some(crate::zone_gpu::Kernel::F64),
-        Some("f32only") => Some(crate::zone_gpu::Kernel::F32Only),
-        Some(value) => {
-            return Err(format!(
-                "--gpu-kernel: expected f64 or f32only, got {value:?}"
-            ))
-        }
-    };
-    if gpu.is_some() && a.str("zone").is_none() {
+    // The zone kernel (CLEA-06): GPU first, chosen by zone_gpu::choose unless named;
+    // `cpu` keeps the CPU zone. f32only is the only GPU kernel for extended-range zones.
+    let kernel_flag = a.str("gpu-kernel");
+    if let Some(value) = kernel_flag.filter(|v| !matches!(*v, "cpu" | "f64" | "mixed" | "f32only"))
+    {
+        return Err(format!(
+            "--gpu-kernel: expected cpu, f64, mixed or f32only, got {value:?}"
+        ));
+    }
+    if kernel_flag.is_some() && a.str("zone").is_none() {
         return Err("--gpu-kernel requires --zone".into());
     }
     let out = a.need("o")?;
@@ -96,17 +93,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let (header, samples, refined) = match (a.str("refine"), table) {
         _ if zone.is_some() => {
             let z = zone.as_ref().unwrap();
-            if let Some(mode) = gpu {
-                match crate::zone_gpu::Renderer::new(mode).render(&view, &p, z) {
-                    Ok((h, s)) => (h, s, None),
-                    Err(e) => {
-                        eprintln!("fd: wgpu zone unavailable ({e}); using CPU zone");
-                        render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
-                    }
-                }
-            } else {
-                render_zone(&view, &p, z).map(|(h, s, _, _)| (h, s, None))?
-            }
+            let mut gpu =
+                crate::zone_gpu::choose(kernel_flag, z)?.map(crate::zone_gpu::Renderer::new);
+            crate::zone_gpu::render_zone_frame(&mut gpu, &view, &p, z).map(|(h, s)| (h, s, None))?
         }
         (None, Some((orbit, table))) => {
             let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;
