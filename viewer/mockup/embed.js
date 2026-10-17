@@ -11,22 +11,19 @@
   try { remembered = localStorage.getItem("fd.navLook"); localStorage.removeItem("fd.navLook"); } catch (e) {}
   const send = (type, extra) => parent.postMessage(Object.assign({ source: "fd-explorer-embed", type: type }, extra || {}), origin);
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+  // VIEW-08: buttons and keys ease the camera (zoom about the centre, glide when panning).
   function setZoom(delta) {
     if (!view || studio.on) return;
-    view.l10w = Math.min(Math.log10(8), view.l10w + delta);
-    ensureDigits(view);
-    changed();
+    zoomBy(delta);
   }
   function pan(x, y) {
     if (!view || studio.on) return;
-    shift(view, x * W, y * H);
-    changed();
+    glide(x * W, y * H);
   }
   function currentState() {
     if (!view) return;
-    const level = job ? job.level : LEVELS.length;
-    const part = job && LEVELS[level] ? job.row / Math.max(1, H / LEVELS[level].s) : 0;
-    const progress = studio.on ? (studio.ready ? 1 : 0) : clamp((level + part) / LEVELS.length, 0, 1);
+    const nav = navProgress();
+    const progress = studio.on ? (studio.ready ? 1 : 0) : clamp(nav.progress, 0, 1);
     send("state", {
       state: {
         location: placeName,
@@ -37,9 +34,9 @@
         iter: iterFor(view.l10w),
         kernel: last.info.kernel || "",
         progress: progress,
-        refining: !!job,
-        level: Math.min(LEVELS.length, level + 1),
-        levels: LEVELS.length,
+        refining: nav.refining,
+        level: Math.min(nav.levels, nav.level + 1),
+        levels: nav.levels,
         look: navLook ? navLook.name : look.pal,
         studio: studio.on,
         paused: studio.on ? studio.paused : paused,

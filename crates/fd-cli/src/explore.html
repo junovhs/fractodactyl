@@ -133,12 +133,8 @@ const PRESETS = [
   { name: "Period-764 minibrot", re: V0_RE, im: V0_IM, w: "1e-48", iter: 100000 },
   { name: "c = i, 1e-1000", re: "0", im: "1", w: "1e-1000", iter: 20000 },
 ];
-// Coarse to fine. Levels with s <= 2 render in row strips so a new view never waits
-// long behind an old one.
-const LEVELS = [{ s: 8, ss: 1 }, { s: 4, ss: 1 }, { s: 2, ss: 1 }, { s: 1, ss: 1 }, { s: 1, ss: 2 }];
-
-// EXPL-03: the server sends raw shading inputs (ln nu, relief light, edge, escaped share)
-// and the page colours them every frame, so bands can flow and breathe without rendering.
+// EXPL-03: the server sends raw shading inputs and the page colours them every frame, so
+// bands can flow and breathe without rendering.
 const PALETTES = {   // cosine palettes a + b cos(2 pi (c t + d))
   "gold & blue": [[0.55, 0.5, 0.5], [0.45, 0.45, 0.5], [1, 1, 1], [0.0, 0.15, 0.35]],
   "psychedelic": [[0.5, 0.5, 0.5], [0.5, 0.5, 0.5], [1, 1, 1], [0.0, 0.33, 0.67]],
@@ -152,21 +148,14 @@ const LOOK0 = { pal: "gold & blue", bands: 0.7, flow: 0.25, breathe: 0, brate: 0
 const KNOBS = ["bands", "flow", "breathe", "brate", "drift", "relief", "edge", "glow"];
 const look = { ...LOOK0 };
 let paused = false, phase = 0, hue = 0, clock = 0, lastT = performance.now();
-let raw = null, rawSnap = null;            // W x H x 4 floats: the best image so far
-let shaded = null, shadedSnap = null, shadeImg = null, shadeDirty = true;
-let lastShade = -Infinity;
-// EXPL-07: a studio preset as the navigation look. Refinement then fetches raw=3 (studio
-// inputs for every sample, same kernel as raw=1) into a 2x-supersampled texture that the
-// studio shader colours on the GPU every frame, so the view is exactly what fd film makes.
+// EXPL-07: a studio preset as the navigation look, coloured on the GPU by the studio
+// shader (shadeSample below), so the view is exactly what fd film makes.
 let navLook = null;                        // { name, look } or null for the cosine palettes
-let samp = null, sampSnap = null, sampBase = 0, sampRows = null;   // 2W x 2H x 4 floats
-const NAV_SS = 2;
-const canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
+const canvas = document.getElementById("c");
 const hud = document.getElementById("hud"), errBox = document.getElementById("err");
-let W = 0, H = 0;
+let W = 0, H = 0, DPR = 1;
 let view = null, baseIter = 2000;
-let gen = 0, job = null, inflight = false, dirty = false;
-let secPerSample = 1e-6, last = { info: {}, level: 0 };
+let gen = Date.now(), needDraw = true, last = { info: {} };
 
 function log10Dec(s) {
   const m = /^\s*([0-9.]+)(?:[eE]([-+]?\d+))?\s*$/.exec(s);
@@ -200,13 +189,6 @@ function pxToBig(px, v) {
   const m = (px / W) * 10 ** (x - e);
   return BigInt(Math.round(m * 1e12)) * 10n ** BigInt(e - 12);
 }
-// A BigInt difference (units 10^-D) in pixels of a view with log width l10w.
-function bigToPx(d, D, l10w) {
-  if (d === 0n) return 0;
-  const neg = d < 0n, a = neg ? -d : d, drop = Math.max(0, a.toString().length - 20);
-  const n = Number(a / 10n ** BigInt(drop)) * 10 ** (drop - D - l10w) * W;
-  return neg ? -n : n;
-}
 function shift(v, dx, dy) {
   v.re += pxToBig(dx, v);
   v.im -= pxToBig(dy, v);   // screen y points down, imaginary axis up
@@ -226,190 +208,415 @@ function iterFor(l10w) {
 function jump(p) {
   const l10w = log10Dec(p.w), D = needDigits(l10w);
   view = { re: parseDec(p.re, D), im: parseDec(p.im, D), D, l10w };
+  if (p.iter !== baseIter) clearTiles();   // tiles carry their iteration budget
   baseIter = p.iter;
-  raw = null; rawSnap = null; shadedSnap = null; samp = null; sampRows = null;
+  cam.zoom = cam.vx = cam.vy = cam.gx = cam.gy = 0;
   changed();
 }
-function changed() { dirty = true; }
+function changed() { needDraw = true; movedAt = performance.now(); }
 
 function resize() {
-  W = Math.max(8, Math.floor(innerWidth / 8) * 8);
-  H = Math.max(8, Math.floor(innerHeight / 8) * 8);
-  canvas.width = W; canvas.height = H;
-  raw = null; rawSnap = null; shadedSnap = null; samp = null; sampRows = null;
+  W = Math.max(8, innerWidth); H = Math.max(8, innerHeight);
+  DPR = Math.min(2, devicePixelRatio || 1);
   if (view) changed();
 }
 
-function nextRequest(j) {
-  const L = LEVELS[j.level], Wl = W / L.s, Hl = H / L.s;
-  let r0 = 0, r1 = Hl;
-  if (L.s <= 2) {
-    const rows = Math.round(0.2 / secPerSample / (Wl * L.ss * L.ss));
-    r0 = j.row; r1 = Math.min(Hl, r0 + Math.max(4, Math.min(Hl, rows)));
-  }
-  const v = { re: j.snap.re, im: j.snap.im, D: j.snap.D, l10w: j.snap.l10w };
-  shift(v, 0, ((r0 + r1) / 2 - Hl / 2) * L.s);
-  const q = new URLSearchParams({
-    re: toDec(v.re, v.D), im: toDec(v.im, v.D), width: widthStr(v.l10w),
-    w: Wl, h: r1 - r0, ss: L.ss, iter: iterFor(v.l10w), gen: j.gen, raw: j.studio ? 3 : 1,
-  });
-  return { url: "/render?" + q, L, Wl, Hl, r0, r1 };
-}
+// VIEW-08: navigation streams tiles, as a map does. Level z cuts the plane into squares
+// of width 4 * 2^-z, each rendered once as TILE x TILE samples (raw=3, the same kernel and
+// studio inputs as before) and kept as a float texture. Every frame draws the cached tiles
+// that cover the view, finest first, with coarser levels filling the gaps, and the GPU
+// colours each sample with the current look. Only missing tiles are requested: a coarse
+// fill, then 1 sample per pixel, then 2x2 per pixel, nearest the centre (or where the
+// view is heading) first; when the view is complete, a ring around it and the level
+// above it are prefetched so panning and zooming out find them ready.
+const TILE = 256, LOG2 = Math.log10(2), BUDGET = 400;
+const tiles = new Map();                   // "z,i,j" -> { z, i, j, tex, base, used }
+const pending = new Map();                 // key -> priority class, while in flight
+const anchors = new Map();                 // z -> BigInt index that i, j are relative to
+let inflight = 0, epoch = 0, frame = 0, movedAt = 0, retryAt = 0, rendered = 0, secPerTile = 0.02;
+const P2 = new Map(), P5 = new Map(), P10 = new Map();
+const pow = (m, b, n) => { let v = m.get(n); if (v === undefined) { v = b ** BigInt(n); m.set(n, v); } return v; };
 
-async function kick() {
-  if (inflight || !job) return;
-  inflight = true;
-  const j = job, req = nextRequest(j);
+function clearTiles() {
+  for (const t of tiles.values()) freeTex(t.tex);
+  tiles.clear(); anchors.clear(); epoch++;
+}
+// CSS pixels per sample of a level-z tile, and the level with 1 to 2 samples per pixel.
+function pxPerTexel(z) { return W * 10 ** (Math.log10(4 / TILE) - z * LOG2 - view.l10w); }
+function fineLevel() { return Math.max(0, Math.ceil((Math.log10(4 * W / TILE) - view.l10w) / LOG2)); }
+// The level-z tile holding coordinate v (units 10^-D) and the fraction across it, exactly:
+// floor(v 2^z / (4 10^D)).
+function gridAt(v, z) {
+  const num = v * pow(P2, 2n, z), den = 4n * pow(P10, 10n, view.D);
+  let i = num / den;
+  if (num < i * den) i -= 1n;
+  const drop = pow(P10, 10n, Math.max(0, view.D - 15));
+  return [i, Number((num - i * den) / drop) / Number(den / drop)];
+}
+// Level z's grid in screen terms. Tile indices are kept relative to a per-level anchor so
+// keys stay small numbers at any depth; a jump far away re-anchors (and drops) the level.
+function geom(z) {
+  const [i, fx] = gridAt(view.re, z), [j, fy] = gridAt(view.im, z);
+  let a = anchors.get(z);
+  if (!a || i - a[0] > 1n << 40n || a[0] - i > 1n << 40n || j - a[1] > 1n << 40n || a[1] - j > 1n << 40n) {
+    for (const [k, t] of tiles) if (t.z === z) { freeTex(t.tex); tiles.delete(k); }
+    a = [i, j]; anchors.set(z, a);
+  }
+  return { z, i0: Number(i - a[0]), j0: Number(j - a[1]), fx, fy, px: TILE * pxPerTexel(z), a };
+}
+// Screen rectangle [x0, y0, x1, y1] of tile (i, j) of geometry g (y down, imaginary up).
+function tileRect(g, i, j) {
+  const x0 = W / 2 + (i - g.i0 - g.fx) * g.px, y1 = H / 2 - (j - g.j0 - g.fy) * g.px;
+  return [x0, y1 - g.px, x0 + g.px, y1];
+}
+function tileRange(g, margin) {
+  const hx = W / 2 / g.px, hy = H / 2 / g.px;
+  return [g.i0 + Math.floor(g.fx - hx) - margin, g.i0 + Math.floor(g.fx + hx) + margin,
+    g.j0 + Math.floor(g.fy - hy) - margin, g.j0 + Math.floor(g.fy + hy) + margin];
+}
+const key = (z, i, j) => z + "," + i + "," + j;
+// A level-z tile is not needed where finer cached tiles (up to `depth` levels down)
+// already cover it completely.
+function covered(z, i, j, depth = 2) {
+  const c = anchors.get(z + 1), a = anchors.get(z);
+  if (!c || depth <= 0) return false;
+  const ci = Number(2n * (a[0] + BigInt(i)) - c[0]), cj = Number(2n * (a[1] + BigInt(j)) - c[1]);
+  for (let di = 0; di < 2; di++) for (let dj = 0; dj < 2; dj++)
+    if (!tiles.has(key(z + 1, ci + di, cj + dj)) && !covered(z + 1, ci + di, cj + dj, depth - 1)) return false;
+  return true;
+}
+// Missing tiles in priority order: [class, distance] (smaller first). Classes 0-2 make the
+// view complete (coarse fill, 1x, 2x2), 3+ are prefetch.
+function wanted(maxClass, settled) {
+  const zf = fineLevel(), out = [];
+  const still = settled || performance.now() - movedAt > 150;
+  // Where the view is heading: the centre plus 0.3 s of fling or glide.
+  const fx = W / 2 + 0.3 * cam.vx + cam.gx, fy = H / 2 + 0.3 * cam.vy + cam.gy;
+  const add = (z, margin, cls) => {
+    if (z < 0 || cls > maxClass) return;
+    const g = geom(z), [i0, i1, j0, j1] = tileRange(g, margin);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const k = key(z, i, j);
+      const have = tiles.get(k);
+      if (have) { have.used = frame; continue; }   // still wanted: keep it
+      if (pending.has(k) || covered(z, i, j)) continue;
+      const r = tileRect(g, i, j), d = Math.hypot((r[0] + r[2]) / 2 - fx, (r[1] + r[3]) / 2 - fy);
+      out.push({ g, i, j, k, cls, d });
+    }
+  };
+  add(zf - 3, 0, 0);
+  add(zf - 1, 0, 1);
+  if (still) add(zf, 0, 2);                 // full quality once the view stops moving
+  add(zf - 1, 1, 3);
+  if (still) { add(zf, 1, 4); add(zf - 2, 1, 5); }
+  return out;
+}
+function best(list) {
+  let b = null;
+  for (const t of list) if (!b || t.cls < b.cls || (t.cls === b.cls && t.d < b.d)) b = t;
+  return b;
+}
+function dispatch() {
+  if (!view || studio.on || performance.now() < retryAt) return;
+  // Pipeline two requests while tiles are cheap (the server renders one at a time).
+  while (inflight < (secPerTile < 0.05 ? 2 : 1)) {
+    const t = best(wanted(9));
+    if (!t) return;
+    fetchTile(t);
+  }
+}
+// Each sample: nu relative to the tile's smallest escaped nu (`base`), de in tile pixels,
+// the normal angle, the class (0 escaped, 1 interior).
+async function fetchTile(t) {
+  const { g, i, j, k, cls } = t, z = g.z, e = epoch;
+  const I = g.a[0] + BigInt(i), J = g.a[1] + BigInt(j), five = pow(P5, 5n, z);
+  // Tile centre ((2i+1) * 2 / 2^z) and width (4 / 2^z) as exact decimals.
+  const q = new URLSearchParams({
+    re: toDec((2n * I + 1n) * 2n * five, z), im: toDec((2n * J + 1n) * 2n * five, z), width: toDec(4n * five, z),
+    w: TILE, h: TILE, ss: 1, iter: iterFor(Math.log10(16) - z * LOG2), gen, raw: 3,
+  });
+  pending.set(k, cls); inflight++;
   try {
-    const r = await fetch(req.url);
+    const r = await fetch("/render?" + q);
     if (r.status === 200) {
-      const w = +r.headers.get("X-Width"), h = +r.headers.get("X-Height");
       const info = Object.fromEntries((r.headers.get("X-Info") || "").split(" ").map(kv => kv.split("=")));
-      const rgb = new Float32Array(await r.arrayBuffer());
-      secPerSample = Math.max(1e-9, +info.seconds / (w * h * req.L.ss * req.L.ss));
-      if (j.level === 0 || j.gen === gen) {
-        if (j.studio) paintSamples(j, req, rgb, w, h, +info.nubase);
-        else paint(j, req, rgb, w, h);
-        last = { info, level: j.level + 1 };
+      const data = new Float32Array(await r.arrayBuffer());
+      if (e === epoch) {
+        tiles.set(k, { z, i, j, tex: upload(data), base: +info.nubase, used: frame });
+        rendered += TILE * TILE;
+        evict();
       }
+      secPerTile = 0.7 * secPerTile + 0.3 * +info.seconds;
+      last = { info };
       errBox.style.display = "none";
-    } else if (r.status !== 204) {
+    } else if (r.status === 204) {
+      gen = Math.max(gen + 1, Date.now());   // another view outranked us; ask again as newer
+    } else {
       errBox.textContent = await r.text();
       errBox.style.display = "block";
-      if (j === job) job = null;
+      retryAt = performance.now() + 2000;
     }
-  } catch (e) {
-    errBox.textContent = "fd explore is not answering: " + e;
+  } catch (err) {
+    errBox.textContent = "fd explore is not answering: " + err;
     errBox.style.display = "block";
+    retryAt = performance.now() + 1000;
   }
-  // Advance this job; a newer job may already have replaced it.
-  if (j === job) {
-    j.row = req.r1;
-    if (j.row >= req.Hl) { j.level++; j.row = 0; }
-    if (j.level >= LEVELS.length) job = null;
-  }
-  inflight = false;
-  kick();
+  pending.delete(k); inflight--; needDraw = true;
+  dispatch();
+}
+function evict() {
+  if (tiles.size <= BUDGET) return;
+  const old = [...tiles].filter(([, t]) => t.used < frame).sort((a, b) => a[1].used - b[1].used);
+  for (const [k, t] of old.slice(0, tiles.size - BUDGET)) { freeTex(t.tex); tiles.delete(k); }
+}
+// Progress for the HUD and the V2 status line: the share of the view at full quality.
+function navProgress() {
+  if (!view) return { progress: 0, level: 0, levels: 3, refining: false };
+  const missing = [0, 1, 2].map(c => wanted(2, true).filter(t => t.cls === c).length);
+  const g = geom(fineLevel()), [i0, i1, j0, j1] = tileRange(g, 0), all = (i1 - i0 + 1) * (j1 - j0 + 1);
+  const level = missing.findIndex(n => n > 0);
+  return { progress: 1 - missing[2] / all, level: level < 0 ? 3 : level, levels: 3, refining: level >= 0 };
 }
 
-function paint(j, req, f, w, h) {
-  if (j.level === 0 || !raw) {
-    // A coarse frame always becomes the new base image, even for a view the mouse
-    // has since left: it is drawn transformed until a newer one lands.
-    raw = new Float32Array(W * H * 4);
-    rawSnap = j.snap;
+// The tile renderer: one WebGL2 canvas. A sample texture per tile, drawn as a quad.
+const tgl = canvas.getContext("webgl2", { preserveDrawingBuffer: true, antialias: false, depth: true });
+let tprog = null;
+// Uniform locations by name (null for any the compiler dropped: setting it is a no-op).
+const tu = new Proxy({}, { get: (o, k) => o[k] ?? null });
+const texPool = [];
+function upload(data) {
+  if (!tgl) return null;
+  const tex = texPool.pop() || tgl.createTexture();
+  tgl.bindTexture(tgl.TEXTURE_2D, tex);
+  if (!tex.ready) {
+    tgl.texStorage2D(tgl.TEXTURE_2D, 1, tgl.RGBA32F, TILE, TILE);
+    tgl.texParameteri(tgl.TEXTURE_2D, tgl.TEXTURE_MIN_FILTER, tgl.NEAREST);
+    tgl.texParameteri(tgl.TEXTURE_2D, tgl.TEXTURE_MAG_FILTER, tgl.NEAREST);
+    tex.ready = true;
   }
-  const s = req.L.s, y0 = req.r0 * s;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const k = 4 * (y * w + x);
-      for (let dy = 0; dy < s; dy++) {
-        const row = y0 + y * s + dy;
-        if (row >= H) break;
-        let o = 4 * (row * W + x * s);
-        for (let dx = 0; dx < s && x * s + dx < W; dx++, o += 4) {
-          raw[o] = f[k]; raw[o + 1] = f[k + 1]; raw[o + 2] = f[k + 2]; raw[o + 3] = f[k + 3];
-        }
-      }
+  tgl.texSubImage2D(tgl.TEXTURE_2D, 0, 0, 0, TILE, TILE, tgl.RGBA, tgl.FLOAT, data);
+  return tex;
+}
+function freeTex(tex) { if (tex) texPool.push(tex); }
+
+// fd-shade studio.rs's per-sample colour (used by the studio below and by the tiles).
+// `ss` is samples per output pixel; de is in output pixels.
+const SHADE_SAMPLE = `
+uniform vec3 stops[16]; uniform int n; uniform vec3 interior, stopMean;
+uniform float dens, basePhase, terrace, slope, lx, ly, lines, linePx, aa, unresInterior;
+const float LN2 = 0.6931471805599453, TAU = 6.283185307179586, PI = 3.141592653589793;
+vec3 shadeSample(vec4 d, float ss) {
+  if (d.a > 1.5) return unresInterior > 0.5 ? interior : vec3(0.25, 0.0, 0.25);
+  if (d.a > 0.5) return interior;
+  float t = basePhase + dens * d.r;          // palette cycles (fractional part is what matters)
+  float x = fract(t) * float(n);
+  int k = min(int(x), n - 1);
+  float fr = x - float(k);
+  float f = 0.5 - 0.5 * cos(PI * fr);
+  vec3 col = mix(stops[k], stops[(k + 1) % n], f);
+  if (terrace > 0.0) col *= 1.0 - terrace * pow(1.0 - fr, 1.5);
+  float de = max(d.g, 0.0);
+  float a = d.b * (TAU / 65536.0);
+  float facing = -(cos(a) * lx + sin(a) * ly);
+  float cycles = dens * 2.0 / (max(de, 1e-30) * LN2);
+  // FX-03: band-limit the palette (Gaussian, sigma 0.5 sample) toward its cycle mean.
+  if (aa > 0.5) {
+    float s = cycles / float(ss);
+    float g = exp(max(-2.0 * PI * PI * 0.25 * s * s, -80.0));
+    col = mix(stopMean * (terrace > 0.0 ? 1.0 - terrace * 0.4 : 1.0), col, g);
+  }
+  float steep = tanh(min(0.6 * log(1.0 + cycles / 0.02), 10.0));
+  // GLSL tanh may be (e^x - e^-x)/(e^x + e^-x): NaN once e^x overflows. tanh(10) is
+  // already 1 in f32, so clamping changes nothing else.
+  float fade = aa > 0.5 ? tanh(clamp(de * float(ss) / 0.7, 0.0, 10.0)) : 1.0;
+  float v = (1.0 + slope * facing * steep * fade) * (1.0 - 0.6 * exp(-de * float(ss) * 1.5));
+  if (lines > 0.0) {
+    float c = fract(t * float(n));
+    float perPx = max(cycles * float(n), 1e-30);
+    float dpx = min(c, 1.0 - c) / perPx;
+    float line = clamp(linePx / 2.0 + 0.5 - dpx, 0.0, 1.0);
+    float vis = clamp((1.0 / perPx - 3.0) / 3.0, 0.0, 1.0);
+    v *= 1.0 - lines * line * vis;
+  }
+  return col * v;
+}`;
+const TILE_VS = `#version 300 es
+in vec2 p; uniform vec4 rect; uniform vec2 view; uniform float depth; out vec2 uv;
+void main() {
+  vec2 s = mix(rect.xy, rect.zw, p);
+  uv = p * ${TILE}.0;
+  gl_Position = vec4(s.x / view.x * 2.0 - 1.0, 1.0 - s.y / view.y * 2.0, depth, 1.0);
+}`;
+// k: CSS pixels per sample. Cosine looks colour as the old CPU path did (log nu bands,
+// relief light from the normal, edge darkening by tanh(de/2) in screen pixels); studio
+// looks use shadeSample with de in screen pixels and 1/k samples per pixel, then gamma.
+// Magnified tiles blend four shaded samples (smooth); minified ones average 2x2.
+const TILE_FS = `#version 300 es
+precision highp float; precision highp sampler2D;
+uniform sampler2D S; uniform float k, nuBase, cosK, rel, ed, glow; uniform int mode;
+uniform vec3 ca, cb, cc, cd;
+in vec2 uv; out vec4 o;
+${SHADE_SAMPLE}
+vec3 shadeCos(vec4 d) {
+  if (d.a > 0.5) return vec3(0.0);
+  float t = cosK * log(max(nuBase + d.r, 1.0));
+  float a = d.b * (TAU / 65536.0);
+  const float KL = 0.5547001962252291;     // 1 / sqrt(1 + 1.5^2)
+  float lit = clamp(-0.5 * (cos(a) + sin(a)) * KL + 1.5 * KL * 0.7071067811865476, 0.0, 1.0);
+  float edge = tanh(clamp(d.g * k * 0.5, 0.0, 10.0));
+  float sh = ((1.0 - rel) + rel * (0.15 + 0.85 * lit)) * ((1.0 - ed) + ed * edge);
+  float g = glow * pow(1.0 - edge, 3.0);
+  return min(vec3(1.0), (ca + cb * cos(cc * t + cd)) * sh + vec3(g, 0.85 * g, 0.6 * g));
+}
+vec3 at(ivec2 t) {
+  vec4 d = texelFetch(S, clamp(t, ivec2(0), ivec2(${TILE - 1})), 0);
+  return mode == 0 ? shadeCos(d) : shadeSample(vec4(d.r, d.g * k, d.b, d.a), 1.0 / k);
+}
+void main() {
+  vec3 c;
+  if (k >= 1.0) {
+    vec2 q = uv - 0.5, f = fract(q);
+    ivec2 i = ivec2(floor(q));
+    c = mix(mix(at(i), at(i + ivec2(1, 0)), f.x), mix(at(i + ivec2(0, 1)), at(i + ivec2(1, 1)), f.x), f.y);
+  } else {
+    vec2 h = 0.25 * vec2(dFdx(uv).x, dFdy(uv).y);
+    c = 0.25 * (at(ivec2(floor(uv + vec2(-h.x, -h.y)))) + at(ivec2(floor(uv + vec2(h.x, -h.y)))) +
+      at(ivec2(floor(uv + vec2(-h.x, h.y)))) + at(ivec2(floor(uv + vec2(h.x, h.y)))));
+  }
+  o = vec4(mode == 0 ? c : pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
+}`;
+function compileTiles() {
+  const g = tgl;
+  const sh = (type, src) => { const s = g.createShader(type); g.shaderSource(s, src); g.compileShader(s);
+    if (!g.getShaderParameter(s, g.COMPILE_STATUS)) throw new Error(g.getShaderInfoLog(s)); return s; };
+  tprog = g.createProgram();
+  g.attachShader(tprog, sh(g.VERTEX_SHADER, TILE_VS)); g.attachShader(tprog, sh(g.FRAGMENT_SHADER, TILE_FS));
+  g.linkProgram(tprog);
+  if (!g.getProgramParameter(tprog, g.LINK_STATUS)) throw new Error(g.getProgramInfoLog(tprog));
+  const buf = g.createBuffer(); g.bindBuffer(g.ARRAY_BUFFER, buf);
+  g.bufferData(g.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), g.STATIC_DRAW);
+  const loc = g.getAttribLocation(tprog, "p"); g.enableVertexAttribArray(loc); g.vertexAttribPointer(loc, 2, g.FLOAT, false, 0, 0);
+  const n = g.getProgramParameter(tprog, g.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const name = g.getActiveUniform(tprog, i).name.replace(/\[0\]$/, ""); tu[name] = g.getUniformLocation(tprog, name); }
+}
+const lin = h => [1, 3, 5].map(i => { const c = parseInt(h.substr(i, 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
+// Uniforms shared by every tile of the frame; returns the per-tile phase for studio looks.
+function lookUniforms() {
+  const g = tgl;
+  if (navLook) {
+    const l = navLook.look, n = l.stops.length, a = l.light * Math.PI / 180;
+    const dens = l.density * (1 + l.breathe * Math.sin(2 * Math.PI * l.brate * clock));
+    const ph = ((-l.flow * clock) % 1 + 1) % 1;
+    const st = new Float32Array(48); l.stops.forEach((c, i) => st.set(lin(c), 3 * i));
+    g.uniform1i(tu.mode, 1);
+    g.uniform3fv(tu.stops, st); g.uniform1i(tu.n, n); g.uniform3fv(tu.interior, lin(l.interior));
+    g.uniform3fv(tu.stopMean, [0, 1, 2].map(j => l.stops.reduce((m, c) => m + lin(c)[j], 0) / n));
+    g.uniform1f(tu.dens, dens); g.uniform1f(tu.terrace, l.terrace); g.uniform1f(tu.slope, l.slope);
+    g.uniform1f(tu.lx, Math.cos(a)); g.uniform1f(tu.ly, -Math.sin(a));
+    g.uniform1f(tu.lines, l.lines); g.uniform1f(tu.linePx, l.line_px);
+    g.uniform1f(tu.aa, 1); g.uniform1f(tu.unresInterior, 1);
+    return base => g.uniform1f(tu.basePhase, ((dens * base + ph) % 1 + 1) % 1);
+  }
+  const [a, b, c, d] = PALETTES[look.pal], T = 2 * Math.PI;
+  g.uniform1i(tu.mode, 0);
+  g.uniform1f(tu.cosK, 10 ** look.bands * (1 + look.breathe * Math.sin(2 * Math.PI * look.brate * clock)));
+  g.uniform1f(tu.rel, look.relief); g.uniform1f(tu.ed, look.edge); g.uniform1f(tu.glow, look.glow);
+  g.uniform3fv(tu.ca, a); g.uniform3fv(tu.cb, b); g.uniform3fv(tu.cc, c.map(x => T * x));
+  g.uniform3fv(tu.cd, [T * (d[0] + phase * c[0]), T * (d[1] + phase * c[1] + 0.37 * hue), T * (d[2] + phase * c[2] + 0.71 * hue)]);
+  return base => g.uniform1f(tu.nuBase, base);
+}
+// Finest first with the depth test on, so each pixel is shaded once, by the best tile.
+function drawTiles() {
+  const g = tgl;
+  if (!g || !view || tprog === false) return;
+  if (!tprog) {
+    try { compileTiles(); } catch (err) {
+      tprog = false; errBox.textContent = "tile shader: " + err; errBox.style.display = "block"; return;
     }
   }
-  shadeDirty = true;
+  const cw = Math.round(W * DPR), ch = Math.round(H * DPR);
+  if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
+  g.viewport(0, 0, cw, ch);
+  g.clearColor(0, 0, 0, 1); g.clearDepth(1);
+  g.clear(g.COLOR_BUFFER_BIT | g.DEPTH_BUFFER_BIT);
+  g.enable(g.DEPTH_TEST); g.depthFunc(g.LESS);
+  g.useProgram(tprog);
+  g.uniform1i(tu.S, 0); g.uniform2f(tu.view, W, H);
+  const perTile = lookUniforms();
+  const zf = fineLevel(), rank = z => z === zf ? 0 : z > zf ? 2 * (z - zf) - 1 : 2 * (zf - z);
+  const geoms = new Map();
+  for (const t of tiles.values()) if (!geoms.has(t.z)) geoms.set(t.z, null);
+  for (const z of geoms.keys()) geoms.set(z, geom(z));
+  g.activeTexture(g.TEXTURE0);
+  for (const t of tiles.values()) {
+    if (t.z > zf + 3) continue;
+    const r = tileRect(geoms.get(t.z), t.i, t.j);
+    if (r[2] < 0 || r[0] > W || r[3] < 0 || r[1] > H) continue;
+    t.used = frame;
+    g.uniform4f(tu.rect, r[0], r[1], r[2], r[3]);
+    g.uniform1f(tu.depth, Math.min(0.99, rank(t.z) / 64));
+    g.uniform1f(tu.k, pxPerTexel(t.z));
+    perTile(t.base);
+    g.bindTexture(g.TEXTURE_2D, t.tex);
+    g.drawArrays(g.TRIANGLE_STRIP, 0, 4);
+  }
 }
 
-// raw=3 strip: (w*ss) x (h*ss) samples, each covering NAV_SS*s/ss texels. Escaped nu is
-// re-based from the strip's base to the frame's, and de scaled from the strip's pixels to
-// screen pixels, so coarse previews light like the final image.
-function paintSamples(j, req, f, w, h, base) {
-  const TW = W * NAV_SS, TH = H * NAV_SS;
-  if (j.level === 0 || !samp) {
-    samp = new Float32Array(TW * TH * 4);
-    sampSnap = j.snap; sampBase = base;
-  }
-  const s = req.L.s, ss = req.L.ss, k = NAV_SS * s / ss, sw = w * ss, sh = h * ss;
-  const y0 = req.r0 * s * NAV_SS, off = base - sampBase;
-  for (let y = 0; y < sh; y++) {
-    for (let x = 0; x < sw; x++) {
-      const i = 4 * (y * sw + x), esc = f[i + 3] === 0;
-      const nu = esc ? f[i] + off : 0, de = f[i + 1] * s, a = f[i + 2], c = f[i + 3];
-      for (let dy = 0; dy < k; dy++) {
-        const row = y0 + y * k + dy;
-        if (row >= TH) break;
-        let o = 4 * (row * TW + x * k);
-        for (let dx = 0; dx < k && x * k + dx < TW; dx++, o += 4) {
-          samp[o] = nu; samp[o + 1] = de; samp[o + 2] = a; samp[o + 3] = c;
-        }
-      }
-    }
-  }
-  const r1 = Math.min(TH, y0 + sh * k);
-  sampRows = j.level === 0 ? [0, TH] : sampRows ? [Math.min(sampRows[0], y0), Math.max(sampRows[1], r1)] : [y0, r1];
-  shadeDirty = true;
+// Camera motion: the wheel eases toward its target around the cursor, a released drag
+// keeps gliding, and keyboard / button moves glide instead of jumping.
+const cam = { zoom: 0, zx: 0, zy: 0, vx: 0, vy: 0, gx: 0, gy: 0 };
+function zoomAt(delta, cx, cy) {
+  delta = Math.min(delta, Math.log10(8) - view.l10w);
+  const f = 1 - 10 ** delta;   // keep the point under the cursor fixed
+  shift(view, (cx - W / 2) * f, (cy - H / 2) * f);
+  view.l10w += delta;
+  ensureDigits(view);
+  changed();
 }
-
-// Colour the raw buffer with the current look and time into the `shaded` canvas.
-function shade() {
-  if (navLook) { shadeStudio(); return; }
-  if (!raw) return;
-  if (!shaded || shaded.width !== W || shaded.height !== H) {
-    shaded = new OffscreenCanvas(W, H); shadeImg = new ImageData(W, H);
+function zoomBy(delta, cx = W / 2, cy = H / 2) { cam.zoom += delta; cam.zx = cx; cam.zy = cy; }
+function glide(dx, dy) { cam.gx += dx; cam.gy += dy; }
+function animate(dt) {
+  if (!view) return;
+  if (cam.zoom) {
+    const step = Math.abs(cam.zoom) < 2e-4 ? cam.zoom : cam.zoom * (1 - Math.exp(-dt * 14));
+    zoomAt(step, cam.zx, cam.zy); cam.zoom -= step;
+    if (view.l10w >= Math.log10(8) && cam.zoom > 0) cam.zoom = 0;
   }
-  const [a, b, c, d] = PALETTES[look.pal];
-  const k = 10 ** look.bands * (1 + look.breathe * Math.sin(2 * Math.PI * look.brate * clock));
-  const T = 2 * Math.PI, rel = look.relief, ed = look.edge, gl = look.glow;
-  const ca = [T * c[0], T * c[1], T * c[2]];
-  const da = [T * (d[0] + phase * c[0]), T * (d[1] + phase * c[1] + 0.37 * hue), T * (d[2] + phase * c[2] + 0.71 * hue)];
-  const px = shadeImg.data, n = W * H;
-  for (let i = 0, o = 0; i < n; i++, o += 4) {
-    const cov = raw[o + 3];
-    if (cov <= 0) { px[o] = 0; px[o + 1] = 0; px[o + 2] = 0; px[o + 3] = 255; continue; }
-    const t = k * raw[o], lit = raw[o + 1], edge = raw[o + 2];
-    const sh = ((1 - rel) + rel * (0.15 + 0.85 * lit)) * ((1 - ed) + ed * edge);
-    const g = gl * (1 - edge) ** 3;
-    px[o] = 255 * cov * Math.min(1, (a[0] + b[0] * Math.cos(ca[0] * t + da[0])) * sh + g);
-    px[o + 1] = 255 * cov * Math.min(1, (a[1] + b[1] * Math.cos(ca[1] * t + da[1])) * sh + 0.85 * g);
-    px[o + 2] = 255 * cov * Math.min(1, (a[2] + b[2] * Math.cos(ca[2] * t + da[2])) * sh + 0.6 * g);
-    px[o + 3] = 255;
+  if (cam.gx || cam.gy) {
+    const e = 1 - Math.exp(-dt * 10);
+    let sx = cam.gx * e, sy = cam.gy * e;
+    if (Math.hypot(cam.gx, cam.gy) < 0.5) { sx = cam.gx; sy = cam.gy; }
+    shift(view, sx, sy); cam.gx -= sx; cam.gy -= sy; changed();
   }
-  shaded.getContext("2d").putImageData(shadeImg, 0, 0);
-  shadedSnap = rawSnap;
+  if (!drag && (cam.vx || cam.vy)) {
+    shift(view, -cam.vx * dt, -cam.vy * dt);
+    const decay = Math.exp(-dt * 4);
+    cam.vx *= decay; cam.vy *= decay;
+    if (Math.hypot(cam.vx, cam.vy) < 10) cam.vx = cam.vy = 0;
+    changed();
+  }
 }
 
 function draw() {
   const now = performance.now(), dt = Math.min(0.1, (now - lastT) / 1000); lastT = now;
+  frame++;
   const moving = navLook ? navLook.look.flow !== 0 || navLook.look.breathe !== 0 : look.flow !== 0 || look.breathe !== 0 || look.drift !== 0;
   if (!paused && moving) {
-    clock += dt; phase -= look.flow * dt; hue += look.drift * dt; shadeDirty = true;
-  }
-  // Leave time for refinement responses and input between full-image recolours (the
-  // GPU studio path is cheap enough for every frame).
-  if (shadeDirty && (navLook || now - lastShade >= 1000 / 30)) {
-    shadeDirty = false; lastShade = now; shade();
+    clock += dt; phase -= look.flow * dt; hue += look.drift * dt; needDraw = true;
   }
   // Look mode freezes the view: no navigation renders until it is left.
-  if (dirty && view && !studio.on) {
-    dirty = false;
-    gen = Math.max(gen + 1, Date.now());   // stays newer than any earlier tab or reload
-    job = { gen, snap: snapshot(view), level: 0, row: 0, studio: !!navLook };
-    kick();
+  if (!studio.on) {
+    animate(dt);
+    dispatch();
+    if (needDraw) { needDraw = false; drawTiles(); }
   }
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, H);
-  if (shaded && shadedSnap) {
-    // Where the stored image lands in the current view (display only, until replaced).
-    const D = Math.max(shadedSnap.D, view.D);
-    const dx = bigToPx(rescale(shadedSnap.re, shadedSnap.D, D) - rescale(view.re, view.D, D), D, view.l10w);
-    const dy = -bigToPx(rescale(shadedSnap.im, shadedSnap.D, D) - rescale(view.im, view.D, D), D, view.l10w);
-    const k = 10 ** (shadedSnap.l10w - view.l10w);
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(shaded, W / 2 + dx - (W / 2) * k, H / 2 + dy - (H / 2) * k, W * k, H * k);
-  }
-  if (view) {
-    const i = last.info, zoom = Math.log10(4) - view.l10w;
+  if (view && frame % 10 === 0) {
+    const i = last.info, zoom = Math.log10(4) - view.l10w, p = navProgress();
     hud.innerHTML =
       `width  <b>${(10 ** (view.l10w - Math.floor(view.l10w))).toFixed(2)}e${Math.floor(view.l10w)}</b>   zoom 10^${zoom.toFixed(1)}\n` +
       `iter   ${iterFor(view.l10w)}   kernel ${i.kernel || "-"}\n` +
-      `level  ${job ? job.level + 1 : LEVELS.length}/${LEVELS.length}${job ? " refining" : " done"}   last ${i.seconds ? (+i.seconds).toFixed(3) + " s" : "-"}\n` +
-      `unresolved ${i.unresolved ? (100 * i.unresolved).toFixed(3) + "%" : "-"}`;
+      `tiles  ${tiles.size} cached, ${inflight} rendering   ${p.refining ? "refining " + Math.round(100 * p.progress) + "%" : "done"}\n` +
+      `tile   ${(1000 * secPerTile).toFixed(1)} ms   unresolved ${i.unresolved ? (100 * i.unresolved).toFixed(3) + "%" : "-"}`;
   }
   requestAnimationFrame(draw);
 }
@@ -418,31 +625,40 @@ canvas.addEventListener("wheel", e => {
   e.preventDefault();
   if (!view) return;
   const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
-  let delta = Math.max(-0.5, Math.min(0.5, px * 0.0012));          // decades
-  delta = Math.min(delta, Math.log10(8) - view.l10w);
   const r = canvas.getBoundingClientRect();
-  const cx = (e.clientX - r.left) * W / r.width, cy = (e.clientY - r.top) * H / r.height;
-  const f = 1 - 10 ** delta;   // keep the point under the cursor fixed
-  shift(view, (cx - W / 2) * f, (cy - H / 2) * f);
-  view.l10w += delta;
-  ensureDigits(view);
-  changed();
+  zoomBy(Math.max(-0.5, Math.min(0.5, px * 0.0012)), (e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height);
 }, { passive: false });
 
+// Drag moves the view with the pointer at once; on release it keeps the last 80 ms of
+// velocity and glides to a stop.
 let drag = null;
 canvas.addEventListener("pointerdown", e => {
-  drag = { x: e.clientX, y: e.clientY };
+  drag = { x: e.clientX, y: e.clientY, trail: [] };
+  cam.vx = cam.vy = 0;
   canvas.setPointerCapture(e.pointerId);
   canvas.classList.add("drag");
 });
 canvas.addEventListener("pointermove", e => {
   if (!drag || !view) return;
   const r = canvas.getBoundingClientRect();
-  shift(view, -(e.clientX - drag.x) * W / r.width, -(e.clientY - drag.y) * H / r.height);
-  drag = { x: e.clientX, y: e.clientY };
+  const dx = (e.clientX - drag.x) * W / r.width, dy = (e.clientY - drag.y) * H / r.height;
+  shift(view, -dx, -dy);
+  drag.x = e.clientX; drag.y = e.clientY;
+  const now = performance.now();
+  drag.trail.push([now, dx, dy]);
+  while (drag.trail.length && now - drag.trail[0][0] > 80) drag.trail.shift();
   changed();
 });
-canvas.addEventListener("pointerup", () => { drag = null; canvas.classList.remove("drag"); });
+canvas.addEventListener("pointerup", () => {
+  if (drag && drag.trail.length > 1) {
+    const span = Math.max(16, performance.now() - drag.trail[0][0]) / 1000;
+    if (performance.now() - drag.trail[drag.trail.length - 1][0] < 60) {
+      cam.vx = drag.trail.reduce((s, t) => s + t[1], 0) / span;
+      cam.vy = drag.trail.reduce((s, t) => s + t[2], 0) / span;
+    }
+  }
+  drag = null; canvas.classList.remove("drag");
+});
 
 const list = document.getElementById("placelist");
 PRESETS.forEach((p, n) => {
@@ -511,8 +727,7 @@ function setNavLook(nl) {
   const was = !!navLook;
   navLook = nl;
   try { localStorage.setItem("fd.navLook", nl ? nl.name : look.pal); } catch (e) {}
-  if (was !== !!nl) { raw = null; samp = null; sampRows = null; changed(); }
-  syncControls(); shadeDirty = true;
+  syncControls(); needDraw = true;
 }
 sel.onchange = () => {
   const v = sel.value; sel.blur();
@@ -520,7 +735,7 @@ sel.onchange = () => {
   if (v.startsWith("studio:")) fetchLook(v.slice(7)).then(l => setNavLook({ name: v.slice(7), look: l })).catch(e => { errBox.textContent = String(e); errBox.style.display = "block"; });
   else { look.pal = v; setNavLook(null); }
 };
-for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; shadeDirty = true; };
+for (const id of KNOBS) document.getElementById(id).oninput = e => { look[id] = +e.target.value; needDraw = true; };
 syncControls();
 addEventListener("keydown", e => {
   if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT" || e.target.tagName === "BUTTON" && e.key === "Enter") return;
@@ -529,7 +744,7 @@ addEventListener("keydown", e => {
   const n = "1234567890".indexOf(e.key);
   if (n >= 0) jump(PRESETS[n]);
   if (e.key === " ") { paused = !paused; e.preventDefault(); }
-  if (e.key === "r" || e.key === "R") { Object.assign(look, LOOK0); phase = 0; hue = 0; clock = 0; syncControls(); shadeDirty = true; }
+  if (e.key === "r" || e.key === "R") { Object.assign(look, LOOK0); phase = 0; hue = 0; clock = 0; syncControls(); needDraw = true; }
   if (e.key === "h" || e.key === "H") for (const id of ["hud", "presets", "help", "look"]) {
     const el = document.getElementById(id); el.style.display = el.style.display === "none" ? "" : "none";
   }
@@ -537,15 +752,34 @@ addEventListener("keydown", e => {
 addEventListener("resize", () => { if (!studio.on) resize(); });
 document.getElementById("tune").onclick = () => toggleStudio();
 const TEST = new URLSearchParams(location.search);
+// VIEW-08 probe (viewer/probe.sh): once the view has settled, how many samples a pan of
+// half a screen and then a 2x zoom-in render, in screens of full-quality (fine level)
+// tiles; and how many base-quality tiles the zoom-in lacks (reused fine tiles cover it).
+async function probe() {
+  const wait = done => new Promise(res => { const t = () => done() ? res() : setTimeout(t, 50); t(); });
+  const idle = () => wait(() => inflight === 0 && !wanted(9, true).length);
+  const complete = () => wait(() => !wanted(2, true).length && ![...pending.values()].some(c => c <= 2));
+  jump(PRESETS[1]); await idle();
+  const [i0, i1, j0, j1] = tileRange(geom(fineLevel()), 0), screen = (i1 - i0 + 1) * (j1 - j0 + 1) * TILE * TILE;
+  rendered = 0; shift(view, W / 2, 0); changed(); await complete();
+  const pan = rendered / screen;
+  await idle();
+  rendered = 0; zoomAt(-LOG2, W / 2, H / 2);
+  const baseMissing = wanted(1, true).filter(t => t.cls === 1).length;
+  await complete();
+  const result = { W, H, screenTiles: screen / TILE / TILE, pan, zoomIn: rendered / screen, baseMissingAfterZoomIn: baseMissing };
+  await fetch("/capture", { method: "POST", body: JSON.stringify(result) });
+  document.title = "probed";
+}
 if (TEST.has("test")) {
   // Test hook (EXPL-05 parity): fixed size and view, straight into look mode, then post
   // the shaded pixels to /capture (fd explore --capture FILE).
-  W = +TEST.get("W"); H = +TEST.get("H"); canvas.width = W; canvas.height = H;
+  W = +TEST.get("W"); H = +TEST.get("H");
   jump({ name: "test", re: TEST.get("re"), im: TEST.get("im"), w: TEST.get("w"), iter: +TEST.get("iter") });
 } else {
   resize();
-  jump(PRESETS[0]);
-  listPlaces().catch(() => {});
+  if (TEST.has("probe")) probe();
+  else { jump(PRESETS[0]); listPlaces().catch(() => {}); }
 }
 requestAnimationFrame(draw);
 </script>
@@ -562,50 +796,13 @@ in vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 const FS = `#version 300 es
 precision highp float; precision highp sampler2D;
 uniform sampler2D S; uniform int ss; uniform int outH;
-uniform vec3 stops[16]; uniform int n; uniform vec3 interior, stopMean;
-uniform float dens, basePhase, terrace, slope, lx, ly, lines, linePx, aa, unresInterior;
 out vec4 o;
-const float LN2 = 0.6931471805599453, TAU = 6.283185307179586, PI = 3.141592653589793;
-vec3 shadeSample(vec4 d) {
-  if (d.a > 1.5) return unresInterior > 0.5 ? interior : vec3(0.25, 0.0, 0.25);
-  if (d.a > 0.5) return interior;
-  float t = basePhase + dens * d.r;          // palette cycles (fractional part is what matters)
-  float x = fract(t) * float(n);
-  int k = min(int(x), n - 1);
-  float fr = x - float(k);
-  float f = 0.5 - 0.5 * cos(PI * fr);
-  vec3 col = mix(stops[k], stops[(k + 1) % n], f);
-  if (terrace > 0.0) col *= 1.0 - terrace * pow(1.0 - fr, 1.5);
-  float de = max(d.g, 0.0);
-  float a = d.b * (TAU / 65536.0);
-  float facing = -(cos(a) * lx + sin(a) * ly);
-  float cycles = dens * 2.0 / (max(de, 1e-30) * LN2);
-  // FX-03: band-limit the palette (Gaussian, sigma 0.5 sample) toward its cycle mean.
-  if (aa > 0.5) {
-    float s = cycles / float(ss);
-    float g = exp(max(-2.0 * PI * PI * 0.25 * s * s, -80.0));
-    col = mix(stopMean * (terrace > 0.0 ? 1.0 - terrace * 0.4 : 1.0), col, g);
-  }
-  float steep = tanh(min(0.6 * log(1.0 + cycles / 0.02), 10.0));
-  // GLSL tanh may be (e^x - e^-x)/(e^x + e^-x): NaN once e^x overflows. tanh(10) is
-  // already 1 in f32, so clamping changes nothing else.
-  float fade = aa > 0.5 ? tanh(clamp(de * float(ss) / 0.7, 0.0, 10.0)) : 1.0;
-  float v = (1.0 + slope * facing * steep * fade) * (1.0 - 0.6 * exp(-de * float(ss) * 1.5));
-  if (lines > 0.0) {
-    float c = fract(t * float(n));
-    float perPx = max(cycles * float(n), 1e-30);
-    float dpx = min(c, 1.0 - c) / perPx;
-    float line = clamp(linePx / 2.0 + 0.5 - dpx, 0.0, 1.0);
-    float vis = clamp((1.0 / perPx - 3.0) / 3.0, 0.0, 1.0);
-    v *= 1.0 - lines * line * vis;
-  }
-  return col * v;
-}
+${SHADE_SAMPLE}
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy); p.y = outH - 1 - p.y;
   vec3 acc = vec3(0.0);
   for (int sy = 0; sy < ss; sy++) for (int sx = 0; sx < ss; sx++)
-    acc += shadeSample(texelFetch(S, ivec2(p.x * ss + sx, p.y * ss + sy), 0));
+    acc += shadeSample(texelFetch(S, ivec2(p.x * ss + sx, p.y * ss + sy), 0), float(ss));
   o = vec4(pow(clamp(acc / float(ss * ss), 0.0, 1.0), vec3(1.0 / 2.2)), 1.0);
 }`;
 let prog = null;
@@ -636,7 +833,6 @@ function lookText(l) {
   return "# fractodactyl look (saved by fd explore)\nstops " + l.stops.join(" ") + "\ninterior " + l.interior + "\n" +
     KEYS.map(k => `${k} ${l[k]}`).join("\n") + "\n";
 }
-const lin = h => [1, 3, 5].map(i => { const c = parseInt(h.substr(i, 2), 16) / 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; });
 
 const SLIDERS = { density: v => 10 ** v, terrace: v => v, lines: v => v, line_px: v => v, slope: v => v, light: v => v, flow: v => v, breathe: v => v, brate: v => v };
 function syncStudio() {
@@ -711,8 +907,7 @@ async function toggleStudio(preset, iterOverride) {
   if (!gl) { errBox.textContent = "look mode needs WebGL2"; errBox.style.display = "block"; return; }
   if (!prog) compile();
   studio.on = true; studio.ready = false;
-  job = null;                              // pause navigation refinement
-  gen = Math.max(gen + 1, Date.now());     // and outrank any navigation request in flight
+  gen = Math.max(gen + 1, Date.now());     // pause navigation and outrank its request in flight
   glc.width = W; glc.height = H; glc.style.display = "block"; panel.style.display = "block";
   for (const id of ["presets", "look"]) document.getElementById(id).style.display = "none";
   await listLooks();
@@ -773,31 +968,6 @@ function drawLook(l, tex, ss, base, clock, aa, unres) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
-// EXPL-07: shade the navigation sample texture with navLook into the `shaded` canvas,
-// uploading only the rows refinement changed since the last frame.
-let navTex = null, navTexSize = "";
-function shadeStudio() {
-  if (!samp || studio.on || !gl) return;
-  if (!prog) compile();
-  const TW = W * NAV_SS, TH = H * NAV_SS;
-  if (glc.width !== W || glc.height !== H) { glc.width = W; glc.height = H; }
-  navTex = navTex || gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, navTex);
-  if (navTexSize !== TW + "x" + TH) {
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, TW, TH, 0, gl.RGBA, gl.FLOAT, samp);
-    navTexSize = TW + "x" + TH; sampRows = null;
-  } else if (sampRows) {
-    const [r0, r1] = sampRows;
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, r0, TW, r1 - r0, gl.RGBA, gl.FLOAT, samp, r0 * TW * 4);
-    sampRows = null;
-  }
-  drawLook(navLook.look, navTex, NAV_SS, sampBase, clock, true, true);
-  if (!shaded || shaded.width !== W || shaded.height !== H) { shaded = new OffscreenCanvas(W, H); shadeImg = new ImageData(W, H); }
-  const c = shaded.getContext("2d");
-  c.clearRect(0, 0, W, H); c.drawImage(glc, 0, 0);
-  shadedSnap = sampSnap;
-}
 function studioLoop(now) {
   if (studio.on && studio.ready) {
     const moving = studio.look.flow !== 0 || studio.look.breathe !== 0;
@@ -814,7 +984,7 @@ else listLooks().then(async () => {
   let last = null;
   try { last = localStorage.getItem("fd.navLook"); } catch (e) {}
   if (!last) return;
-  if (PALETTES[last]) { look.pal = last; syncControls(); shadeDirty = true; }
+  if (PALETTES[last]) { look.pal = last; syncControls(); needDraw = true; }
   else setNavLook({ name: last, look: await fetchLook(last) });
 }).catch(() => {});
 </script>
