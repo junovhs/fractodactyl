@@ -11,13 +11,16 @@ use crate::args::Args;
 use fd_fixed::{bits_for_digits, Complex, Float};
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd zone RE IM [--max-iter N (3000)] [--emit report|lines]";
+const USAGE: &str =
+    "usage: fd zone RE IM [--max-iter N (3000)] [--emit report|lines] [--patch-depth N (6)]";
 
 /// Biseries degree (make_zone.sh: koenigs_bench_consts.py DEGREE 4).
 const DEGREE: usize = 4;
 /// Koenigs series terms written (make_zone.sh: TERMS 12 and PSI_TERMS 18).
 const PHI_TERMS: usize = 12;
 const PSI_TERMS: usize = 18;
+/// psi terms the tail patch atlas is fitted with (tail_patches.py `reverse(coef, 24)`).
+const PATCH_PSI_TERMS: usize = 24;
 
 /// Longest cycle tried for the Misiurewicz relation (zone_seed.py `RMAX`).
 const RMAX: usize = 8;
@@ -37,7 +40,7 @@ pub(crate) struct Seed {
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["max-iter", "emit"])?;
+    let a = Args::parse(argv, &["max-iter", "emit", "patch-depth"])?;
     let [re, im] = a.positional.as_slice() else {
         return Err(USAGE.into());
     };
@@ -47,8 +50,18 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     match a.str("emit").unwrap_or("report") {
         "report" => {}
         "lines" => {
-            let k = koenigs(&s, PSI_TERMS);
+            let k = koenigs(&s, PATCH_PSI_TERMS);
+            let f = |z: &Complex| crate::zone_patch::C64(z.re.to_f64(), z.im.to_f64());
+            let psi: Vec<_> = k.psi.iter().map(f).collect();
+            let atlas = crate::zone_patch::build(
+                f(&s.alpha),
+                f(&s.rho),
+                &psi,
+                f(&s.c),
+                a.num("patch-depth", 6)?,
+            );
             print!("{}", lines(&s, &return_map(&s, DEGREE), &k));
+            print!("{}", atlas.lines());
             return Ok(());
         }
         e => return Err(format!("--emit: expected report or lines, got {e:?}")),
@@ -389,7 +402,7 @@ fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     for (n, a) in k.phi.iter().take(PHI_TERMS).enumerate() {
         let _ = writeln!(o, "phi {} {}", n + 1, c(a));
     }
-    for (n, a) in k.psi.iter().enumerate() {
+    for (n, a) in k.psi.iter().take(PSI_TERMS).enumerate() {
         let _ = writeln!(o, "psi {} {}", n + 1, c(a));
     }
     o
