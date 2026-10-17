@@ -93,7 +93,8 @@ usage:
           [--look L[,L...]] [--mp4 FILE] [appearance flags as fd shade]
           [--oracle tools/oracle.py [--every N] [--k K] [--python python3]]
   fd lod in.fds [--tile-px N] [--max-px E]
-  fd explore [--port 8737] [--threads N]   (local browser explorer)
+  fd explore [--port 8737] [--threads N] [--exit-with-stdin 1]   (local browser explorer;
+             fd-viewer runs it in a desktop window)
   fd zone RE IM [--max-iter N]   (zone structure report: nucleus, M(q,r), A, rho)
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error";
