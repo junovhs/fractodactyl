@@ -47,7 +47,7 @@ jobs:
   # jobs must pass fmt, check, clippy (warnings denied), and workspace tests.
   windows:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       CARGO_BUILD_JOBS: 1
       CMAKE_BUILD_PARALLEL_LEVEL: 1
@@ -92,12 +92,16 @@ jobs:
       - name: clippy (warnings are errors)
         run: cargo clippy --workspace --all-targets --locked --jobs 1 -- -D warnings
       - name: workspace tests
-        run: cargo test --workspace --locked --jobs 1 -- --test-threads=1
+        run: cargo test --workspace --locked --jobs 1 -- --test-threads=1 --skip zone_fixtures
       - name: GPU studio tests (adapter names)
         run: cargo test -p fd-shade --locked --jobs 1 -- wgsl_ --nocapture --test-threads=1
       # CLEA-05: the f32-only zone kernel on DX12 WARP; FD_REQUIRE_GPU turns a skip into a failure.
       - name: zone kernel on WARP (adapter names)
         run: cargo test -p fd-cli --bin fd --locked --jobs 1 -- zone_extended_packing_roundtrip gpu_zone_f32only_parity zone_ff_ --nocapture --test-threads=1
+      # CLEA-06: every --zone fixture frame through `fd render` on WARP against the frozen
+      # CPU-zone frames (the kernel used is in each line).
+      - name: zone fixtures on WARP
+        run: cargo test -p fd-cli --test zone_fixtures --locked --jobs 1 -- --nocapture
 
   locations:
     needs: check

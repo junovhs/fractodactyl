@@ -22,15 +22,18 @@ pub(crate) enum Kernel {
 }
 
 /// The zone kernel for a `--zone` frame source (CLEA-06): `--gpu-kernel cpu` keeps the
-/// CPU zone; no flag picks mixed, or f32only for an extended-range zone (the only GPU
-/// kernel for those). Without an f64-capable GPU, a mixed renderer opens the f32-only
-/// kernel instead, on a software adapter if need be (DEC-28).
+/// CPU zone; no flag picks binary64, or f32only for an extended-range zone (the only GPU
+/// kernel for those). Both meet the strict bar on the committed fixtures, which mixed
+/// does not (a few samples' DE off by up to 0.3%); on the RX 5700 XT binary64 is as fast
+/// as mixed at 1080p (50 vs 52 ms deep, 48 vs 48 ms mid; f32only 93 and 133 ms). Without
+/// an f64-capable GPU the renderer opens the f32-only kernel instead, on a software
+/// adapter if need be (DEC-28).
 pub(crate) fn choose(flag: Option<&str>, zone: &Zone) -> Result<Option<Kernel>, String> {
     match flag {
         Some("cpu") => Ok(None),
         Some(value) => Kernel::parse(value).map(Some),
         None if zone.extended() => Ok(Some(Kernel::F32Only)),
-        None => Ok(Some(Kernel::Mixed)),
+        None => Ok(Some(Kernel::F64)),
     }
 }
 
@@ -660,7 +663,6 @@ impl Renderer {
             Ok(frame) => frame,
             Err(why) => return Ok(Err(why)),
         };
-        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let prep = start.elapsed();
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
@@ -669,6 +671,8 @@ impl Renderer {
         let t = Instant::now();
         self.prepare(stage, count, &constants)?;
         let init = t.elapsed();
+        // After prepare: opening the device may have switched to the f32-only kernel.
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let gpu = self.gpu.as_ref().unwrap();
         let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
         let t = Instant::now();
@@ -727,11 +731,11 @@ impl Renderer {
     ) -> Result<Option<Header>, String> {
         let start = Instant::now();
         let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
-        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let count = (p.nx as usize)
             .checked_mul(p.ny as usize)
             .ok_or("GPU grid overflow")?;
         self.prepare(stage, count, &constants)?;
+        header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let gpu = self.gpu.as_ref().unwrap();
         gpu.run(&constants)?;
         let [nu, de, word] = &gpu.outputs;
