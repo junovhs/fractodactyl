@@ -3310,3 +3310,33 @@ term exact. The Python build truncated at 40.
 compares phi and psi). v0's phi and psi lines are bit-identical to the committed v0.zone,
 and so are rung 409's (tolerance 1e-30). The whole v0 build, now including the chart,
 takes 0.12 s.
+
+### PROB-34: `fd zone` builds the tail patch atlas in Rust (2026-10-17)
+
+crates/fd-cli/src/zone_patch.rs ports tail_patches.py in binary64, operation for
+operation, since the Python build is numpy doubles:
+- the same ring, the 64-point Cauchy circle and the 21 check points;
+- a direct DFT for numpy's FFT;
+- the same "largest n within TOL = 1e-11 as an s-shift" fit, the split rule
+  (escape - n > 6, depth < 6) and the breadth-first node order.
+
+The psi it starts from is the 24-term series (`reverse(coef, 24)`), from PROB-33's
+koenigs(). `fd zone --emit lines [--patch-depth N]` appends the patch_root, node and
+leaf lines. v0's depth-6 atlas builds in 7.9 s on one core (Python: 14 s).
+
+**Against Python.**
+- **Depth 2** (the committed tests/fixtures/zones/v0_patches_depth2.txt, 191 leaves):
+  every node line, leaf geometry and n is identical. The polynomials differ by at most
+  0.12 TOL |c_1| on |t| <= sqrt 2: DFT against FFT rounding.
+- **Depth 6** (local out/zones/v0.zone, 16,190 leaves, not committed at 14 MB): all
+  21,572 node lines and every leaf's geometry are identical. 3 leaves differ in n by one
+  step (148/147, 132/133, 101/100), near the fit threshold. Equal-n coefficients differ by
+  up to about 70 TOL |c_1| on a few hundred leaves, in the low-order terms: 100-200 steps
+  of double iteration amplify rounding. Both builds carry that error, so neither atlas is
+  the truth to compare the other with.
+
+**Check, by rendering** (`zone_patches_render_v0`). Rust's depth-6 atlas, appended to the
+committed patch-free v0 fixture zone, renders PROB-08's six deep frames on the GPU to the
+frozen CPU-zone frames, which were made without patches, at the strict bar: 0 class
+mismatches, 0 nu/DE/normal failures, worst nu 3.8e-8 px. The patches are in use: at 1e-35
+the worst nu is 7.5e-11 px with them and 1.4e-12 without.

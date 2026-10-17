@@ -252,3 +252,168 @@ fn zone_koenigs_v0() {
     );
     eprintln!("PROB-33 v0: worst biseries/diag/phi/psi relative difference {worst:e}");
 }
+
+/// The patch_root/node/leaf lines of `fd zone --emit lines` at `depth` on the v0 centre.
+fn v0_patch_lines(depth: usize) -> Vec<String> {
+    let (re, im) = v0_centre();
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args([
+            "zone",
+            &re,
+            &im,
+            "--emit",
+            "lines",
+            "--patch-depth",
+            &depth.to_string(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|l| {
+            ["patch_root ", "node ", "leaf "]
+                .iter()
+                .any(|k| l.starts_with(k))
+        })
+        .map(String::from)
+        .collect()
+}
+
+#[test]
+fn zone_patches_v0() {
+    // Depth 2 against tail_patches.py's tree (crates/fd-cli/tests/fixtures/zones/
+    // v0_patches_depth2.txt): the same nodes, leaf geometry and step counts n, and each
+    // leaf's polynomial within half the fit tolerance (TOL |c_1|, TOL = 1e-11) on its
+    // covering disk |t| <= sqrt 2. Both builds are binary64; the FFT differs.
+    let got = v0_patch_lines(2);
+    let want: Vec<String> = std::fs::read_to_string(
+        root().join("crates/fd-cli/tests/fixtures/zones/v0_patches_depth2.txt"),
+    )
+    .unwrap()
+    .lines()
+    .filter(|l| !l.starts_with('#'))
+    .map(String::from)
+    .collect();
+    assert_eq!(got.len(), want.len());
+    let mut worst = 0.0f64;
+    for (g, w) in got.iter().zip(&want) {
+        let (gf, wf): (Vec<&str>, Vec<&str>) = (
+            g.split_whitespace().collect(),
+            w.split_whitespace().collect(),
+        );
+        if gf[0] != "leaf" {
+            assert_eq!(g, w);
+            continue;
+        }
+        assert_eq!(gf[..5], wf[..5], "leaf geometry or n");
+        let c = |f: &[&str], k: usize| -> (f64, f64) {
+            (f[5 + 2 * k].parse().unwrap(), f[6 + 2 * k].parse().unwrap())
+        };
+        let c1 = c(&wf, 1);
+        let mut d = 0.0;
+        for k in 0..16 {
+            let (a, b) = (c(&gf, k), c(&wf, k));
+            d += (a.0 - b.0).hypot(a.1 - b.1) * 2f64.sqrt().powi(k as i32);
+        }
+        worst = worst.max(d / (1e-11 * c1.0.hypot(c1.1)));
+    }
+    eprintln!("PROB-34: depth-2 atlas, worst polynomial difference {worst:.3} TOL");
+    assert!(worst <= 0.5);
+}
+
+/// fd compare's strict bar between two frames: class mismatches, nu over 1e-3 px, DE
+/// over 0.2%, normal over 0.2 degrees (where DE > 1e-3 px), and the worst nu in px.
+fn strict_diff(
+    a: &fd_samples::Samples,
+    b: &fd_samples::Samples,
+) -> (usize, usize, usize, usize, f64) {
+    let (an, bn) = (a.nu.as_ref().unwrap(), b.nu.as_ref().unwrap());
+    let (ad, bd) = (a.de.as_ref().unwrap(), b.de.as_ref().unwrap());
+    let (aw, bw) = (a.normal.as_ref().unwrap(), b.normal.as_ref().unwrap());
+    let mut o = (0, 0, 0, 0, 0.0f64);
+    for i in 0..a.class.len() {
+        if a.class[i].kind() != b.class[i].kind() {
+            o.0 += 1;
+            continue;
+        }
+        if !a.class[i].escaped() {
+            continue;
+        }
+        let de = f64::from(ad[i]);
+        let px = (an[i] - bn[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
+        o.4 = o.4.max(px);
+        o.1 += usize::from(px.is_nan() || px > 1e-3);
+        if de > 1e-3 {
+            let rel = (f64::from(bd[i]) / de - 1.0).abs();
+            let deg = f64::from(aw[i].wrapping_sub(bw[i]).min(bw[i].wrapping_sub(aw[i]))) * 360.0
+                / 65536.0;
+            o.2 += usize::from(rel.is_nan() || rel > 2e-3);
+            o.3 += usize::from(deg > 0.2);
+        }
+    }
+    o
+}
+
+fn read_fds(path: &Path) -> fd_samples::Samples {
+    let mut r = fd_samples::Reader::open(path).unwrap();
+    let cols = r.header.columns;
+    r.read(cols).unwrap()
+}
+
+#[test]
+fn zone_patches_render_v0() {
+    // The full depth-6 atlas, appended to the committed v0 fixture zone (which has
+    // none), renders PROB-08's six deep frames to the frozen CPU-zone frames (made
+    // without patches) at the strict bar: the patches move nothing that renders.
+    let patches = v0_patch_lines(6);
+    let dir = std::env::temp_dir().join(format!("fd-prob34-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut zone =
+        std::fs::read_to_string(root().join("crates/fd-cli/tests/fixtures/zones/v0.zone")).unwrap();
+    for l in &patches {
+        zone.push_str(l);
+        zone.push('\n');
+    }
+    let zpath = dir.join("v0-rust-patches.zone");
+    std::fs::write(&zpath, zone).unwrap();
+    let (re, im) = v0_centre();
+    let mut failed = Vec::new();
+    for w in ["1e-35", "1e-38", "1e-40", "1e-43", "1e-46", "2e-48"] {
+        let out = dir.join(format!("{w}.fds"));
+        let o = Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args(["render", "--re", &re, "--im", &im, "--width", w])
+            .args([
+                "--size",
+                "96x54",
+                "--iter",
+                "100000",
+                "--columns",
+                "nu,de,normal",
+            ])
+            .arg("--zone")
+            .arg(&zpath)
+            .arg("-o")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let frozen = root().join(format!(
+            "crates/fd-cli/tests/fixtures/zones/frames/v0-deep-{w}.fds"
+        ));
+        let d = strict_diff(&read_fds(&frozen), &read_fds(&out));
+        eprintln!(
+            "PROB-34 {w}: class {}, nu > 1e-3 px {}, de > 0.2% {}, normal > 0.2 deg {}; worst nu {:.1e} px",
+            d.0, d.1, d.2, d.3, d.4
+        );
+        if (d.0, d.1, d.2, d.3) != (0, 0, 0, 0) {
+            failed.push(w);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(failed.is_empty(), "{failed:?}");
+}

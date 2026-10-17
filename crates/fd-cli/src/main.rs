@@ -27,6 +27,7 @@ mod shade;
 mod zone_build;
 mod zone_ff;
 mod zone_gpu;
+mod zone_patch;
 
 const USAGE: &str = "\
 usage:
