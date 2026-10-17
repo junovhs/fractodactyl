@@ -40,7 +40,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         .iter()
         .copied()
         .filter(|f| !view_flags.contains(f))
-        .chain(["runs", "oracle", "every", "k", "python", "bla", "zone"])
+        .chain([
+            "runs",
+            "oracle",
+            "every",
+            "k",
+            "python",
+            "bla",
+            "zone",
+            "gpu-kernel",
+        ])
         .collect();
     let a = Args::parse(argv, &known)?;
     let [file] = a.positional.as_slice() else {
@@ -73,6 +82,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         std::fs::create_dir_all(d).map_err(|e| format!("{d}: {e}"))?;
     }
     let zone = a.str("zone").map(Zone::load).transpose()?;
+    if a.str("gpu-kernel").is_some() && zone.is_none() {
+        return Err("--gpu-kernel requires --zone".into());
+    }
+    // Zone frames run on the wgpu zone kernel unless `--gpu-kernel cpu` (CLEA-06).
+    let mut gpu = match &zone {
+        Some(z) => {
+            crate::zone_gpu::choose(a.str("gpu-kernel"), z)?.map(crate::zone_gpu::Renderer::new)
+        }
+        None => None,
+    };
     let frames = read_path(file)?;
 
     // From here on a failure is a runtime one (exit 1), reported with the totals so far.
@@ -86,6 +105,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             runs,
             per_frame,
             zone.as_ref(),
+            &mut gpu,
             dir,
             check,
             f,
@@ -115,6 +135,7 @@ fn frame(
     runs: usize,
     per_frame: bool,
     zone: Option<&Zone>,
+    gpu: &mut Option<crate::zone_gpu::Renderer>,
     dir: Option<&str>,
     oracle: Option<&str>,
     f: usize,
@@ -128,8 +149,8 @@ fn frame(
     };
     let (frame, own, zst) = match zone {
         Some(z) if covered => {
-            let (fr, st) = measure_zone(view, p, runs, z)?;
-            (fr, None, Some(st))
+            let (fr, st) = measure_zone(view, p, runs, z, gpu)?;
+            (fr, None, st)
         }
         _ if per_frame => {
             let (fr, own) = measure_per_frame_bla(view, p, runs)?;
@@ -390,19 +411,43 @@ fn measure_per_frame_bla<'a>(
 
 /// [`measure`] for a frame the zone covers: each run renders it with the zone fast
 /// path inside the run's clock (the zone's constants are loaded once, before the clock,
-/// as `--bla ID` tables are).
+/// as `--bla ID` tables are). With a wgpu zone renderer the frame runs on it (CLEA-06),
+/// which reports no iteration or zone-operator counts; a frame it declines, or a
+/// device failure, renders on the CPU zone.
 fn measure_zone<'a>(
     view: &'a View,
     p: &'a Params,
     runs: usize,
     zone: &Zone,
-) -> Result<(Frame<'a>, ZoneStats), String> {
-    let mut first: Option<(Frame, ZoneStats)> = None;
+    gpu: &mut Option<crate::zone_gpu::Renderer>,
+) -> Result<(Frame<'a>, Option<ZoneStats>), String> {
+    let declined = gpu.as_ref().and_then(|g| g.declines(view, p, zone));
+    if let Some(why) = &declined {
+        eprintln!("fd: the wgpu zone kernel declines this frame ({why}); using the CPU zone");
+    }
+    let mut first: Option<(Frame, Option<ZoneStats>)> = None;
     let mut times = Vec::with_capacity(runs);
     for _ in 0..runs {
         let reset = reset_peak_rss();
         let t = Instant::now();
-        let (h, s, st, zst) = render_zone(view, p, zone)?;
+        let gpu_frame = match gpu.as_mut().filter(|_| declined.is_none()) {
+            Some(renderer) => match renderer.render(view, p, zone) {
+                Ok(frame) => Some(frame),
+                Err(e) => {
+                    eprintln!("fd: wgpu zone unavailable ({e}); using the CPU zone");
+                    *gpu = None;
+                    None
+                }
+            },
+            None => None,
+        };
+        let (h, s, st, zst) = match gpu_frame {
+            Some((h, s)) => (h, s, fd_kernel::Stats::default(), None),
+            None => {
+                let (h, s, st, zst) = render_zone(view, p, zone)?;
+                (h, s, st, Some(zst))
+            }
+        };
         times.push((t.elapsed().as_secs_f64(), 0.0));
         let mut bytes = Vec::new();
         write(&mut bytes, &h, &s).map_err(|e| e.to_string())?;

@@ -79,19 +79,15 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
-    let zone_kernel = a
-        .str("gpu-kernel")
-        .map(crate::zone_gpu::Kernel::parse)
-        .transpose()?;
-    if zone_kernel.is_some() && a.str("zone").is_none() {
+    // Zone frames and keyframes run on the wgpu zone kernel unless `--gpu-kernel cpu`
+    // (CLEA-06); zone_gpu::choose picks it when the flag is absent.
+    let kernel_flag = a.str("gpu-kernel");
+    if let Some(value) = kernel_flag.filter(|v| *v != "cpu") {
+        crate::zone_gpu::Kernel::parse(value)?;
+    }
+    if kernel_flag.is_some() && a.str("zone").is_none() {
         return Err("--gpu-kernel requires --zone".into());
     }
-    if zone_kernel.is_some_and(|k| k != crate::zone_gpu::Kernel::F64)
-        && a.str("keyframes").is_none()
-    {
-        return Err("--gpu-kernel f32|mixed requires --keyframes".into());
-    }
-    let zone_f64 = zone_kernel == Some(crate::zone_gpu::Kernel::F64);
     // The studio look shades only on wgpu (SHAD-11); --gpu stays accepted for old
     // command lines.
     if let Some(v) = a.str("gpu").filter(|v| !matches!(*v, "on" | "off")) {
@@ -302,9 +298,16 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "on" => true,
         v => return Err(format!("--jet-aa: expected on or off, got {v:?}")),
     };
-    if jet_aa && (ss != 2 || a.str("keyframes").is_some() || zone_f64) {
+    if jet_aa
+        && (ss != 2 || a.str("keyframes").is_some() || kernel_flag.is_some_and(|k| k != "cpu"))
+    {
         return Err("--jet-aa needs --ss 2, no --keyframes and no --gpu-kernel".into());
     }
+    // --jet-aa frames keep the CPU zone (jetaa.rs renders its own samples).
+    let zone_kernel = match &zone {
+        Some(z) if !jet_aa => crate::zone_gpu::choose(kernel_flag, z)?,
+        _ => None,
+    };
     // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
     if speed_curve.is_some()
         && a.str("keyframes").is_some()
@@ -371,6 +374,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let (Some(mode), Some(k)) = (zone_kernel, keys.as_mut()) {
         k.enable_zone_kernel(mode);
     }
+    // Frames rendered one by one (no --keyframes) share one zone renderer.
+    let mut frame_gpu = zone_kernel
+        .filter(|_| keys.is_none())
+        .map(crate::zone_gpu::Renderer::new);
     if look_name == "studio" {
         let device = match keys.as_mut() {
             Some(k) => k.enable_gpu(
@@ -521,7 +528,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             r.jet_pixels += (p.nx / 2) as u64 * (p.ny / 2) as u64;
             (hd, s, used)
         } else {
-            render_frame_kernel(view, &p, zone.as_ref(), zone_f64)?
+            render_frame_kernel(view, &p, zone.as_ref(), &mut frame_gpu)?
         };
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
@@ -994,27 +1001,21 @@ pub(crate) fn render_frame(
     p: &Params,
     zone: Option<&Zone>,
 ) -> Result<(Header, Samples, Used), String> {
-    render_frame_kernel(view, p, zone, false)
+    render_frame_kernel(view, p, zone, &mut None)
 }
 
-/// Zone FP64 wgpu is an opt-in backend; failures fall back before consuming samples.
+/// [`render_frame`] with the frame's zone samples on `gpu` when it holds a wgpu zone
+/// renderer (CLEA-06); a declined frame or a device failure falls back to the CPU zone
+/// before any samples are consumed.
 pub(crate) fn render_frame_kernel(
     view: &View,
     p: &Params,
     zone: Option<&Zone>,
-    gpu_f64: bool,
+    gpu: &mut Option<crate::zone_gpu::Renderer>,
 ) -> Result<(Header, Samples, Used), String> {
     if let Some(z) = zone {
         if zone_covers(view, p, z)? {
-            if gpu_f64 {
-                match crate::zone_gpu::render(view, p, z) {
-                    Ok((h, s)) => return Ok((h, s, Used::Zone)),
-                    Err(e) => {
-                        eprintln!("fd film: FP64 wgpu zone unavailable ({e}); using CPU zone")
-                    }
-                }
-            }
-            let (h, s, _, _) = render_zone(view, p, z)?;
+            let (h, s) = crate::zone_gpu::render_zone_frame(gpu, view, p, z)?;
             return Ok((h, s, Used::Zone));
         }
     }

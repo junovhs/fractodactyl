@@ -21,6 +21,43 @@ pub(crate) enum Kernel {
     F32Only,
 }
 
+/// The zone kernel for a `--zone` frame source (CLEA-06): `--gpu-kernel cpu` keeps the
+/// CPU zone; no flag picks mixed, or f32only for an extended-range zone (the only GPU
+/// kernel for those). Without an f64-capable GPU, a mixed renderer opens the f32-only
+/// kernel instead, on a software adapter if need be (DEC-28).
+pub(crate) fn choose(flag: Option<&str>, zone: &Zone) -> Result<Option<Kernel>, String> {
+    match flag {
+        Some("cpu") => Ok(None),
+        Some(value) => Kernel::parse(value).map(Some),
+        None if zone.extended() => Ok(Some(Kernel::F32Only)),
+        None => Ok(Some(Kernel::Mixed)),
+    }
+}
+
+/// One zone-covered frame: the wgpu zone kernel when `gpu` holds a renderer, else the
+/// CPU zone. A frame no GPU stage takes, or a renderer error, falls back to the CPU
+/// zone with one stderr line; an error also drops the renderer for later frames.
+pub(crate) fn render_zone_frame(
+    gpu: &mut Option<Renderer>,
+    view: &View,
+    p: &Params,
+    zone: &Zone,
+) -> Result<(Header, Samples), String> {
+    if let Some(renderer) = gpu.as_mut() {
+        match renderer.render_or_decline(view, p, zone) {
+            Ok(Ok(frame)) => return Ok(frame),
+            Ok(Err(why)) => eprintln!(
+                "fd: the wgpu zone kernel declines this frame ({why}); using the CPU zone"
+            ),
+            Err(e) => {
+                eprintln!("fd: wgpu zone unavailable ({e}); using the CPU zone");
+                *gpu = None;
+            }
+        }
+    }
+    fd_kernel::render_zone(view, p, zone).map(|(h, s, _, _)| (h, s))
+}
+
 impl Kernel {
     pub(crate) fn parse(value: &str) -> Result<Self, String> {
         match value {
@@ -29,7 +66,7 @@ impl Kernel {
             "mixed" => Ok(Self::Mixed),
             "f32only" => Ok(Self::F32Only),
             _ => Err(format!(
-                "--gpu-kernel: expected f64, f32, mixed or f32only, got {value:?}"
+                "--gpu-kernel: expected cpu, f64, f32, mixed or f32only, got {value:?}"
             )),
         }
     }
@@ -174,6 +211,11 @@ fn inputs(
 }
 
 impl Renderer {
+    /// Why no GPU stage takes this frame (the CPU zone renders it), or None.
+    pub(crate) fn declines(&self, view: &View, p: &Params, zone: &Zone) -> Option<String> {
+        inputs(view, p, zone, self.mode).err()
+    }
+
     pub(crate) fn new(mode: Kernel) -> Self {
         Self {
             mode,
@@ -590,7 +632,8 @@ fn probe() -> Result<String, String> {
 }
 
 /// Sample all columns on the FP64 compute device.
-pub(crate) fn render(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples), String> {
+#[cfg(test)]
+fn render(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples), String> {
     Renderer::new(Kernel::F64).render(view, p, zone)
 }
 
@@ -601,8 +644,22 @@ impl Renderer {
         p: &Params,
         zone: &Zone,
     ) -> Result<(Header, Samples), String> {
+        self.render_or_decline(view, p, zone)?
+    }
+
+    /// [`Renderer::render`], with a frame no GPU stage takes as the inner error and a
+    /// device or pipeline failure as the outer one.
+    pub(crate) fn render_or_decline(
+        &mut self,
+        view: &View,
+        p: &Params,
+        zone: &Zone,
+    ) -> Result<Result<(Header, Samples), String>, String> {
         let start = Instant::now();
-        let (stage, mut header, constants) = inputs(view, p, zone, self.mode)?;
+        let (stage, mut header, constants) = match inputs(view, p, zone, self.mode) {
+            Ok(frame) => frame,
+            Err(why) => return Ok(Err(why)),
+        };
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let prep = start.elapsed();
         let count = (p.nx as usize)
@@ -630,7 +687,7 @@ impl Renderer {
             unpack.as_secs_f64() * 1e3,
             start.elapsed().as_secs_f64() * 1e3,
         );
-        Ok((header, samples))
+        Ok(Ok((header, samples)))
     }
 }
 
