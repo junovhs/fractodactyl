@@ -5,10 +5,12 @@
 //! bits. No exponent, no normalisation, no allocation in the orbit loop. Values handled
 //! here (coordinates, orbit points before escape) stay well inside the integer limb.
 mod decimal;
+mod float;
 mod limbs;
 mod orbit;
 
 pub use decimal::Decimal;
+pub use float::{bits_for_digits, Complex, Float};
 pub use orbit::orbit;
 
 /// Sign-magnitude fixed-point number.
