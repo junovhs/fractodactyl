@@ -3,12 +3,17 @@
 //! (DEC-09). This lemma (PROB-31) finds the structure: the minibrot nucleus `C` of period
 //! `p`, and the Misiurewicz relation `M(q, r)` whose repelling `r`-cycle (point `A`,
 //! multiplier `rho`) the critical orbit of `C` shadows before returning. It follows
-//! zone_seed.py's `nucleus`/`misiurewicz` and koenigs_tail.py's cycle Newton.
+//! zone_seed.py's `nucleus`/`misiurewicz` and koenigs_tail.py's cycle Newton. PROB-32
+//! adds the first-return biseries and its diagonal series (returns_exit_tail.py
+//! `build_map_mp`, koenigs_bench_consts.py `diagonal`).
 use crate::args::Args;
 use fd_fixed::{bits_for_digits, Complex, Float};
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd zone RE IM [--max-iter N (3000)]";
+const USAGE: &str = "usage: fd zone RE IM [--max-iter N (3000)] [--emit report|lines]";
+
+/// Biseries degree (make_zone.sh: koenigs_bench_consts.py DEGREE 4).
+const DEGREE: usize = 4;
 
 /// Longest cycle tried for the Misiurewicz relation (zone_seed.py `RMAX`).
 const RMAX: usize = 8;
@@ -28,13 +33,21 @@ pub(crate) struct Seed {
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["max-iter"])?;
+    let a = Args::parse(argv, &["max-iter", "emit"])?;
     let [re, im] = a.positional.as_slice() else {
         return Err(USAGE.into());
     };
     let max_iter: usize = a.num("max-iter", 3000)?;
     let t = Instant::now();
     let s = seed(re, im, max_iter)?;
+    match a.str("emit").unwrap_or("report") {
+        "report" => {}
+        "lines" => {
+            print!("{}", lines(&s, &return_map(&s, DEGREE)));
+            return Ok(());
+        }
+        e => return Err(format!("--emit: expected report or lines, got {e:?}")),
+    }
     let pair = |z: &Complex| format!("[{:?},{:?}]", z.re.to_f64(), z.im.to_f64());
     println!(
         "{{\"schema\":\"fd-zone/1\",\"period\":{},\"c_exact\":[\"{}\",\"{}\"],\"q\":{},\"r\":{},\"alpha\":{},\"rho\":{},\"rho_abs\":{:?},\"laps\":{},\"digits\":{},\"seconds\":{:.3}}}",
@@ -218,4 +231,155 @@ fn cycle(
         }
     }
     Err(format!("the {r}-cycle Newton did not converge"))
+}
+
+/// The first return to the nucleus over one period, as a degree-`DEGREE` biseries in
+/// u = (z - C)/scale and v = (c - C)/scale (PROB-07): u' = bias + sum a_ij u^i v^j.
+pub(crate) struct ReturnMap {
+    pub(crate) scale: Float,
+    /// (i, j, a_ij) for 0 < i + j <= DEGREE, i outer.
+    pub(crate) coeff: Vec<(usize, usize, Complex)>,
+    pub(crate) bias: Complex,
+    /// S_1..S_{DEGREE + 2} of the return from u = v, M(v, v) = sum S_n v^n (PROB-20).
+    pub(crate) diag: Vec<Complex>,
+}
+
+/// The zone scale, 10^floor(log10(size) / 2) for the minibrot size 1/|b dz/dc|
+/// (koenigs_bench_consts.py): return-map states scale as the square root of the size.
+fn scale(s: &Seed, bits: usize) -> Float {
+    let one = Complex::from_i64(1, bits);
+    let (mut z, mut dz) = (Complex::zero(bits), Complex::zero(bits));
+    let mut log2_b = 0.0;
+    for j in 0..s.period {
+        dz = z.mul(&dz).ldexp(1).add(&one);
+        z = z.sqr().add(&s.c);
+        if j + 1 < s.period {
+            log2_b += 1.0 + log2_norm2(&z) / 2.0;
+        }
+    }
+    let log10_size = -(log2_b + log2_norm2(&dz) / 2.0) / std::f64::consts::LOG2_10;
+    let k = (log10_size / 2.0).floor() as i64;
+    Float::parse(&format!("1e{k}"), bits).expect("power of ten parses")
+}
+
+pub(crate) fn return_map(s: &Seed, degree: usize) -> ReturnMap {
+    let bits = s.c.re.precision();
+    let scale = scale(s, bits);
+    let terms: Vec<(usize, usize)> = (0..=degree)
+        .flat_map(|i| (0..=degree - i).map(move |j| (i, j)))
+        .filter(|&(i, j)| i + j > 0)
+        .collect();
+    let zero = Complex::zero(bits);
+    let one = Complex::from_i64(1, bits);
+    // z = C + scale t, c = C + scale v: t' = 2 Z t + scale t^2 + v, truncated above
+    // total degree `degree` with every mixed term kept.
+    let mut a = vec![vec![zero.clone(); degree + 1]; degree + 1];
+    a[1][0] = one.clone();
+    let mut z = s.c.clone();
+    for _ in 0..s.period {
+        let two_z = z.ldexp(1);
+        let mut b: Vec<Vec<Complex>> = a
+            .iter()
+            .map(|row| row.iter().map(|x| two_z.mul(x)).collect())
+            .collect();
+        for &(i, j) in &terms {
+            if a[i][j].is_zero() {
+                continue;
+            }
+            let sx = a[i][j].scale(&scale);
+            for &(h, l) in &terms {
+                if i + j + h + l <= degree && !a[h][l].is_zero() {
+                    b[i + h][j + l] = b[i + h][j + l].add(&sx.mul(&a[h][l]));
+                }
+            }
+        }
+        b[0][1] = b[0][1].add(&one);
+        a = b;
+        z = z.sqr().add(&s.c);
+    }
+    let bias = z.sub(&s.c).scale(&Float::from_i64(1, bits).div(&scale));
+    let coeff = terms
+        .iter()
+        .map(|&(i, j)| (i, j, a[i][j].clone()))
+        .collect();
+    ReturnMap {
+        diag: diagonal(s, &scale, degree + 2),
+        scale,
+        coeff,
+        bias,
+    }
+}
+
+/// The first return from u = v as one series in v: S_1..S_n (the biseries' diagonal
+/// sums to its degree, plus the terms its truncation drops).
+fn diagonal(s: &Seed, scale: &Float, n: usize) -> Vec<Complex> {
+    let bits = s.c.re.precision();
+    let one = Complex::from_i64(1, bits);
+    let mut a = vec![Complex::zero(bits); n + 1];
+    a[1] = one.clone();
+    let mut z = s.c.clone();
+    for _ in 0..s.period {
+        let two_z = z.ldexp(1);
+        let mut b: Vec<Complex> = a.iter().map(|x| two_z.mul(x)).collect();
+        for i in 1..n {
+            let sx = a[i].scale(scale);
+            for j in 1..=n - i {
+                b[i + j] = b[i + j].add(&sx.mul(&a[j]));
+            }
+        }
+        b[1] = b[1].add(&one);
+        a = b;
+        z = z.sqr().add(&s.c);
+    }
+    a.split_off(1)
+}
+
+/// `z` as a mantissa pair with a shared binary exponent, the larger part in [1, 2):
+/// the `_x` and `diag` line format, exact where the doubles leave f64 (DEC-21).
+fn fx(z: &Complex) -> (f64, f64, i64) {
+    let big = if z.re.abs().lt(&z.im.abs()) {
+        &z.im
+    } else {
+        &z.re
+    };
+    if big.is_zero() {
+        return (0.0, 0.0, 0);
+    }
+    let e = big.frexp().1 - 1;
+    (z.re.ldexp(-e).to_f64(), z.im.ldexp(-e).to_f64(), e)
+}
+
+/// Zone-file lines (KERN-01's format) for the constants built so far.
+fn lines(s: &Seed, m: &ReturnMap) -> String {
+    use std::fmt::Write as _;
+    let c = |z: &Complex| format!("{:?} {:?}", z.re.to_f64(), z.im.to_f64());
+    let x = |z: &Complex| {
+        let (re, im, e) = fx(z);
+        format!("{re:?} {im:?} {e}")
+    };
+    let (sm, se) = m.scale.frexp();
+    let mut o = String::new();
+    let _ = writeln!(o, "# fd zone (PROB-12): degree {DEGREE}");
+    let _ = writeln!(
+        o,
+        "c_exact {} {}",
+        s.c.re.to_decimal(s.digits - 2),
+        s.c.im.to_decimal(s.digits - 2)
+    );
+    let _ = writeln!(o, "c {}", c(&s.c));
+    let _ = writeln!(o, "period {}", s.period);
+    let _ = writeln!(o, "scale {:?} {}", 2.0 * sm, se - 1);
+    let _ = writeln!(o, "bias {}", c(&m.bias));
+    let _ = writeln!(o, "alpha {}", c(&s.alpha));
+    let _ = writeln!(o, "rho {}", c(&s.rho));
+    for (i, j, a) in &m.coeff {
+        let _ = writeln!(o, "biseries {i} {j} {}", c(a));
+    }
+    for (i, j, a) in &m.coeff {
+        let _ = writeln!(o, "biseries_x {i} {j} {}", x(a));
+    }
+    for (k, d) in m.diag.iter().enumerate() {
+        let _ = writeln!(o, "diag {} {}", k + 1, x(d));
+    }
+    o
 }

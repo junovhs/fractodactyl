@@ -3265,3 +3265,31 @@ centre in 23 ms:
 The classic valley centre (-0.743643887037158704752191506114774,
 0.131825904205311970493132056385139) is refused: its period-P orbit picks M(468, 2) but
 does not shadow the cycle for even one lap.
+
+### PROB-32: `fd zone` builds the return map in Rust (2026-10-17)
+
+`fd zone RE IM --emit lines` prints zone-file lines for the constants built so far:
+- c_exact, c, period;
+- scale, written as a mantissa and binary exponent;
+- bias, alpha and rho;
+- the degree-4 `biseries` and `biseries_x`;
+- `diag` S_1..S_6.
+
+The return map ports returns_exit_tail.py's `build_map_mp`: t' = 2Zt + scale t^2 + v over
+one period, truncated above total degree 4 with every mixed term kept, at the seed's 170+
+digits. The scale is 10^floor(log10(size)/2), as koenigs_bench_consts.py picks it: 1e-25
+for v0. `diag` ports `diagonal()`. v0 builds in 0.1 s; the k = 409 rung (period 1582,
+found from its centre alone) builds in 0.45 s.
+
+**Check** (`cargo test -p fd-cli --test zone_build zone_biseries_v0 zone_biseries_rung409`):
+- v0, against crates/fd-cli/tests/fixtures/zones/v0.zone: worst relative difference
+  1.5e-14. The committed v0 map was built in doubles (`build_map` takes numpy above a
+  1e-30 scale), and a Python exact build differs from it by the same 1.5e-14.
+- rung 409, against rung409.zone, which was built exactly: worst difference 1.1e-173.
+- scale, alpha and rho are identical, and bias is 0.
+
+Two terms are compared by their contribution at the guard radius instead (|Δa_ij|
+R^(i+j) against a_01 R, R = 1e-3 in u, v units): a_10 and Im a_01. They are the nucleus
+residual, about 1e-51 in the Python build, which iterates the unrefined 100-digit centre,
+and about 1e-144 here, after Newton refinement. Either way they contribute about 1e-54 to
+a map whose leading term is 1e-3.
