@@ -3207,3 +3207,31 @@ The GPU-02 gate on the RX 5700 XT (10 s, 1080p60, 600 frames, 67 zone keyframes 
 film): every keyframe of both films rendered on its wgpu kernel, with no fallback.
 `fd filmcheck` PASS: the worst frame has 99.9998% of pixels within one level. Keyframe
 render seconds: f64 11.3, mixed 11.0.
+
+### PROB-30: high-precision float for zone construction (2026-10-17)
+
+`fd_fixed::Float` and `fd_fixed::Complex` are the arithmetic `fd zone` will build zone
+constants with (PROB-12's Rust port of the mpmath generators). Zone constants span about
+1e-1000 to 1e500 at hundreds of digits, beyond `Fixed`'s single integer limb. Operations:
+- add, sub, mul, div, square, exact `ldexp`, comparison and `norm2`;
+- decimal parse, and decimal print to N digits;
+- `frexp` to an (f64, i64) pair at any depth, and `to_f64`.
+
+**Choice: astro-float 0.9.6, not new limb code.** It is pure Rust (DEC-27), with a
+32-bit binary exponent (about ±6e8 decimal decades), and nearest-even rounding at the
+wider operand's precision. It also has the log/atan/exp that the Koenigs and tail patch
+lemmas (PROB-33, PROB-34) need. Writing division, radix conversion and those functions on
+fd-fixed's limb routines would be a second arbitrary-precision library to maintain. The
+cost is one dependency tree: astro-float, astro-float-num and astro-float-macro, which
+pulls in syn 1, itertools and lazy_static.
+
+**Check** (`cargo test -p fd-fixed float_matches_mpmath`). From v0's c_exact, 764 steps of
+z <- z^2 + C, dz <- 2 z dz + 1 at 400 digits. z_764 and z_764/dz_764 agree with mpmath
+to 323 digits. The fixture comes from `tools/research/misiurewicz/float_fixture.py`, and
+mpmath itself keeps only 322 digits between 400 and 440 digits of working precision: the
+orbit's sensitivity near the nucleus costs about 78 digits. The bar is mpmath's own
+agreement minus 10 digits, not the issue's original 1e-380, which no implementation can
+reach on this orbit. `float_spans_deep_zone_ranges`:
+- 1e-1000, 1e500 and -2.5e-37 round-trip through 40-digit decimal to 1e-38 relative;
+- frexp gives exponents -3321, 1661 and -121;
+- `to_f64` is exact at 1e-300 and 0 at 1e-1000.

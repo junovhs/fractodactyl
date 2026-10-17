@@ -4,3 +4,6 @@ description = "Arbitrary-precision fixed point for reference orbits and exact co
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+
+[dependencies]
+astro-float = { version = "0.9.6", default-features = false, features = ["std"] }
