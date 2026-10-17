@@ -34,7 +34,7 @@ usage:
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID] -o out.fds
             [--store DIR --bla ID]
             [--refine BLOCK_PX [--max-px E]]
-            [--zone FILE [--gpu-kernel cpu|f64|mixed|f32only]]
+            [--zone FILE [--gpu-kernel f64|f32|mixed|f32only]]
   fd bench <render flags> [--runs N] [-o out.fds]
            [--oracle tools/oracle.py [--k K] [--python python3]]
   fd shade IN.fds|DIR [--look umber,palette,relief,studio] -o OUTDIR
@@ -79,7 +79,7 @@ usage:
   fd path zoom --re X --im Y --from W0 --to W1 --seconds S --fps F [--rotation R]
   fd film RE IM --to WIDTH --mp4 FILE [--from W0] [--fps F] [--seconds S | --rate DEC/S]
           [--twist TURNS] [--ease on|off] [--size WxH] [--ss N] [--iter N] [--zone FILE]
-          [--look L] [--preset LOOK] [--gpu on|off] [--gpu-kernel cpu|f64|f32|mixed|f32only] [--keyframes M] [look knobs] [--crf N] [--x264 P] [--chroma 420|444] [--compare-every K] [--frames A..B]
+          [--look L] [--preset LOOK] [--gpu on|off] [--gpu-kernel f64|f32|mixed|f32only] [--keyframes M] [look knobs] [--crf N] [--x264 P] [--chroma 420|444] [--compare-every K] [--frames A..B]
           [appearance flags as fd shade; film defaults --aa on --unresolved interior]
   fd filmcheck REF SHORTCUT [--size WxH] [--heatmap FILE]
           (raw-dir RGB24 folders, PNG frame folders or mp4; defaults to out/filmcheck-worst.ppm)

@@ -17,8 +17,8 @@ use crate::path::sig6;
 use crate::render::{columns, size};
 use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
 use fd_kernel::{
-    bla_dc_max, render_bla, render_bla_masked, render_with, render_with_masked, render_zone,
-    zone_covers, Bla, Params, Zone,
+    bla_dc_max, render_bla, render_bla_masked, render_with, render_with_masked, zone_covers, Bla,
+    Params, Zone,
 };
 use fd_samples::{Header, Samples, View};
 use fd_shade::Appearance;
@@ -79,10 +79,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
     let a = Args::parse(argv, &known)?;
-    // Zone frames and keyframes run on the wgpu zone kernel unless `--gpu-kernel cpu`
-    // (CLEA-06); zone_gpu::choose picks it when the flag is absent.
+    // Zone frames and keyframes run on the wgpu zone kernel (CLEA-04); zone_gpu::choose
+    // picks it when the flag is absent.
     let kernel_flag = a.str("gpu-kernel");
-    if let Some(value) = kernel_flag.filter(|v| *v != "cpu") {
+    if let Some(value) = kernel_flag {
         crate::zone_gpu::Kernel::parse(value)?;
     }
     if kernel_flag.is_some() && a.str("zone").is_none() {
@@ -298,16 +298,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "on" => true,
         v => return Err(format!("--jet-aa: expected on or off, got {v:?}")),
     };
-    if jet_aa
-        && (ss != 2 || a.str("keyframes").is_some() || kernel_flag.is_some_and(|k| k != "cpu"))
-    {
+    if jet_aa && (ss != 2 || a.str("keyframes").is_some() || kernel_flag.is_some()) {
         return Err("--jet-aa needs --ss 2, no --keyframes and no --gpu-kernel".into());
     }
-    // --jet-aa frames keep the CPU zone (jetaa.rs renders its own samples).
-    let zone_kernel = match &zone {
-        Some(z) if !jet_aa => crate::zone_gpu::choose(kernel_flag, z)?,
-        _ => None,
-    };
+    let zone_kernel = zone
+        .as_ref()
+        .map(|z| crate::zone_gpu::choose(kernel_flag, z))
+        .transpose()?;
     // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
     if speed_curve.is_some()
         && a.str("keyframes").is_some()
@@ -522,7 +519,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         let t = Instant::now();
         let (hd, mut s, used) = if jet_aa {
-            let (hd, s, used, computed, st) = render_frame_jet(view, &p, zone.as_ref())?;
+            let (hd, s, used, computed, st) =
+                render_frame_jet(view, &p, zone.as_ref(), &mut frame_gpu)?;
             r.jet_samples += computed;
             (0..3).for_each(|k| r.jet_stage[k] += st[k]);
             r.jet_pixels += (p.nx / 2) as u64 * (p.ny / 2) as u64;
@@ -995,18 +993,22 @@ pub(crate) fn path(
 
 /// Render one frame with the cheapest valid kernel: the zone when it covers the view,
 /// otherwise fd's reference plus its own BLA table (none on the scaled tier, or when
-/// the table has no valid block).
+/// the table has no valid block). A zone frame opens its own wgpu zone renderer.
 pub(crate) fn render_frame(
     view: &View,
     p: &Params,
     zone: Option<&Zone>,
 ) -> Result<(Header, Samples, Used), String> {
-    render_frame_kernel(view, p, zone, &mut None)
+    let mut gpu = zone
+        .map(|z| crate::zone_gpu::choose(None, z))
+        .transpose()?
+        .map(crate::zone_gpu::Renderer::new);
+    render_frame_kernel(view, p, zone, &mut gpu)
 }
 
-/// [`render_frame`] with the frame's zone samples on `gpu` when it holds a wgpu zone
-/// renderer (CLEA-06); a declined frame or a device failure falls back to the CPU zone
-/// before any samples are consumed.
+/// [`render_frame`] with the frame's zone samples on `gpu`'s wgpu zone renderer
+/// (CLEA-04); with no renderer, a declined frame or a device failure, the zone frame
+/// renders as an uncovered one.
 pub(crate) fn render_frame_kernel(
     view: &View,
     p: &Params,
@@ -1015,8 +1017,9 @@ pub(crate) fn render_frame_kernel(
 ) -> Result<(Header, Samples, Used), String> {
     if let Some(z) = zone {
         if zone_covers(view, p, z)? {
-            let (h, s) = crate::zone_gpu::render_zone_frame(gpu, view, p, z)?;
-            return Ok((h, s, Used::Zone));
+            if let Some((h, s)) = crate::zone_gpu::render_zone_frame(gpu, view, p, z) {
+                return Ok((h, s, Used::Zone));
+            }
         }
     }
     let (orbit, bits) = fd_kernel::reference(view, p)?;
@@ -1034,12 +1037,14 @@ pub(crate) fn render_frame_kernel(
 /// A film frame with jet-AA (FILM-16): pass 1 computes each pixel's top-left ss 2
 /// sample, [`crate::jetaa::rebuild`] predicts the rest, pass 2 computes the rejected
 /// ones. BLA or plain perturbation as [`render_frame_kernel`] (CPU), with the reference
-/// orbit and BLA table built once for both passes; zone frames are rendered exactly.
-/// Also returns the samples computed and the seconds of pass 1, the rebuild and pass 2.
+/// orbit and BLA table built once for both passes; zone frames are rendered exactly, on
+/// `gpu`'s wgpu zone renderer. Also returns the samples computed and the seconds of
+/// pass 1, the rebuild and pass 2.
 pub(crate) fn render_frame_jet(
     view: &View,
     p: &Params,
     zone: Option<&Zone>,
+    gpu: &mut Option<crate::zone_gpu::Renderer>,
 ) -> Result<(Header, Samples, Used, u64, [f64; 3]), String> {
     if p.ss != 2 {
         return Err("jet-AA rebuilds ss 2 frames".into());
@@ -1055,8 +1060,9 @@ pub(crate) fn render_frame_jet(
     // exact ss 2). Zone frames stay exact; jet-AA pays where samples are expensive (BLA
     // and perturbation frames: 1.84x faster on a tendril film at 1e-57).
     if let (true, Some(z)) = (in_zone, zone) {
-        let (hd, s, _, _) = render_zone(view, p, z)?;
-        return Ok((hd, s, Used::Zone, 4 * (w * h) as u64, [0.0; 3]));
+        if let Some((hd, s)) = crate::zone_gpu::render_zone_frame(gpu, view, p, z) {
+            return Ok((hd, s, Used::Zone, 4 * (w * h) as u64, [0.0; 3]));
+        }
     }
     let (o, bits) = fd_kernel::reference(view, p)?;
     let table = match bla_dc_max(view, p) {

@@ -164,13 +164,14 @@ fn v2_asset(path: &str) -> Option<(&'static str, &'static [u8])> {
 }
 
 /// Shared between connection threads: one render runs at a time, and a request older
-/// than the newest generation the page has sent is skipped instead of rendered.
+/// than the newest generation the page has sent is skipped instead of rendered. The
+/// lock holds the wgpu zone renderer, kept across renders (CLEA-04).
 struct Server {
     threads: usize,
     zone: Option<Zone>,
     capture: Option<String>,
     latest: AtomicU64,
-    render: Mutex<()>,
+    render: Mutex<Option<crate::zone_gpu::Renderer>>,
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
@@ -197,12 +198,17 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             .map_or("none".to_string(), |z| format!("P={}", z.period))
     );
     let capture = a.str("capture").map(String::from);
+    let renderer = zone
+        .as_ref()
+        .map(|z| crate::zone_gpu::choose(None, z))
+        .transpose()?
+        .map(crate::zone_gpu::Renderer::new);
     let server = Arc::new(Server {
         threads,
         zone,
         capture,
         latest: AtomicU64::new(0),
-        render: Mutex::new(()),
+        render: Mutex::new(renderer),
     });
     for stream in listener.incoming().flatten() {
         let server = Arc::clone(&server);
@@ -438,13 +444,14 @@ fn render(query: &str, server: &Server) -> Result<Option<Image>, String> {
         threads: server.threads,
         tier: None,
     };
-    let _one_at_a_time = server.render.lock().unwrap_or_else(|e| e.into_inner());
+    let mut gpu = server.render.lock().unwrap_or_else(|e| e.into_inner());
     if generation < server.latest.load(Ordering::SeqCst) {
         return Ok(None);
     }
     let t = Instant::now();
     if samples_mode {
-        let (header, samples, used) = crate::film::render_frame(&view, &p, server.zone.as_ref())?;
+        let (header, samples, used) =
+            crate::film::render_frame_kernel(&view, &p, server.zone.as_ref(), &mut gpu)?;
         let seconds = t.elapsed().as_secs_f64();
         if let Some(c) = &server.capture {
             let mut f = std::io::BufWriter::new(

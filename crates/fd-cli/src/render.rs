@@ -28,14 +28,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         ])
         .collect();
     let a = Args::parse(argv, &known)?;
-    // The zone kernel (CLEA-06): GPU first, chosen by zone_gpu::choose unless named;
-    // `cpu` keeps the CPU zone. f32only is the only GPU kernel for extended-range zones.
+    // The wgpu zone kernel (CLEA-04), chosen by zone_gpu::choose unless named. f32only
+    // is the only GPU kernel for extended-range zones.
     let kernel_flag = a.str("gpu-kernel");
-    if let Some(value) = kernel_flag.filter(|v| !matches!(*v, "cpu" | "f64" | "mixed" | "f32only"))
-    {
-        return Err(format!(
-            "--gpu-kernel: expected cpu, f64, mixed or f32only, got {value:?}"
-        ));
+    if let Some(value) = kernel_flag {
+        crate::zone_gpu::Kernel::parse(value)?;
     }
     if kernel_flag.is_some() && a.str("zone").is_none() {
         return Err("--gpu-kernel requires --zone".into());
@@ -64,8 +61,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         None => None,
     };
-    // `--zone FILE` (KERN-01): the minibrot-band fast path when the zone covers the view,
-    // otherwise the perturbation kernel as without it.
+    // `--zone FILE` (KERN-01): the minibrot-band fast path on the wgpu zone kernel when
+    // the zone covers the view, otherwise the perturbation kernel as without it.
     let zone = match a.str("zone") {
         Some(_)
             if a.str("bla").is_some() || a.str("orbit").is_some() || a.str("refine").is_some() =>
@@ -89,13 +86,22 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let threads = p.threads;
     let t = Instant::now();
     let mut bla = None;
+    // A frame the wgpu zone kernel declines renders with the perturbation kernel.
+    let zone_frame = match &zone {
+        Some(z) => {
+            let mut gpu = Some(crate::zone_gpu::Renderer::new(crate::zone_gpu::choose(
+                kernel_flag,
+                z,
+            )?));
+            crate::zone_gpu::render_zone_frame(&mut gpu, &view, &p, z)
+        }
+        None => None,
+    };
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
     let (header, samples, refined) = match (a.str("refine"), table) {
-        _ if zone.is_some() => {
-            let z = zone.as_ref().unwrap();
-            let mut gpu =
-                crate::zone_gpu::choose(kernel_flag, z)?.map(crate::zone_gpu::Renderer::new);
-            crate::zone_gpu::render_zone_frame(&mut gpu, &view, &p, z).map(|(h, s)| (h, s, None))?
+        _ if zone_frame.is_some() => {
+            let (h, s) = zone_frame.unwrap();
+            (h, s, None)
         }
         (None, Some((orbit, table))) => {
             let (h, s, st, b) = render_bla(&view, &p, orbit, &table)?;

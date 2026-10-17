@@ -3146,3 +3146,64 @@ degrees.
 
 In CI the Linux job runs it on lavapipe with FD_REQUIRE_GPU=1 (a frame not on wgpu
 fails), and the Windows job runs it on WARP in its own step, taking 9 minutes.
+
+### CLEA-04: the zone kernel exists once, as WGSL (2026-10-17)
+
+fd-kernel's CPU zone pixel stages are deleted (DEC-28): the return map, approach, Koenigs
+jump, tail patch and finish in `zone.rs`, the mid-band operator in `zone/mid.rs`,
+`render_zone`/`render_zone_masked`, `ZoneStats`, and the `gpu-route-probe` capture hook.
+The arithmetic they alone used went with them (`Lazy`, the `Complex` trait, most `Fx`
+operations). `zone.rs` keeps the CPU side: zone file parsing, the coverage gate
+(`zone_covers`) and the exact offset and constant packing for the GPU.
+
+`fd render`, `fd control`, `fd film` (including `--jet-aa`) and `fd explore` render every
+zone-covered frame on the wgpu zone kernel. A frame the kernel declines, or a device
+failure, renders with the perturbation kernel instead, as an uncovered frame does, with
+one stderr line. `--gpu-kernel cpu` is refused with that explanation. `fd render` now takes
+every GPU kernel `fd film` does (f32 too). `fd control`'s zone records lose the CPU zone's
+`returns`/`jumps`/`patches`/`plain_steps` counters, which the GPU kernel does not report.
+
+**Tests.** The GPU-against-CPU-zone parity tests in `zone_gpu.rs` are replaced by checks
+against the frozen frames:
+- `zone_fixtures` (CLEA-06) holds fd's own kernel choice to the strict bar on all 24
+  frames;
+- the new `zone_fixtures_f32_kernels` holds the f32 and mixed kernels to GPU-02's guarded
+  bar (at most 1 class mismatch, worst 0.05 px, at most 0.5% of samples over 1e-3 px) on
+  the 16 v0 frames. It skips a kernel the adapter cannot run (no f64: lavapipe, WARP).
+
+The fixtures can no longer be regenerated (`FD_REGENERATE_FIXTURES` is gone).
+fd-kernel's tests that rendered the CPU zone are deleted, or check the GPU constants
+instead (`v0_binary_scales_keep_the_same_constants`). `KERN-05.bundle` loses its six
+`zone-*` entries; the other twelve are the original bytes. On Linux the bundle compare
+fails at byte 354360 both before and after this change: the bundle was captured on
+Windows.
+
+**Frozen research tools.** `tools/research/gpu-route`, `tools/research/jetaa` and
+`tools/research/twolevel/zone_finish/capture` read the CPU zone. They build only at
+b76035f, the last commit that has it, and their READMEs say so. The gpu-route-build
+workflow and gpu-route-rx5700xt's route job check out that commit.
+
+**Check.** `rg -n "fn pixel|mid::pixel|fn series|fn eval2" crates/fd-kernel/src/zone*`
+finds nothing.
+
+| `zone_fixtures` | kernel used | frames passing | worst nu px |
+|---|---|---|---|
+| RX 5700 XT | f64 (rung7676: f32only) | 24 / 24 | 4.3e-7 |
+| lavapipe (FD_REQUIRE_GPU=1) | f32only | 24 / 24 | 2.8e-6 |
+
+`zone_fixtures_f32_kernels` on the RX 5700 XT:
+- mixed: 0 class mismatches and 0 samples over 1e-3 px on all 16 frames, worst 1.7e-4 px;
+- f32: 0 class mismatches, worst 1.6e-3 px; 2 of 5184 samples are over 1e-3 px at
+  1e-35, none elsewhere.
+
+A mid-band frame with `--columns nu` (the mid kernel needs the derivative) renders with
+`pert-fx/1` after the decline line.
+
+`scripts/check/GPU-02.sh` now uses the binary64 GPU film as its reference, since the CPU
+zone film it was first checked against no longer exists. Binary64 meets the strict bar on
+the fixtures. The script fails if either film falls back.
+
+The GPU-02 gate on the RX 5700 XT (10 s, 1080p60, 600 frames, 67 zone keyframes per
+film): every keyframe of both films rendered on its wgpu kernel, with no fallback.
+`fd filmcheck` PASS: the worst frame has 99.9998% of pixels within one level. Keyframe
+render seconds: f64 11.3, mixed 11.0.

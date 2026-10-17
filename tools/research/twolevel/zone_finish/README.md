@@ -1,5 +1,9 @@
 # Zone-finish probe: two-level float32 and float-float finish (GPU-09 design input)
 
+**Frozen (CLEA-04).** The `capture` crate (`Zone::probe_finish_inputs`,
+`fd_kernel::render_zone`) reads the CPU zone, which CLEA-04 deleted, so it builds only at
+the last commit that has it, `b76035fff72ae41c27ae617d28d3f970fa9a35af` (`git worktree add ../frozen b76035fff72ae41c27ae617d28d3f970fa9a35af`).
+
 Notes and conclusions: `docs/research/2026-10-14-q4-two-level-float32-references-notes.md`, Part B.
 This is CPU only: it emulates GPU float32 arithmetic and is not a GPU measurement.
 

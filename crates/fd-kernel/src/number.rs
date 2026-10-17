@@ -10,32 +10,12 @@ impl Cx {
         Cx(self.0 + o.0, self.1 + o.1)
     }
     #[inline(always)]
-    pub(crate) fn sub(self, o: Cx) -> Cx {
-        Cx(self.0 - o.0, self.1 - o.1)
-    }
-    #[inline(always)]
-    pub(crate) fn mul(self, o: Cx) -> Cx {
-        Cx(self.0 * o.0 - self.1 * o.1, self.0 * o.1 + self.1 * o.0)
-    }
-    #[inline(always)]
     pub(crate) fn scale(self, s: f64) -> Cx {
         Cx(self.0 * s, self.1 * s)
     }
     #[inline(always)]
-    pub(crate) fn norm2(self) -> f64 {
-        self.0 * self.0 + self.1 * self.1
-    }
-    #[inline(always)]
     pub(crate) fn abs(self) -> f64 {
         self.0.hypot(self.1)
-    }
-    #[inline(always)]
-    pub(crate) fn div(self, o: Cx) -> Cx {
-        let d = o.norm2();
-        Cx(
-            (self.0 * o.0 + self.1 * o.1) / d,
-            (self.1 * o.0 - self.0 * o.1) / d,
-        )
     }
 }
 
@@ -48,11 +28,6 @@ pub(crate) struct Fx {
 }
 
 impl Fx {
-    pub(crate) const ONE: Fx = Fx {
-        m: Cx(1.0, 0.0),
-        e: 0,
-    };
-
     #[inline(always)]
     pub(crate) fn new(m: Cx, e: i64) -> Fx {
         Fx { m, e }.norm()
@@ -102,98 +77,11 @@ impl Fx {
         }
         .norm()
     }
-    #[inline(always)]
-    pub(crate) fn sub(self, o: Fx) -> Fx {
-        self.add(Fx {
-            m: o.m.scale(-1.0),
-            e: o.e,
-        })
-    }
-    #[inline(always)]
-    pub(crate) fn mul(self, o: Fx) -> Fx {
-        Fx {
-            m: self.m.mul(o.m),
-            e: self.e + o.e,
-        }
-        .norm()
-    }
-    #[inline(always)]
-    pub(crate) fn inv(self) -> Fx {
-        Fx {
-            m: Cx(1.0, 0.0).div(self.m),
-            e: -self.e,
-        }
-        .norm()
-    }
-    /// Nearest f64 pair: 0 below f64's range, infinite above it.
-    #[inline(always)]
-    pub(crate) fn to_cx(self) -> Cx {
-        if self.is_zero() {
-            return Cx::default();
-        }
-        if self.e < -1100 {
-            return Cx::default();
-        }
-        self.m.scale(exp2i(self.e))
-    }
-    #[inline(always)]
-    pub(crate) fn ln_abs(self) -> f64 {
-        self.m.abs().ln() + self.e as f64 * std::f64::consts::LN_2
-    }
-    #[inline(always)]
-    pub(crate) fn arg(self) -> f64 {
-        self.m.1.atan2(self.m.0)
-    }
-    /// `exp(ln_mag + i angle)`.
-    pub(crate) fn polar(ln_mag: f64, angle: f64) -> Fx {
-        let e = (ln_mag / std::f64::consts::LN_2).floor();
-        let r = (ln_mag - e * std::f64::consts::LN_2).exp();
-        Fx::new(Cx(r * angle.cos(), r * angle.sin()), e as i64)
-    }
-}
-
-/// Arithmetic needed by the shared polynomial stages. Each number type keeps its
-/// own range and rounding; the evaluators never convert a deep value to f64.
-pub(crate) trait Complex: Copy + Default {
-    fn add(self, other: Self) -> Self;
-    fn mul(self, other: Self) -> Self;
-    fn scale(self, scalar: f64) -> Self;
-}
-
-impl Complex for Cx {
-    #[inline(always)]
-    fn add(self, other: Self) -> Self {
-        Cx::add(self, other)
-    }
-    #[inline(always)]
-    fn mul(self, other: Self) -> Self {
-        Cx::mul(self, other)
-    }
-    #[inline(always)]
-    fn scale(self, scalar: f64) -> Self {
-        Cx::scale(self, scalar)
-    }
-}
-
-impl Complex for Fx {
-    #[inline(always)]
-    fn add(self, other: Self) -> Self {
-        Fx::add(self, other)
-    }
-    #[inline(always)]
-    fn mul(self, other: Self) -> Self {
-        Fx::mul(self, other)
-    }
-    #[inline(always)]
-    fn scale(self, scalar: f64) -> Self {
-        // Keep the deep evaluator's normalized multiply, including its rounding.
-        self.mul(Fx::new(Cx(scalar, 0.0), 0))
-    }
 }
 
 /// Numeric backends keep each representation's established rounding order. The
 /// iteration, derivative, escape, rebase and validity decisions have one source.
-pub(crate) trait Arithmetic: Complex {
+pub(crate) trait Arithmetic {
     const EXTENDED: bool;
     fn delta(z: (f64, f64), w: (f64, f64), s: f64, dc: (f64, f64)) -> (f64, f64);
 }

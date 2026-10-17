@@ -1,5 +1,7 @@
-//! CPU kernel contract check. It exercises the kernels used by fd's render routes.
-use fd_kernel::{Params, Tier, Zone};
+//! CPU kernel contract check. It exercises the perturbation kernel used by fd's render
+//! routes; zone frames are checked against frozen fixtures by fd-cli's zone_fixtures
+//! test (CLEA-04).
+use fd_kernel::{Params, Tier};
 use fd_samples::{Column, ColumnSet, View};
 use std::fs;
 use std::path::Path;
@@ -9,7 +11,6 @@ struct Case {
     name: String,
     view: View,
     params: Params,
-    zone: bool,
 }
 
 fn params(nx: u32, ny: u32, max_iter: u64, tier: Option<Tier>) -> Params {
@@ -57,7 +58,6 @@ fn cases() -> Result<Vec<Case>, String> {
                 f[4].parse().map_err(|e| format!("{e}"))?,
                 tier,
             ),
-            zone: false,
         });
     }
     let rung = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
@@ -74,29 +74,12 @@ fn cases() -> Result<Vec<Case>, String> {
             rotation: 0.0,
         },
         params: params(96, 54, 150_000, None),
-        zone: false,
     });
-    for width in ["1e-35", "1e-38", "1e-40", "1e-43", "1e-46", "2e-48"] {
-        out.push(Case {
-            name: format!("zone-{width}"),
-            view: View {
-                center_re: "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502".into(),
-                center_im: "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922".into(),
-                width: width.into(), rotation: 0.0,
-            },
-            params: params(96, 54, 20_000, None), zone: true,
-        });
-    }
     Ok(out)
 }
 
-fn bytes(case: &Case, zone: &Zone) -> Result<Vec<u8>, String> {
-    let (header, samples) = if case.zone {
-        let (h, s, _, _) = fd_kernel::render_zone(&case.view, &case.params, zone)?;
-        (h, s)
-    } else {
-        fd_kernel::render(&case.view, &case.params)?
-    };
+fn bytes(case: &Case) -> Result<Vec<u8>, String> {
+    let (header, samples) = fd_kernel::render(&case.view, &case.params)?;
     let mut bytes = Vec::new();
     fd_samples::write(&mut bytes, &header, &samples).map_err(|e| e.to_string())?;
     Ok(bytes)
@@ -127,10 +110,9 @@ fn run(mode: &str, bundle: &Path, report: &Path) -> Result<(), String> {
     if mode == "time-capture" || mode == "time-compare" {
         return check_timing(mode == "time-capture", report);
     }
-    let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone"))?;
     let mut actual = b"KERN05-FDS-1\0".to_vec();
     for case in cases()? {
-        let data = bytes(&case, &zone)?;
+        let data = bytes(&case)?;
         append(&mut actual, &case.name, &data);
         println!("fixture {}: {} bytes", case.name, data.len());
     }

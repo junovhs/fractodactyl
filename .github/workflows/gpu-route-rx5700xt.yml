@@ -5,12 +5,12 @@ on:
   workflow_dispatch:
     inputs:
       check:
-        description: 'route: GPU-12 probe rows; zone: GPU-13 product zone kernel tests and GPU-02 film gate'
+        description: 'route: GPU-12 probe rows; zone: zone fixture tests and GPU-02 film gate'
         type: choice
         options: [route, zone]
         default: route
       film_gate:
-        description: 'zone check: also run the GPU-02 film gate (4K keyframes, long CPU film); off = parity tests only'
+        description: 'zone check: also run the GPU-02 film gate (4K keyframes, f64 reference film); off = fixture tests only'
         type: boolean
         default: false
       baseline_ref:
@@ -42,7 +42,11 @@ jobs:
       RUST_TEST_THREADS: 1
       PROBE_MANIFEST: tools/research/gpu-route/Cargo.toml
     steps:
+      # The probe's CPU-capture arm reads the CPU zone, deleted in CLEA-04: it is frozen
+      # at the last commit that has it (tools/research/gpu-route/README.md).
       - uses: actions/checkout@v4
+        with:
+          ref: b76035fff72ae41c27ae617d28d3f970fa9a35af
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: Limits, cache directories and glslc
         env:
@@ -140,10 +144,10 @@ jobs:
           path: ${{ env.LOG_DIR }}
           retention-days: 30
 
-  # GPU-13: the product wgpu zone kernel on the RX 5700 XT. The parity tests
-  # print ms per keyframe; the GPU-02 film gate (mixed, 10 s 1080p60, 4K
-  # keyframes) prints the per-keyframe whole-frame times compared with GPU-02
-  # round 2 and requires fd filmcheck PASS.
+  # GPU-13: the product wgpu zone kernel on the RX 5700 XT. The zone fixture tests
+  # hold every kernel to the frozen CPU-zone frames (CLEA-04); the GPU-02 film gate
+  # (mixed against f64, 10 s 1080p60, 4K keyframes) prints the per-keyframe
+  # whole-frame times and requires fd filmcheck PASS.
   zone:
     if: inputs.check == 'zone'
     runs-on: [self-hosted, Linux, gpu, rx5700xt]
@@ -180,11 +184,12 @@ jobs:
         run: |
           $LIMIT cargo build --locked --release -p fd-cli --jobs 1
           $LIMIT cargo test --locked --release -p fd-cli --jobs 1 --no-run
-      - name: gpu_zone parity tests (wgpu)
+      - name: zone fixture tests (wgpu)
         run: |
           set -o pipefail
-          $LIMIT timeout 1800 cargo test --locked --release -p fd-cli gpu_zone -- --nocapture --test-threads=1 2>&1 | tee "$LOG_DIR/gpu_zone.log"
-          grep -q 'GPU-13 wgpu FP64 device' "$LOG_DIR/gpu_zone.log" || { echo "::error::no wgpu FP64 device (test skipped)"; exit 1; }
+          FD_REQUIRE_GPU=1 $LIMIT timeout 1800 cargo test --locked --release -p fd-cli --test zone_fixtures -- --nocapture --test-threads=1 2>&1 | tee "$LOG_DIR/gpu_zone.log"
+          grep -q 'zone-wgpu-f64/' "$LOG_DIR/gpu_zone.log" || { echo "::error::no zone frame on the wgpu FP64 kernel"; exit 1; }
+          if grep -q 'GPU-02 .*SKIP' "$LOG_DIR/gpu_zone.log"; then echo "::error::f32/mixed zone kernels skipped"; exit 1; fi
       - name: GPU-02 film gate (mixed, 10 s 1080p60)
         if: inputs.film_gate
         run: |
@@ -223,7 +228,7 @@ jobs:
           {
             echo '## RX 5700 XT wgpu zone kernel (GPU-13)'
             echo '```'
-            grep -h 'GPU-13\|GPU-03 width\|GPU-02 \|test result' "$LOG_DIR/gpu_zone.log" 2>/dev/null || echo 'no gpu_zone log'
+            grep -h 'CLEA-06\|GPU-02 \|test result' "$LOG_DIR/gpu_zone.log" 2>/dev/null || echo 'no gpu_zone log'
             tail -n 20 "$LOG_DIR/gpu02.log" 2>/dev/null || echo 'no film gate log'
             echo '```'
             echo 'GPU-02 round 2 (ash): f64 whole 170-250 ms, mixed whole 172-255 ms per 4K keyframe; within 1.25x means at most 213-319 ms.'

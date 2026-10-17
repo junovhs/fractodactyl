@@ -1,6 +1,6 @@
-//! wgpu zone samples (GPU-13). The CPU preflight owns decimal camera
-//! arithmetic and the zone validity gate; a rejected GPU path retains the
-//! exact CPU renderer.
+//! wgpu zone samples (GPU-13), the zone's only implementation (CLEA-04, DEC-28). The CPU
+//! preflight owns decimal camera arithmetic and the zone validity gate; a frame the GPU
+//! declines renders with the perturbation kernel.
 use fd_kernel::{Params, Zone};
 use fd_samples::{Class, Column, Evidence, Header, Kind, Samples, View};
 use std::time::Instant;
@@ -21,44 +21,43 @@ pub(crate) enum Kernel {
     F32Only,
 }
 
-/// The zone kernel for a `--zone` frame source (CLEA-06): `--gpu-kernel cpu` keeps the
-/// CPU zone; no flag picks binary64, or f32only for an extended-range zone (the only GPU
-/// kernel for those). Both meet the strict bar on the committed fixtures, which mixed
-/// does not (a few samples' DE off by up to 0.3%); on the RX 5700 XT binary64 is as fast
-/// as mixed at 1080p (50 vs 52 ms deep, 48 vs 48 ms mid; f32only 93 and 133 ms). Without
-/// an f64-capable GPU the renderer opens the f32-only kernel instead, on a software
+/// The zone kernel for a `--zone` frame source (CLEA-06): binary64 unless `--gpu-kernel`
+/// names one, or f32only for an extended-range zone (the only GPU kernel for those).
+/// Both meet the strict bar on the committed fixtures, which mixed does not (a few
+/// samples' DE off by up to 0.3%); on the RX 5700 XT binary64 is as fast as mixed at
+/// 1080p (50 vs 52 ms deep, 48 vs 48 ms mid; f32only 93 and 133 ms). Without an
+/// f64-capable GPU the renderer opens the f32-only kernel instead, on a software
 /// adapter if need be (DEC-28).
-pub(crate) fn choose(flag: Option<&str>, zone: &Zone) -> Result<Option<Kernel>, String> {
+pub(crate) fn choose(flag: Option<&str>, zone: &Zone) -> Result<Kernel, String> {
     match flag {
-        Some("cpu") => Ok(None),
-        Some(value) => Kernel::parse(value).map(Some),
-        None if zone.extended() => Ok(Some(Kernel::F32Only)),
-        None => Ok(Some(Kernel::F64)),
+        Some(value) => Kernel::parse(value),
+        None if zone.extended() => Ok(Kernel::F32Only),
+        None => Ok(Kernel::F64),
     }
 }
 
-/// One zone-covered frame: the wgpu zone kernel when `gpu` holds a renderer, else the
-/// CPU zone. A frame no GPU stage takes, or a renderer error, falls back to the CPU
-/// zone with one stderr line; an error also drops the renderer for later frames.
+/// One zone-covered frame on the wgpu zone kernel, or `None` for the caller to render
+/// it with the perturbation kernel (the zone's only CPU route since CLEA-04): when
+/// `gpu` holds no renderer, when no GPU stage takes the frame, or on a renderer error,
+/// which also drops the renderer for later frames. Each fallback prints one line.
 pub(crate) fn render_zone_frame(
     gpu: &mut Option<Renderer>,
     view: &View,
     p: &Params,
     zone: &Zone,
-) -> Result<(Header, Samples), String> {
-    if let Some(renderer) = gpu.as_mut() {
-        match renderer.render_or_decline(view, p, zone) {
-            Ok(Ok(frame)) => return Ok(frame),
-            Ok(Err(why)) => eprintln!(
-                "fd: the wgpu zone kernel declines this frame ({why}); using the CPU zone"
-            ),
-            Err(e) => {
-                eprintln!("fd: wgpu zone unavailable ({e}); using the CPU zone");
-                *gpu = None;
-            }
+) -> Option<(Header, Samples)> {
+    let renderer = gpu.as_mut()?;
+    match renderer.render_or_decline(view, p, zone) {
+        Ok(Ok(frame)) => return Some(frame),
+        Ok(Err(why)) => eprintln!(
+            "fd: the wgpu zone kernel declines this frame ({why}); using the perturbation kernel"
+        ),
+        Err(e) => {
+            eprintln!("fd: wgpu zone unavailable ({e}); using the perturbation kernel");
+            *gpu = None;
         }
     }
-    fd_kernel::render_zone(view, p, zone).map(|(h, s, _, _)| (h, s))
+    None
 }
 
 impl Kernel {
@@ -68,8 +67,13 @@ impl Kernel {
             "f32" => Ok(Self::F32),
             "mixed" => Ok(Self::Mixed),
             "f32only" => Ok(Self::F32Only),
+            "cpu" => Err(
+                "--gpu-kernel cpu: the CPU zone was deleted (CLEA-04); without \
+                          --zone, frames render with the perturbation kernel"
+                    .into(),
+            ),
             _ => Err(format!(
-                "--gpu-kernel: expected cpu, f64, f32, mixed or f32only, got {value:?}"
+                "--gpu-kernel: expected f64, f32, mixed or f32only, got {value:?}"
             )),
         }
     }
@@ -156,7 +160,7 @@ pub(crate) struct Renderer {
     layout: Option<(Stage, usize, usize, [i32; 3])>,
 }
 
-/// Which zone operator a frame uses, as the CPU zone decides it.
+/// Which zone operator a frame uses, as the zone's coverage gate decides it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Stage {
     /// Return map, approach, Koenigs jump or patch, finish (zone.wgsl / zone32.wgsl).
@@ -189,7 +193,7 @@ fn pack_exponents(v: &mut Vec<f64>, exps: &[i32]) -> usize {
     base
 }
 
-/// The frame's constants for whichever operator the CPU zone would use on it.
+/// The frame's constants for whichever operator the coverage gate picks for it.
 fn inputs(
     view: &View,
     p: &Params,
@@ -214,7 +218,7 @@ fn inputs(
 }
 
 impl Renderer {
-    /// Why no GPU stage takes this frame (the CPU zone renders it), or None.
+    /// Why no GPU stage takes this frame (the perturbation kernel renders it), or None.
     pub(crate) fn declines(&self, view: &View, p: &Params, zone: &Zone) -> Option<String> {
         inputs(view, p, zone, self.mode).err()
     }
@@ -627,19 +631,6 @@ impl Gpu {
     }
 }
 
-/// Probe the FP64 wgpu stack; unavailable devices are not correctness failures.
-#[cfg(test)]
-fn probe() -> Result<String, String> {
-    // A real binary64 device, not the f32-only fallback.
-    Ok(Opened::new(1, Kernel::F64)?.name)
-}
-
-/// Sample all columns on the FP64 compute device.
-#[cfg(test)]
-fn render(view: &View, p: &Params, zone: &Zone) -> Result<(Header, Samples), String> {
-    Renderer::new(Kernel::F64).render(view, p, zone)
-}
-
 impl Renderer {
     pub(crate) fn render(
         &mut self,
@@ -834,8 +825,6 @@ fn unpack_span(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fd_samples::Column;
-    use std::time::Instant;
 
     #[test]
     fn gpu_02_modes_and_dispatch_grid() {
@@ -869,414 +858,6 @@ mod tests {
             Validator::new(ValidationFlags::all(), caps)
                 .validate(&module)
                 .unwrap_or_else(|e| panic!("{mode:?}: {}", e.emit_to_string(&source)));
-        }
-    }
-
-    #[test]
-    fn gpu_zone_f64_parity() {
-        match probe() {
-            Ok(name) => eprintln!("GPU-13 wgpu FP64 device: {name}"),
-            Err(e) if e.contains("no wgpu") => {
-                eprintln!("GPU-03 SKIP: {e}");
-                return;
-            }
-            Err(e) => panic!("GPU-13 wgpu init failed: {e}"),
-        }
-        let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
-        let centre_re =
-            "-0.743291890852430202931624158508904039462544013087723088341335644672284698593566";
-        let centre_im =
-            "0.131240552308797604770845873815964848019374249266625134372668873249132305318161";
-        let p = Params {
-            nx: 480,
-            ny: 270,
-            ss: 1,
-            max_iter: 20_000,
-            escape_radius: 1e10,
-            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-            threads: 4,
-            tier: None,
-        };
-        for width in ["1e-35", "1e-38", "1e-40", "1e-43", "1e-46", "2e-48"] {
-            let view = View {
-                center_re: centre_re.into(),
-                center_im: centre_im.into(),
-                width: width.into(),
-                rotation: 0.0,
-            };
-            let t = Instant::now();
-            let (_, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
-            let cpu_ms = t.elapsed().as_secs_f64() * 1e3;
-            let t = Instant::now();
-            let (_, gpu) = render(&view, &p, &zone).unwrap();
-            let gpu_ms = t.elapsed().as_secs_f64() * 1e3;
-            let (a, b) = (cpu.nu.as_ref().unwrap(), gpu.nu.as_ref().unwrap());
-            let (ad, bd) = (cpu.de.as_ref().unwrap(), gpu.de.as_ref().unwrap());
-            let (an, bn) = (cpu.normal.as_ref().unwrap(), gpu.normal.as_ref().unwrap());
-            let mut maxima = [0.0f64; 3];
-            for i in 0..cpu.class.len() {
-                assert_eq!(
-                    cpu.class[i].kind(),
-                    gpu.class[i].kind(),
-                    "{width}: class mismatch at ({},{})",
-                    i % p.nx as usize,
-                    i / p.nx as usize
-                );
-                if !cpu.class[i].escaped() {
-                    continue;
-                }
-                let de = f64::from(ad[i]);
-                let errors = [
-                    (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0,
-                    (f64::from(ad[i]) - f64::from(bd[i])).abs(),
-                    f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
-                        * std::f64::consts::TAU
-                        / 65536.0
-                        * de,
-                ];
-                for c in 0..3 {
-                    maxima[c] = maxima[c].max(errors[c]);
-                    assert!(
-                        errors[c].is_finite() && errors[c] <= 1e-3,
-                        "{width}: pixel {i}, column {c}, error {} px (CPU/GPU DE {} / {})",
-                        errors[c],
-                        ad[i],
-                        bd[i]
-                    );
-                }
-            }
-            eprintln!("GPU-03 width {width}: CPU {cpu_ms:.2} ms/frame, GPU {gpu_ms:.2} ms/frame; max nu/de/normal px = {maxima:?}");
-        }
-    }
-
-    /// GPU-02: the f32 and mixed kernels across the v0 film's depth range,
-    /// including the 1e-38..3e-39 band and the post-1e-42 range that broke
-    /// round 1. Class agrees with the CPU zone (up to the f64 kernel's own
-    /// count) and positions stay within 0.05 px; under 0.5% of samples may
-    /// exceed the strict 1e-3 px, all of them in f32-tail or front
-    /// derivative rounding the guard does not bound (DE/normal only).
-    #[test]
-    fn gpu_zone_f32_guarded_parity() {
-        if let Err(e) = probe() {
-            eprintln!("GPU-02 SKIP: {e}");
-            return;
-        }
-        let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
-        let p = Params {
-            nx: 480,
-            ny: 270,
-            ss: 1,
-            max_iter: 100_000,
-            escape_radius: 1e10,
-            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-            threads: 8,
-            tier: None,
-        };
-        let widths = [
-            "1e-37", "1e-38", "6e-39", "3e-39", "1e-39", "1e-41", "1e-42", "1e-45", "2e-49",
-        ];
-        for mode in [Kernel::Mixed, Kernel::F32] {
-            let mut gpu = Renderer::new(mode);
-            for width in widths {
-                let view = View {
-                    center_re: "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502".into(),
-                    center_im: "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922".into(),
-                    width: width.into(),
-                    rotation: 0.0,
-                };
-                let (_, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
-                let (_, got) = gpu.render(&view, &p, &zone).unwrap();
-                let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
-                let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
-                let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
-                let (mut mismatched, mut strict, mut worst) = (0, 0, 0.0f64);
-                for i in 0..cpu.class.len() {
-                    if cpu.class[i].kind() != got.class[i].kind() {
-                        mismatched += 1;
-                        continue;
-                    }
-                    if !cpu.class[i].escaped() {
-                        continue;
-                    }
-                    let de = f64::from(ad[i]);
-                    let e = [
-                        (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0,
-                        (de - f64::from(bd[i])).abs(),
-                        f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
-                            * std::f64::consts::TAU
-                            / 65536.0
-                            * de,
-                    ]
-                    .into_iter()
-                    .fold(0.0, f64::max);
-                    assert!(e.is_finite(), "{mode:?} {width}: pixel {i} non-finite");
-                    worst = worst.max(e);
-                    strict += usize::from(e > 1e-3);
-                }
-                eprintln!("GPU-02 {mode:?} {width}: >1e-3 px {strict}, worst {worst:.2e} px, class mismatches {mismatched}");
-                assert!(
-                    mismatched <= 1,
-                    "{mode:?} {width}: {mismatched} class mismatches"
-                );
-                assert!(worst <= 0.05, "{mode:?} {width}: worst {worst} px");
-                assert!(
-                    strict * 200 <= cpu.class.len(),
-                    "{mode:?} {width}: {strict} samples > 1e-3 px"
-                );
-            }
-        }
-    }
-
-    /// GPU-28: the f32-only kernel (no f64 or i64 requested) at the GPU-02 parity widths,
-    /// judged by DEC-29 film-equivalence: the studio look (master-ice, film settings)
-    /// shaded from its samples is within one level of the exact CPU zone's on >=99.9%
-    /// of pixels. Class, position, DE and normal differences against the CPU reference
-    /// are reported (DEC-17, not gating), with ms per keyframe next to mixed.
-    #[test]
-    fn gpu_zone_f32only_parity() {
-        use fd_shade::Pass as _;
-        let zone = Zone::parse(include_str!("../../../bench/zones/v0-core.zone")).unwrap();
-        let p = Params {
-            nx: 480,
-            ny: 270,
-            ss: 1,
-            max_iter: 100_000,
-            escape_radius: 1e10,
-            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-            threads: 8,
-            tier: None,
-        };
-        let look = fd_shade::Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
-        let film = fd_shade::Appearance {
-            time: 1.0,
-            flow: look.flow,
-            aa: true,
-            dither: true,
-            unresolved_interior: true,
-            ..fd_shade::Appearance::STILL
-        };
-        let studio = fd_shade::Studio(look);
-        let mut f32only = Renderer::new(Kernel::F32Only);
-        let mut mixed = Renderer::new(Kernel::Mixed);
-        let mut name = None;
-        let widths = [
-            "1e-37", "1e-38", "6e-39", "3e-39", "1e-39", "1e-41", "1e-42", "1e-45", "2e-49",
-        ];
-        for width in widths {
-            let view = View {
-                center_re: "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502".into(),
-                center_im: "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922".into(),
-                width: width.into(),
-                rotation: 0.0,
-            };
-            let (hc, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
-            let t = Instant::now();
-            let got = match f32only.render(&view, &p, &zone) {
-                Ok((_, s)) => s,
-                Err(e) if e.contains("no wgpu") => {
-                    assert!(
-                        std::env::var_os("FD_REQUIRE_GPU").is_none(),
-                        "no wgpu adapter for f32only, but FD_REQUIRE_GPU is set: {e}"
-                    );
-                    eprintln!("GPU-28 SKIP: {e}");
-                    return;
-                }
-                Err(e) => panic!("f32only {width}: {e}"),
-            };
-            let ms = t.elapsed().as_secs_f64() * 1e3;
-            name.get_or_insert_with(|| f32only.opened.as_ref().unwrap().name.clone());
-            // Mixed for timing, where a binary64 device exists.
-            let mixed_ms = {
-                let t = Instant::now();
-                mixed
-                    .render(&view, &p, &zone)
-                    .ok()
-                    .filter(|_| mixed.mode == Kernel::Mixed)
-                    .map(|_| t.elapsed().as_secs_f64() * 1e3)
-            };
-            let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
-            let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
-            let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
-            let (mut classes, mut strict, mut worst_pos) = (0, 0, 0.0f64);
-            for i in 0..cpu.class.len() {
-                if cpu.class[i].kind() != got.class[i].kind() {
-                    classes += 1;
-                    continue;
-                }
-                if !cpu.class[i].escaped() {
-                    continue;
-                }
-                let de = f64::from(ad[i]);
-                let pos = (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
-                let other = [
-                    (de - f64::from(bd[i])).abs(),
-                    f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
-                        * std::f64::consts::TAU
-                        / 65536.0
-                        * de,
-                ];
-                worst_pos = worst_pos.max(pos);
-                strict += usize::from(pos.max(other[0]).max(other[1]) > 1e-3);
-            }
-            let (x, y) = (
-                studio.shade_with(&hc, &cpu, &film),
-                studio.shade_with(&hc, &got, &film),
-            );
-            let off = x
-                .data
-                .chunks_exact(3)
-                .zip(y.data.chunks_exact(3))
-                .filter(|(p, q)| p.iter().zip(q.iter()).any(|(u, v)| u.abs_diff(*v) > 1))
-                .count();
-            let pixels = x.w * x.h;
-            eprintln!(
-                "GPU-28 {width} on {}: {off}/{pixels} shaded pixels > 1 level; class {classes}, worst nu position {worst_pos:.2e} px, >1e-3 px (any column) {strict}; {ms:.1} ms/keyframe, mixed {}",
-                name.as_deref().unwrap_or("?"),
-                mixed_ms.map_or("n/a".into(), |m| format!("{m:.1} ms"))
-            );
-            assert!(
-                off * 1000 <= pixels,
-                "{width}: {off} of {pixels} shaded pixels differ by more than one level"
-            );
-        }
-    }
-
-    /// The full v0 zone (with KERN-02's mid-band constants), built by
-    /// tools/research/misiurewicz/make_zone.sh: FD_V0_ZONE, else out/zones/v0.zone.
-    fn full_v0_zone() -> Option<Zone> {
-        let path = std::env::var_os("FD_V0_ZONE").map_or_else(
-            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/zones/v0.zone"),
-            std::path::PathBuf::from,
-        );
-        Some(Zone::parse(&std::fs::read_to_string(path).ok()?).unwrap())
-    }
-
-    /// GPU-22: mid-band frames of scripts/kern02_subset.sh's 14 at 960x540, against the
-    /// CPU zone: binary64 (mixed) at the strict bar, f32only at DEC-29 film-equivalence.
-    #[test]
-    fn gpu_zone_mid_parity() {
-        use fd_shade::Pass as _;
-        let Some(zone) = full_v0_zone() else {
-            eprintln!("GPU-22 SKIP: no full v0 zone (FD_V0_ZONE or out/zones/v0.zone)");
-            return;
-        };
-        let rows: Vec<String> = include_str!("../../../bench/path-atlas-v0.txt")
-            .lines()
-            .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-            .map(str::to_owned)
-            .collect();
-        let p = Params {
-            nx: 960,
-            ny: 540,
-            ss: 1,
-            max_iter: 100_000,
-            escape_radius: 1e10,
-            columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-            threads: 24,
-            tier: None,
-        };
-        let look = fd_shade::Look::parse(include_str!("../../../looks/master-ice.look")).unwrap();
-        let film = fd_shade::Appearance {
-            time: 1.0,
-            flow: look.flow,
-            aa: true,
-            dither: true,
-            unresolved_interior: true,
-            ..fd_shade::Appearance::STILL
-        };
-        let studio = fd_shade::Studio(look);
-        let modes: Vec<Kernel> = match std::env::var("FD_MID_MODES") {
-            Ok(m) => m.split(',').map(|k| Kernel::parse(k).unwrap()).collect(),
-            Err(_) => vec![Kernel::Mixed, Kernel::F32Only],
-        };
-        for mode in modes {
-            let mut gpu = Renderer::new(mode);
-            for index in [
-                100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 400, 430, 480,
-            ] {
-                let f: Vec<&str> = rows[index].split_whitespace().collect();
-                let view = View {
-                    center_re: f[0].into(),
-                    center_im: f[1].into(),
-                    width: f[2].into(),
-                    rotation: 0.0,
-                };
-                if zone.gpu_mid_input(&view, &p).is_err() {
-                    continue;
-                }
-                let t = Instant::now();
-                let (hc, cpu, _, zs) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
-                // Pixels the mid operator declined to the full-perturbation fallback.
-                let fallback = 1.0 - zs.jumps as f64 / cpu.class.len() as f64;
-                let cpu_ms = t.elapsed().as_secs_f64() * 1e3;
-                let t = Instant::now();
-                let got = match gpu.render(&view, &p, &zone) {
-                    Ok((h, s)) => {
-                        assert!(h.kernel.contains("mid"), "{}", h.kernel);
-                        s
-                    }
-                    Err(e) if e.contains("no wgpu") => {
-                        eprintln!("GPU-22 SKIP {mode:?}: {e}");
-                        break;
-                    }
-                    Err(e) => panic!("{mode:?} frame {index}: {e}"),
-                };
-                let ms = t.elapsed().as_secs_f64() * 1e3;
-                let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
-                let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
-                let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
-                let (mut classes, mut strict, mut worst) = (0, 0, [0.0f64; 3]);
-                for i in 0..cpu.class.len() {
-                    if cpu.class[i].kind() != got.class[i].kind() {
-                        classes += 1;
-                        continue;
-                    }
-                    if !cpu.class[i].escaped() {
-                        continue;
-                    }
-                    let de = f64::from(ad[i]);
-                    let e = [
-                        (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0,
-                        (de - f64::from(bd[i])).abs(),
-                        f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
-                            * std::f64::consts::TAU
-                            / 65536.0
-                            * de,
-                    ];
-                    for c in 0..3 {
-                        worst[c] = worst[c].max(e[c]);
-                    }
-                    strict += usize::from(e.iter().any(|&x| x.is_nan() || x > 1e-3));
-                }
-                let (x, y) = (
-                    studio.shade_with(&hc, &cpu, &film),
-                    studio.shade_with(&hc, &got, &film),
-                );
-                let off = x
-                    .data
-                    .chunks_exact(3)
-                    .zip(y.data.chunks_exact(3))
-                    .filter(|(p, q)| p.iter().zip(q.iter()).any(|(u, v)| u.abs_diff(*v) > 1))
-                    .count();
-                let pixels = x.w * x.h;
-                eprintln!(
-                    "GPU-22 {mode:?} frame {index} (width {}): class {classes}, >1e-3 px {strict}, worst nu/de/normal px {:.1e} {:.1e} {:.1e}, shaded > 1 level {off}/{pixels}, fallback {:.1}%; GPU {ms:.0} ms, CPU zone {cpu_ms:.0} ms",
-                    f[2],
-                    worst[0],
-                    worst[1],
-                    worst[2],
-                    fallback * 100.0
-                );
-                if mode == Kernel::F32Only {
-                    assert!(
-                        off * 1000 <= pixels,
-                        "{mode:?} frame {index}: {off} shaded pixels differ"
-                    );
-                } else {
-                    assert_eq!(classes, 0, "{mode:?} frame {index}: class mismatches");
-                    assert_eq!(strict, 0, "{mode:?} frame {index}: samples over 1e-3 px");
-                }
-            }
         }
     }
 
@@ -1380,134 +961,5 @@ fn probe() {
             );
         }
         eprintln!("GPU-23 packing on {name}: exponents -3000..3000 round-trip");
-    }
-
-    /// The zone built by tools/research/misiurewicz/make_zone.sh at ladder rung `k`
-    /// (FD_RUNG_ZONES/rung{k}.zone, default out/zones), with the rung's nucleus.
-    fn rung_zone(k: u32) -> Option<(Zone, String, String, u64)> {
-        let dir = std::env::var_os("FD_RUNG_ZONES").map_or_else(
-            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../out/zones"),
-            std::path::PathBuf::from,
-        );
-        let text = std::fs::read_to_string(dir.join(format!("rung{k}.zone"))).ok()?;
-        let line = include_str!("../../../tools/research/misiurewicz/ladder_rungs.txt")
-            .lines()
-            .find(|l| l.starts_with(&format!("{k} ")))
-            .unwrap();
-        let f: Vec<&str> = line.split_whitespace().collect();
-        Some((
-            Zone::parse(&text).unwrap(),
-            f[2].into(),
-            f[3].into(),
-            f[1].parse().unwrap(),
-        ))
-    }
-
-    /// GPU-23: ladder-rung frames on the f32-only kernel against the CPU zone, at
-    /// PROB-19's widths (5000, 500, 50 and 5 minibrot sizes): the k = 7676 rung
-    /// (~1e-1000, extended range) at 96x54 and 480x270, and k = 409 (~1e-100) at 480x270.
-    /// Strict bar: 0 class mismatches, every escaped sample within 1e-3 px in nu
-    /// position, and fd compare's DE (0.2%) and normal (0.2 degree) gates where the
-    /// reference DE exceeds 1e-3 px.
-    #[test]
-    fn gpu_zone_extended_parity() {
-        for (k, size, grids) in [
-            (7676u32, "1.01e-1000", &[(96u32, 54u32), (480, 270)][..]),
-            (409, "9.2e-101", &[(480, 270)][..]),
-        ] {
-            let Some((zone, re, im, period)) = rung_zone(k) else {
-                eprintln!("GPU-23 SKIP: no rung{k}.zone (FD_RUNG_ZONES or out/zones)");
-                continue;
-            };
-            let mut gpu = Renderer::new(Kernel::F32Only);
-            for &(nx, ny) in grids {
-                let p = Params {
-                    nx,
-                    ny,
-                    ss: 1,
-                    max_iter: 40 * period,
-                    escape_radius: 1e10,
-                    columns: fd_samples::ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
-                    threads: 24,
-                    tier: None,
-                };
-                for mult in ["5000", "500", "50", "5"] {
-                    let (m, e) = size.split_once('e').unwrap();
-                    let width = format!(
-                        "{}e{e}",
-                        m.parse::<f64>().unwrap() * mult.parse::<f64>().unwrap()
-                    );
-                    let view = View {
-                        center_re: re.clone(),
-                        center_im: im.clone(),
-                        width,
-                        rotation: 0.0,
-                    };
-                    let t = Instant::now();
-                    let (_, cpu, _, _) = fd_kernel::render_zone(&view, &p, &zone).unwrap();
-                    let cpu_ms = t.elapsed().as_secs_f64() * 1e3;
-                    let t = Instant::now();
-                    let got = match gpu.render(&view, &p, &zone) {
-                        Ok((_, s)) => s,
-                        Err(e) if e.contains("no wgpu") => {
-                            eprintln!("GPU-23 SKIP: {e}");
-                            return;
-                        }
-                        Err(e) => panic!("rung {k} {mult} sizes: {e}"),
-                    };
-                    let ms = t.elapsed().as_secs_f64() * 1e3;
-                    let stage = gpu.layout.unwrap().0;
-                    let (a, b) = (cpu.nu.as_ref().unwrap(), got.nu.as_ref().unwrap());
-                    let (ad, bd) = (cpu.de.as_ref().unwrap(), got.de.as_ref().unwrap());
-                    let (an, bn) = (cpu.normal.as_ref().unwrap(), got.normal.as_ref().unwrap());
-                    let (mut classes, mut nu_off, mut de_off, mut normal_off) = (0, 0, 0, 0);
-                    let (mut worst, mut escaped) = ([0.0f64; 3], 0);
-                    for i in 0..cpu.class.len() {
-                        if cpu.class[i].kind() != got.class[i].kind() {
-                            classes += 1;
-                            eprintln!(
-                                "GPU-23 class at ({}, {}): CPU {:?}, GPU {:?}",
-                                i % nx as usize,
-                                i / nx as usize,
-                                cpu.class[i].kind(),
-                                got.class[i].kind()
-                            );
-                            continue;
-                        }
-                        if !cpu.class[i].escaped() {
-                            continue;
-                        }
-                        escaped += 1;
-                        let de = f64::from(ad[i]);
-                        let px = (a[i] - b[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
-                        let rel = (f64::from(bd[i]) / de - 1.0).abs();
-                        let deg =
-                            f64::from(an[i].wrapping_sub(bn[i]).min(bn[i].wrapping_sub(an[i])))
-                                * 360.0
-                                / 65536.0;
-                        worst[0] = worst[0].max(px);
-                        nu_off += usize::from(px.is_nan() || px > 1e-3);
-                        if de > 1e-3 {
-                            worst[1] = worst[1].max(rel);
-                            worst[2] = worst[2].max(deg);
-                            de_off += usize::from(rel.is_nan() || rel > 2e-3);
-                            normal_off += usize::from(deg > 0.2);
-                        }
-                    }
-                    eprintln!(
-                        "GPU-23 rung {k} {nx}x{ny} {mult} sizes ({stage:?}): class {classes}, nu > 1e-3 px {nu_off}, de > 0.2% {de_off}, normal > 0.2 deg {normal_off}; worst nu {:.1e} px, de {:.1e}, normal {:.1e} deg over {escaped} escaped; GPU {ms:.0} ms, CPU zone {cpu_ms:.0} ms",
-                        worst[0], worst[1], worst[2]
-                    );
-                    if k == 7676 {
-                        assert!(matches!(stage, Stage::Extended(_)), "rung {k}: {stage:?}");
-                    }
-                    assert_eq!(
-                        (classes, nu_off, de_off, normal_off),
-                        (0, 0, 0, 0),
-                        "rung {k} {nx}x{ny} {mult} sizes"
-                    );
-                }
-            }
-        }
     }
 }

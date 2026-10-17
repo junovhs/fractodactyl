@@ -1,5 +1,8 @@
 # Jet-AA probe (frontier question 6: supersampling from jets)
 
+**Frozen (CLEA-04).** The `zonejet` binary (`fd_kernel::render_zone`) reads the CPU zone,
+which CLEA-04 deleted, so this crate builds only at the last commit that has it, `b76035fff72ae41c27ae617d28d3f970fa9a35af` (`git worktree add ../frozen b76035fff72ae41c27ae617d28d3f970fa9a35af`).
+
 Notes and conclusions: `docs/research/10-11-26/q6-supersampling-from-jets.md`.
 CPU only. Standalone crate, outside the workspace (like `tools/research/twolevel/zone_finish/capture`).
 

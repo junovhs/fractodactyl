@@ -1,5 +1,19 @@
 # GPU source route probe (GPU-12)
 
+**Frozen (CLEA-04).** The `capture` and `zone-smoke` arms read finish checkpoints from
+the CPU zone (`Zone::probe_finish_inputs`, fd-kernel's `gpu-route-probe` feature), which
+CLEA-04 deleted along with the CPU zone. This crate builds only at the last commit that
+has it, `b76035fff72ae41c27ae617d28d3f970fa9a35af`:
+
+```
+git worktree add ../gpu-route-frozen b76035fff72ae41c27ae617d28d3f970fa9a35af
+cargo build --locked --manifest-path ../gpu-route-frozen/tools/research/gpu-route/Cargo.toml
+```
+
+The gpu-route-build and gpu-route-rx5700xt (route) workflows check out that commit. The
+product zone kernel and its checks are crates/fd-cli/shaders/zone*.wgsl and fd-cli's
+`zone_fixtures` test.
+
 This standalone, unshipped research crate prepares the finish-stage route comparison
 for the Foundation plan. It does not port the product renderer.
 

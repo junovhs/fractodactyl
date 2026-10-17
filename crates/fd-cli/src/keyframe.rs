@@ -157,7 +157,7 @@ impl<'a> Keyframes<'a> {
         self.gpu.as_ref().map(|g| g.name.as_str())
     }
 
-    /// Select wgpu zone samples; unsupported frames retain the CPU zone.
+    /// Select wgpu zone samples; unsupported frames render with the perturbation kernel.
     pub(crate) fn enable_zone_kernel(&mut self, mode: crate::zone_gpu::Kernel) {
         self.zone_renderer = Some(crate::zone_gpu::Renderer::new(mode));
     }
@@ -185,11 +185,11 @@ impl<'a> Keyframes<'a> {
         let t = std::time::Instant::now();
         let covered = match (self.zone, self.zone_renderer.as_ref()) {
             (Some(zone), Some(renderer)) if zone_covers(&view, &self.p, zone)? => {
-                // A keyframe no GPU stage takes renders on the CPU zone; the renderer
-                // stays on for the next one (CLEA-06).
+                // A keyframe no GPU stage takes renders with the perturbation kernel; the
+                // renderer stays on for the next one (CLEA-06).
                 match renderer.declines(&view, &self.p, zone) {
                     Some(why) => {
-                        eprintln!("fd film: the wgpu zone kernel declines keyframe {j} ({why}); using the CPU zone");
+                        eprintln!("fd film: the wgpu zone kernel declines keyframe {j} ({why}); using the perturbation kernel");
                         false
                     }
                     None => true,
@@ -210,9 +210,11 @@ impl<'a> Keyframes<'a> {
                     return Ok(());
                 }
                 Ok(None) => {
-                    eprintln!("fd film: wgpu zone keyframe {j} has invalid columns; using CPU zone")
+                    eprintln!("fd film: wgpu zone keyframe {j} has invalid columns; using the perturbation kernel")
                 }
-                Err(e) => eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone"),
+                Err(e) => {
+                    eprintln!("fd film: wgpu zone unavailable ({e}); using the perturbation kernel")
+                }
             }
             self.zone_renderer = None;
             self.zone_readback_bytes += 4;
@@ -231,7 +233,7 @@ impl<'a> Keyframes<'a> {
                 (h, s, Used::Zone)
             }
             Some(Err(e)) => {
-                eprintln!("fd film: wgpu zone unavailable ({e}); using CPU zone");
+                eprintln!("fd film: wgpu zone unavailable ({e}); using the perturbation kernel");
                 self.zone_renderer = None;
                 render_frame_kernel(&view, &self.p, self.zone, &mut None)?
             }

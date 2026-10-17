@@ -97,9 +97,9 @@ jobs:
         run: cargo test -p fd-shade --locked --jobs 1 -- wgsl_ --nocapture --test-threads=1
       # CLEA-05: the f32-only zone kernel on DX12 WARP; FD_REQUIRE_GPU turns a skip into a failure.
       - name: zone kernel on WARP (adapter names)
-        run: cargo test -p fd-cli --bin fd --locked --jobs 1 -- zone_extended_packing_roundtrip gpu_zone_f32only_parity zone_ff_ --nocapture --test-threads=1
-      # CLEA-06: every --zone fixture frame through `fd render` on WARP against the frozen
-      # CPU-zone frames (the kernel used is in each line).
+        run: cargo test -p fd-cli --bin fd --locked --jobs 1 -- zone_extended_packing_roundtrip zone_ff_ --nocapture --test-threads=1
+      # CLEA-06/CLEA-04: every --zone fixture frame through `fd render` on WARP against the
+      # frozen CPU-zone frames (the kernel used is in each line).
       - name: zone fixtures on WARP
         run: cargo test -p fd-cli --test zone_fixtures --locked --jobs 1 -- --nocapture
 
