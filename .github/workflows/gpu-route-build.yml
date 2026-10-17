@@ -4,10 +4,6 @@ on:
   push:
     paths:
       - '.github/workflows/gpu-route-build.yml'
-      - 'tools/research/gpu-route/**'
-      - 'crates/fd-kernel/**'
-      - 'crates/fd-fixed/**'
-      - 'crates/fd-samples/**'
 permissions:
   contents: read
 jobs:
@@ -28,7 +24,11 @@ jobs:
       CARGO_BUILD_JOBS: 1
       RUST_TEST_THREADS: 1
     steps:
+      # Frozen with the CPU zone it captures from (CLEA-04): the probe builds only at the
+      # last commit that has it (tools/research/gpu-route/README.md).
       - uses: actions/checkout@v4
+        with:
+          ref: b76035fff72ae41c27ae617d28d3f970fa9a35af
       - uses: dtolnay/rust-toolchain@1.95.0
         with:
           components: rustfmt

@@ -52,11 +52,17 @@ ash/GLSL code deleted.
   129,600 shaded pixels over one level at all GPU-02 widths) on the RX 5700 XT and on
   lavapipe, and is chosen automatically without an f64-capable GPU.
 
+- CLEA-06, CLEA-04 (2026-10-17): the zone exists only as WGSL. `fd render`, `fd control`,
+  `fd film` and `fd explore` run every `--zone` frame on the wgpu zone kernel (binary64,
+  or f32only for extended-range zones and on GPUs without f64; lavapipe/WARP without a
+  GPU); a frame it declines renders with the perturbation kernel. fd-kernel's zone pixel
+  stages are deleted. `zone_fixtures` holds every kernel to 24 CPU-zone frames frozen
+  beforehand (`crates/fd-cli/tests/fixtures/zones`).
+
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
 BENC-11 (BENC-10's race on the RTX 3050 Ti laptop), GPU-21 (zone output stays on the GPU
 into shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
-frames on the GPU), GPU-23 (extended-range zones on the GPU) → CLEA-04 (CPU zone copy
-deleted) · PROB-12 (`fd zone` in Rust) → CLEA-02 (retire research copies of the zone
+frames on the GPU), GPU-23 (extended-range zones on the GPU) · PROB-12 (`fd zone` in Rust) → CLEA-02 (retire research copies of the zone
 pipeline).
 
 ## Decisions to know

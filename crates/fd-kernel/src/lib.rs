@@ -14,8 +14,9 @@
 //! the `Bound` column is requested (`Bounded`, docs/spec/LOD.md). `render_bla` skips runs
 //! of steps with a stored BLA table (ACC-01, f64/fx tiers, `bla.rs`). `render_refined`
 //! skips supersamples in blocks the screen-space error rule accepts from one sample per
-//! pixel (LOD-02). `render_zone` is the minibrot-band fast path for views inside a
-//! zone (KERN-01, `zone.rs`).
+//! pixel (LOD-02). `zone.rs` holds the CPU side of the minibrot-band fast path for views
+//! inside a zone (KERN-01): parsing, the coverage gate and the GPU constants; its pixel
+//! stages run only as WGSL in fd-cli (CLEA-04).
 mod bla;
 mod grid;
 mod interior;
@@ -35,7 +36,4 @@ pub use grid::{
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use view::{Plane, Tier};
-pub use zone::{render_zone, render_zone_masked, zone_covers, Zone, ZoneStats};
-
-#[cfg(feature = "gpu-route-probe")]
-pub use zone::FinishCheckpoint;
+pub use zone::{zone_covers, Zone};

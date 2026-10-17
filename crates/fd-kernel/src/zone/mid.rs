@@ -1,12 +1,11 @@
-//! PROB-14 co-moving two-cycle jump for v0 mid-band pixels.
-//! Valid for |dc| <= 1e-6, chart |w| <= 0.031 and an in-budget jump;
-//! every declined operator falls back to full reference perturbation.
+//! Constants and frame gate of the PROB-14 co-moving two-cycle jump for v0 mid-band
+//! pixels. The per-pixel operator exists only as WGSL (zone_mid.wgsl, zone_mid32.wgsl;
+//! DEC-28). Valid for |dc| <= 1e-6, chart |w| <= 0.031 and an in-budget jump; every
+//! declined operator falls back to plain iteration at the pixel's own parameter.
 use super::Cx;
-use crate::sample::Outcome;
 
 const N: usize = 18;
 const APPROACH: usize = 24;
-const RADIUS: f64 = 0.03;
 const MAX_DC: f64 = 1e-6;
 // PROB-14 was whole-frame checked at 1e-6 and 1e-11..1e-26. The intervening
 // annulus failed the KERN-02 derivative/normal gate, so its jumps abstain.
@@ -137,263 +136,12 @@ impl Mid {
     }
 }
 
-#[inline]
-fn eval(a: &[Cx], w: Cx) -> (Cx, Cx) {
-    let (mut v, mut d) = (Cx::default(), Cx::default());
-    for x in a.iter().rev() {
-        d = d.mul(w).add(v);
-        v = v.mul(w).add(*x);
-    }
-    (v, d)
-}
-
-fn escaped(n: u64, z: Cx, dz: Cx) -> Outcome {
-    Outcome::Escaped {
-        n,
-        zr: z.0,
-        zi: z.1,
-        dr: dz.0,
-        di: dz.1,
-        dexp: 0,
-        ez: f64::INFINITY,
-        ed: f64::INFINITY,
-    }
-}
-
-/// Unaccelerated orbit at the pixel's own parameter, with periodic rebasing.
-fn fallback<const D: bool>(m: &Mid, dc: Cx, max_iter: u64, r2: f64) -> (Outcome, u64, bool) {
-    let (mut d, mut dz, mut at) = (Cx::default(), Cx::default(), 0usize);
-    for n in 1..=max_iter {
-        let z = m.reference[at].add(d);
-        if D {
-            dz = z.scale(2.0).mul(dz).add(Cx(1.0, 0.0));
-        }
-        d = m.reference[at].scale(2.0).mul(d).add(d.mul(d)).add(dc);
-        at += 1;
-        if at == m.reference.len() {
-            at = 0;
-        }
-        let z = m.reference[at].add(d);
-        let a = z.norm2();
-        if a > r2 {
-            if a.is_finite() && (!D || (dz.abs().is_finite() && dz.abs() > 0.0)) {
-                return (escaped(n, z, dz), n, false);
-            }
-            return (Outcome::Unresolved, n, false);
-        }
-        if a < d.norm2() {
-            d = z;
-            at = 0;
-        }
-    }
-    (Outcome::Unresolved, max_iter, false)
-}
-
-/// One mid-band operator: 24 perturbation steps, a 2j-step chart jump carrying
-/// dz/dc, then direct iteration at the pixel's c. Work is executed steps, not 2j.
-#[inline]
-pub(super) fn pixel<const D: bool>(
-    m: &Mid,
-    c0: Cx,
-    dc: Cx,
-    max_iter: u64,
-    r2: f64,
-    h: f64,
-) -> (Outcome, u64, bool) {
-    let fallback = || fallback::<D>(m, dc, max_iter, r2);
-    if !chart_parameter_ok(dc.abs()) || max_iter <= APPROACH as u64 {
-        return fallback();
-    }
-    let (mut d, mut dz) = (Cx::default(), Cx::default());
-    for z in &m.z[..APPROACH] {
-        let at = z.add(d);
-        if D {
-            dz = at.scale(2.0).mul(dz).add(Cx(1.0, 0.0));
-        }
-        d = z.scale(2.0).mul(d).add(d.mul(d)).add(dc);
-    }
-    // Closed-form shift p(c)-p(C), without subtracting two rounded cycle points.
-    let mut ds = dc.scale(-4.0).div(m.s.scale(2.0));
-    for _ in 0..2 {
-        ds = dc.scale(-4.0).div(m.s.scale(2.0).add(ds));
-    }
-    let dp = ds.scale(0.5 * m.sign);
-    let pc = m.p.add(dp);
-    let pprime = Cx(-1.0, 0.0).div(pc.scale(2.0).add(Cx(1.0, 0.0)));
-    let u0 = m.u.add(d).sub(dp);
-    let lam = m.lambda.add(dc.scale(4.0));
-    if !(lam.abs() > 1.0 && u0.abs() < RADIUS / lam.abs() && u0.abs().is_finite()) {
-        return fallback();
-    }
-
-    let mut k = [Cx::default(); N + 1];
-    k.copy_from_slice(&m.k);
-    for (a, b) in k.iter_mut().zip(&m.kp) {
-        *a = a.add(dc.mul(*b));
-    }
-    let mut w0 = u0;
-    for _ in 0..3 {
-        let (v, derivative) = eval(&k, w0);
-        if !(derivative.abs() > 0.0 && derivative.abs().is_finite()) {
-            return fallback();
-        }
-        w0 = w0.sub(v.sub(u0).div(derivative));
-    }
-    let r = w0.abs();
-    if !(r > 0.0 && r.is_finite()) {
-        return fallback();
-    }
-    let jf = (RADIUS / r).ln() / lam.abs().ln();
-    if !(jf.is_finite() && jf >= 1.0 && jf < m.powers.len() as f64) {
-        return fallback();
-    }
-    let j = jf.floor() as usize;
-    let n0 = APPROACH as u64 + 2 * j as u64;
-    if n0 >= max_iter {
-        return fallback();
-    }
-    // High-precision tabulated lambda(C)^j, with first-order parameter correction.
-    let factor = Cx(1.0, 0.0).add(dc.scale(4.0 * j as f64).div(m.lambda));
-    let lj = m.powers[j].mul(factor);
-    let q = w0.mul(lj);
-    if !(q.abs().is_finite() && q.abs() <= 0.031) {
-        return fallback();
-    }
-    let (_, dkw) = eval(&k, w0);
-    let (kq, dkq) = eval(&k, q);
-    let (pcw, _) = eval(&m.kp, w0);
-    let (pcq, _) = eval(&m.kp, q);
-    if !(dkw.abs() > 0.0 && dkw.abs().is_finite()) {
-        return fallback();
-    }
-    if D {
-        let bracket = dz
-            .sub(pprime)
-            .sub(pcw)
-            .add(w0.mul(dkw).mul(Cx(4.0 * j as f64, 0.0).div(lam)));
-        dz = pprime.add(lj.mul(dkq).div(dkw).mul(bracket)).add(pcq);
-    }
-    let mut z = pc.add(kq);
-    if !z.abs().is_finite() || (D && !dz.abs().is_finite()) {
-        return fallback();
-    }
-
-    // The finish MUST use the pixel's own c, not the nucleus C (PROB-14).
-    let c = c0.add(dc);
-    let mut work = APPROACH as u64 + 1;
-    for n in n0 + 1..=max_iter {
-        if D {
-            dz = z.scale(2.0).mul(dz).add(Cx(1.0, 0.0));
-        }
-        z = z.mul(z).add(c);
-        work += 1;
-        let a = z.norm2();
-        if a > r2 {
-            if !a.is_finite() || (D && !(dz.abs().is_finite() && dz.abs() > 0.0)) {
-                return fallback();
-            }
-            // A long chaotic finish near the boundary needs the full orbit.
-            if D && dc.abs() > 1e-8 {
-                let de_px = 2.0 * a.sqrt() * (0.5 * a.ln()) / (dz.abs() * h);
-                if de_px < 1.0 || !de_px.is_finite() {
-                    return fallback();
-                }
-            }
-            return (escaped(n, z, dz), work, true);
-        }
-    }
-    (Outcome::Unresolved, work, true)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn horner_transports_value_and_derivative() {
-        let mut k = vec![Cx::default(); N + 1];
-        k[1] = Cx(1.0, 0.0);
-        k[2] = Cx(2.0, 0.0);
-        let (v, d) = eval(&k, Cx(0.3, 0.0));
-        assert!((v.0 - 0.48).abs() < 1e-14);
-        assert!((d.0 - 2.2).abs() < 1e-14);
-    }
-
-    #[test]
-    fn declined_jump_uses_own_parameter_and_derivative() {
-        let m = Mid {
-            reference: vec![Cx::default()],
-            ..Mid::default()
-        };
-        let dc = Cx(0.5, 0.5);
-        let (o, _, jumped) = pixel::<true>(&m, Cx::default(), dc, 100, 4.0, 1e-3);
-        assert!(!jumped);
-        let (mut z, mut dz) = (Cx::default(), Cx::default());
-        let mut expected = None;
-        for n in 1..=100 {
-            dz = z.scale(2.0).mul(dz).add(Cx(1.0, 0.0));
-            z = z.mul(z).add(dc);
-            if z.norm2() > 4.0 {
-                expected = Some((n, z, dz));
-                break;
-            }
-        }
-        let (n, z, dz) = expected.unwrap();
-        match o {
-            Outcome::Escaped {
-                n: got,
-                zr,
-                zi,
-                dr,
-                di,
-                ..
-            } => {
-                assert_eq!(got, n);
-                assert!((zr - z.0).abs() < 1e-12 && (zi - z.1).abs() < 1e-12);
-                assert!((dr - dz.0).abs() < 1e-12 && (di - dz.1).abs() < 1e-12);
-            }
-            _ => panic!("expected escape"),
-        }
-    }
-
-    #[test]
-    fn jump_reports_original_iterations_and_transports_derivative() {
-        let mut m = Mid {
-            z: vec![Cx::default(); APPROACH + 1],
-            reference: vec![Cx::default()],
-            u: Cx(1e-5, 0.0),
-            s: Cx(1.0, 0.0),
-            p: Cx::default(),
-            sign: 1.0,
-            lambda: Cx(2.0, 0.0),
-            k: vec![Cx::default(); N + 1],
-            kp: vec![Cx::default(); N + 1],
-            ..Mid::default()
-        };
-        m.k[1] = Cx(1.0, 0.0);
-        let mut power = Cx(1.0, 0.0);
-        for _ in 0..512 {
-            m.powers.push(power);
-            power = power.scale(2.0);
-        }
-        let (o, work, jumped) = pixel::<true>(&m, Cx(1000.0, 0.0), Cx::default(), 100, 4.0, 1e-3);
-        assert!(jumped);
-        let j = 11u64;
-        let q = 1e-5 * 2f64.powi(j as i32);
-        let d_jump = -1.0 + 2f64.powi(j as i32) * (2.0 + 1e-5 * 2.0 * j as f64);
-        match o {
-            Outcome::Escaped { n, zr, dr, .. } => {
-                assert_eq!(n, APPROACH as u64 + 2 * j + 1);
-                assert!((zr - (q * q + 1000.0)).abs() < 1e-10);
-                assert!((dr - (2.0 * q * d_jump + 1.0)).abs() < 1e-10);
-                assert_eq!(work, APPROACH as u64 + 2);
-            }
-            _ => panic!("expected escape after the jump"),
-        }
-    }
-
-    #[test]
-    fn frame_150_parameter_annulus_abstains_before_the_bad_jump() {
+    fn frame_150_parameter_annulus_is_not_covered() {
         // Owner's 960x540 full-frame failure: at width 5.35e-10, the old
         // |dc| <= 1e-6 guard admitted all pixels (20,294 bad de, 14,483
         // bad normals). Every such camera is outside the validated domain.
@@ -404,9 +152,6 @@ mod tests {
         };
         assert!(!m.covers(radius, 1e10));
         assert!(!chart_parameter_ok(radius));
-        let (_, work, jumped) = pixel::<true>(&m, Cx::default(), Cx(radius, 0.0), 100, 1e20, 1e-12);
-        assert!(!jumped);
-        assert_eq!(work, 100);
         // Both sides of the annulus are admissible; these are not film
         // frame-index gates. Individual pixels in the gap always abstain.
         assert!(chart_parameter_ok(6e-7));

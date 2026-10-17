@@ -7,8 +7,12 @@
 //! sample within 1e-3 px in nu position, and fd compare's DE (0.2%) and normal (0.2
 //! degree) gates where the frozen DE exceeds 1e-3 px.
 //!
-//! `FD_REGENERATE_FIXTURES=1` rewrites the frozen frames with `--gpu-kernel cpu` first.
-//! With `FD_REQUIRE_GPU` set (CI), a frame the GPU did not render fails.
+//! The frames were frozen from the CPU zone, which CLEA-04 deleted: they cannot be
+//! regenerated, and a change that moves them needs its own evidence. With
+//! `FD_REQUIRE_GPU` set (CI), a frame the GPU did not render fails.
+//!
+//! `zone_fixtures_f32_kernels` holds the f32 and mixed kernels (f64-capable Vulkan GPUs
+//! only) to GPU-02's guarded bar on the v0 frames.
 use fd_samples::{Reader, Samples};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -129,65 +133,121 @@ fn read(path: &Path) -> (String, Samples) {
     (r.header.kernel.clone(), s)
 }
 
+/// Differences of one rendered frame from its frozen frame.
+#[derive(Default)]
+struct Diff {
+    classes: usize,
+    nu_off: usize,
+    de_off: usize,
+    normal_off: usize,
+    /// Samples with any of nu, DE or normal over 1e-3 px (GPU-02's strict count).
+    strict: usize,
+    samples: usize,
+    /// Worst nu px, DE relative error, normal degrees, and worst error of the three in px.
+    worst: [f64; 4],
+}
+
+fn diff(a: &Samples, b: &Samples) -> Diff {
+    let (an, bn) = (a.nu.as_ref().unwrap(), b.nu.as_ref().unwrap());
+    let (ad, bd) = (a.de.as_ref().unwrap(), b.de.as_ref().unwrap());
+    let (aw, bw) = (a.normal.as_ref().unwrap(), b.normal.as_ref().unwrap());
+    let mut d = Diff {
+        samples: a.class.len(),
+        ..Diff::default()
+    };
+    for i in 0..a.class.len() {
+        if a.class[i].kind() != b.class[i].kind() {
+            d.classes += 1;
+            continue;
+        }
+        if !a.class[i].escaped() {
+            continue;
+        }
+        let de = f64::from(ad[i]);
+        let px = (an[i] - bn[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
+        d.worst[0] = d.worst[0].max(px);
+        d.nu_off += usize::from(px.is_nan() || px > 1e-3);
+        let turn = f64::from(aw[i].wrapping_sub(bw[i]).min(bw[i].wrapping_sub(aw[i])));
+        let any = px
+            .max((de - f64::from(bd[i])).abs())
+            .max(turn * std::f64::consts::TAU / 65536.0 * de);
+        d.worst[3] = d.worst[3].max(any);
+        d.strict += usize::from(any.is_nan() || any > 1e-3);
+        if de > 1e-3 {
+            let rel = (f64::from(bd[i]) / de - 1.0).abs();
+            let deg = turn * 360.0 / 65536.0;
+            d.worst[1] = d.worst[1].max(rel);
+            d.worst[2] = d.worst[2].max(deg);
+            d.de_off += usize::from(rel.is_nan() || rel > 2e-3);
+            d.normal_off += usize::from(deg > 0.2);
+        }
+    }
+    d
+}
+
+/// Render `frame` with `kernel` (fd's own choice when `None`) and compare it with its
+/// frozen frame: the kernel tag used, the log and the differences.
+fn check(frame: &Frame, tmp: &Path, kernel: Option<&str>) -> (String, String, Diff) {
+    let want = dir().join("frames").join(format!("{}.fds", frame.name));
+    let got = tmp.join(format!("{}.fds", frame.name));
+    let log = render(frame, &got, kernel);
+    let (_, a) = read(&want);
+    let (used, b) = read(&got);
+    (used, log, diff(&a, &b))
+}
+
+fn scratch(tag: &str) -> PathBuf {
+    let tmp = std::env::temp_dir().join(format!("fd-zone-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&tmp).unwrap();
+    tmp
+}
+
 #[test]
 fn zone_fixtures() {
-    let frozen = dir().join("frames");
-    let tmp = std::env::temp_dir().join(format!("fd-zone-fixtures-{}", std::process::id()));
-    std::fs::create_dir_all(&tmp).unwrap();
-    let regenerate = std::env::var_os("FD_REGENERATE_FIXTURES").is_some();
-    if regenerate {
-        std::fs::create_dir_all(&frozen).unwrap();
-    }
+    let tmp = scratch("fixtures");
     let require_gpu = std::env::var_os("FD_REQUIRE_GPU").is_some();
     // FD_ZONE_KERNEL=K runs `--gpu-kernel K` instead of fd's own choice.
     let kernel = std::env::var("FD_ZONE_KERNEL").ok();
     let mut failures = Vec::new();
     for frame in frames() {
-        let want = frozen.join(format!("{}.fds", frame.name));
-        if regenerate {
-            render(&frame, &want, Some("cpu"));
-        }
-        let got = tmp.join(format!("{}.fds", frame.name));
-        let log = render(&frame, &got, kernel.as_deref());
-        let (_, a) = read(&want);
-        let (used, b) = read(&got);
-        let (an, bn) = (a.nu.as_ref().unwrap(), b.nu.as_ref().unwrap());
-        let (ad, bd) = (a.de.as_ref().unwrap(), b.de.as_ref().unwrap());
-        let (aw, bw) = (a.normal.as_ref().unwrap(), b.normal.as_ref().unwrap());
-        let (mut classes, mut nu_off, mut de_off, mut normal_off) = (0, 0, 0, 0);
-        let mut worst = [0.0f64; 3];
-        for i in 0..a.class.len() {
-            if a.class[i].kind() != b.class[i].kind() {
-                classes += 1;
-                continue;
-            }
-            if !a.class[i].escaped() {
-                continue;
-            }
-            let de = f64::from(ad[i]);
-            let px = (an[i] - bn[i]).abs() * std::f64::consts::LN_2 * de / 2.0;
-            worst[0] = worst[0].max(px);
-            nu_off += usize::from(px.is_nan() || px > 1e-3);
-            if de > 1e-3 {
-                let rel = (f64::from(bd[i]) / de - 1.0).abs();
-                let deg = f64::from(aw[i].wrapping_sub(bw[i]).min(bw[i].wrapping_sub(aw[i])))
-                    * 360.0
-                    / 65536.0;
-                worst[1] = worst[1].max(rel);
-                worst[2] = worst[2].max(deg);
-                de_off += usize::from(rel.is_nan() || rel > 2e-3);
-                normal_off += usize::from(deg > 0.2);
-            }
-        }
+        let (used, log, d) = check(&frame, &tmp, kernel.as_deref());
         eprintln!(
-            "CLEA-06 {} ({}): class {classes}, nu > 1e-3 px {nu_off}, de > 0.2% {de_off}, normal > 0.2 deg {normal_off}; worst nu {:.1e} px, de {:.1e}, normal {:.1e} deg",
-            frame.name, used, worst[0], worst[1], worst[2]
+            "CLEA-06 {} ({}): class {}, nu > 1e-3 px {}, de > 0.2% {}, normal > 0.2 deg {}; worst nu {:.1e} px, de {:.1e}, normal {:.1e} deg",
+            frame.name, used, d.classes, d.nu_off, d.de_off, d.normal_off, d.worst[0], d.worst[1], d.worst[2]
         );
-        if (classes, nu_off, de_off, normal_off) != (0, 0, 0, 0) {
+        if (d.classes, d.nu_off, d.de_off, d.normal_off) != (0, 0, 0, 0) {
             failures.push(frame.name.clone());
         }
         if require_gpu && !used.contains("wgpu") {
             failures.push(format!("{} not on the GPU ({used}): {log}", frame.name));
+        }
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+/// GPU-02's bar for the f32 and mixed kernels, which replaced their parity tests against
+/// the CPU zone: at most one class mismatch, every escaped sample's nu, DE and normal
+/// within 0.05 px, and at most 0.5% of samples over 1e-3 px. A kernel whose first frame
+/// renders elsewhere (f32only on a GPU without f64, as on lavapipe and WARP) is skipped.
+#[test]
+fn zone_fixtures_f32_kernels() {
+    let tmp = scratch("f32-kernels");
+    let mut failures = Vec::new();
+    for kernel in ["mixed", "f32"] {
+        for frame in frames().iter().filter(|f| f.zone == "v0.zone") {
+            let (used, _, d) = check(frame, &tmp, Some(kernel));
+            if !used.contains(&format!("wgpu-{kernel}/")) {
+                eprintln!("GPU-02 {kernel}: SKIP, {} rendered by {used}", frame.name);
+                break;
+            }
+            eprintln!(
+                "GPU-02 {kernel} {}: class {}, > 1e-3 px {}, worst {:.2e} px",
+                frame.name, d.classes, d.strict, d.worst[3]
+            );
+            if d.classes > 1 || d.worst[3] > 0.05 || d.strict * 200 > d.samples {
+                failures.push(format!("{kernel} {}", frame.name));
+            }
         }
     }
     let _ = std::fs::remove_dir_all(&tmp);

@@ -15,18 +15,18 @@
 //!
 //! `--zone FILE` (KERN-01): frames the zone covers (every sample within its `max_dc` of
 //! the nucleus and, for a zone with `diag` lines, a bounded truncation shift: PROB-20),
-//! decided before rendering (DEC-19), render with the minibrot-band fast path (`fd_kernel::render_zone`),
-//! inside the frame's clock; every other frame renders as without it (with `--bla
-//! per-frame` if given). Each frame's record says which (`"zone"`), the totals count
-//! the zone frames and their seconds.
+//! decided before rendering (DEC-19), render with the minibrot-band fast path on the
+//! wgpu zone kernel (`zone_gpu`), inside the frame's clock; every other frame, and one
+//! the GPU declines, renders as without it (with `--bla per-frame` if given). Each
+//! frame's record says which (`"zone"`), the totals count the zone frames and their
+//! seconds.
 use crate::args::Args;
 use crate::bench::{measure, peak_rss, q, reset_peak_rss, run_oracle, sample_bytes, Frame};
 use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
 use fd_kernel::{
-    bla_dc_max, reference_bits, render_bla, render_with, render_zone, zone_covers, Bla, BlaStats,
-    Params, Zone, ZoneStats,
+    bla_dc_max, reference_bits, render_bla, render_with, zone_covers, Bla, BlaStats, Params, Zone,
 };
 use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
@@ -85,11 +85,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if a.str("gpu-kernel").is_some() && zone.is_none() {
         return Err("--gpu-kernel requires --zone".into());
     }
-    // Zone frames run on the wgpu zone kernel unless `--gpu-kernel cpu` (CLEA-06).
+    // Zone frames run on the wgpu zone kernel (CLEA-04).
     let mut gpu = match &zone {
-        Some(z) => {
-            crate::zone_gpu::choose(a.str("gpu-kernel"), z)?.map(crate::zone_gpu::Renderer::new)
-        }
+        Some(z) => Some(crate::zone_gpu::Renderer::new(crate::zone_gpu::choose(
+            a.str("gpu-kernel"),
+            z,
+        )?)),
         None => None,
     };
     let frames = read_path(file)?;
@@ -143,20 +144,18 @@ fn frame(
     view: &View,
     t: &mut Totals,
 ) -> Result<(), String> {
-    let covered = match zone {
-        Some(z) => zone_covers(view, p, z)?,
-        None => false,
+    let zoned = match zone {
+        Some(z) if zone_covers(view, p, z)? => measure_zone(view, p, runs, z, gpu)?,
+        _ => None,
     };
-    let (frame, own, zst) = match zone {
-        Some(z) if covered => {
-            let (fr, st) = measure_zone(view, p, runs, z, gpu)?;
-            (fr, None, st)
-        }
-        _ if per_frame => {
+    let covered = zoned.is_some();
+    let (frame, own) = match zoned {
+        Some(fr) => (fr, None),
+        None if per_frame => {
             let (fr, own) = measure_per_frame_bla(view, p, runs)?;
-            (fr, Some(own), None)
+            (fr, Some(own))
         }
-        _ => (measure(view, p, runs)?, None, None),
+        None => (measure(view, p, runs)?, None),
     };
     let out = dir.map(|d| format!("{}/frame-{f:05}.fds", d.trim_end_matches('/')));
     if let Some(out) = &out {
@@ -182,15 +181,7 @@ fn frame(
         o.record(&mut j, frame.stats.iterations);
     }
     if zone.is_some() {
-        let _ = write!(j, ",\"zone\":{{\"used\":{covered}");
-        if let Some(z) = zst {
-            let _ = write!(
-                j,
-                ",\"returns\":{},\"jumps\":{},\"patches\":{},\"plain_steps\":{}",
-                z.returns, z.jumps, z.patches, z.plain
-            );
-        }
-        j.push('}');
+        let _ = write!(j, ",\"zone\":{{\"used\":{covered}}}");
     }
     let mut ok = !checked || frame.deterministic;
     match (oracle, &out) {
@@ -409,44 +400,28 @@ fn measure_per_frame_bla<'a>(
     Ok((frame, own))
 }
 
-/// [`measure`] for a frame the zone covers: each run renders it with the zone fast
-/// path inside the run's clock (the zone's constants are loaded once, before the clock,
-/// as `--bla ID` tables are). With a wgpu zone renderer the frame runs on it (CLEA-06),
-/// which reports no iteration or zone-operator counts; a frame it declines, or a
-/// device failure, renders on the CPU zone.
+/// [`measure`] for a frame the zone covers: each run renders it on the wgpu zone kernel
+/// inside the run's clock (the zone's constants are loaded once, before the clock, as
+/// `--bla ID` tables are). The kernel reports no iteration counts. `None` when no
+/// renderer is left or the kernel declines the frame or fails before its first run:
+/// the caller then renders it with the perturbation kernel.
 fn measure_zone<'a>(
     view: &'a View,
     p: &'a Params,
     runs: usize,
     zone: &Zone,
     gpu: &mut Option<crate::zone_gpu::Renderer>,
-) -> Result<(Frame<'a>, Option<ZoneStats>), String> {
-    let declined = gpu.as_ref().and_then(|g| g.declines(view, p, zone));
-    if let Some(why) = &declined {
-        eprintln!("fd: the wgpu zone kernel declines this frame ({why}); using the CPU zone");
-    }
-    let mut first: Option<(Frame, Option<ZoneStats>)> = None;
+) -> Result<Option<Frame<'a>>, String> {
+    let mut first: Option<Frame> = None;
     let mut times = Vec::with_capacity(runs);
     for _ in 0..runs {
         let reset = reset_peak_rss();
         let t = Instant::now();
-        let gpu_frame = match gpu.as_mut().filter(|_| declined.is_none()) {
-            Some(renderer) => match renderer.render(view, p, zone) {
-                Ok(frame) => Some(frame),
-                Err(e) => {
-                    eprintln!("fd: wgpu zone unavailable ({e}); using the CPU zone");
-                    *gpu = None;
-                    None
-                }
-            },
-            None => None,
-        };
-        let (h, s, st, zst) = match gpu_frame {
-            Some((h, s)) => (h, s, fd_kernel::Stats::default(), None),
-            None => {
-                let (h, s, st, zst) = render_zone(view, p, zone)?;
-                (h, s, st, Some(zst))
+        let Some((h, s)) = crate::zone_gpu::render_zone_frame(gpu, view, p, zone) else {
+            if first.is_some() {
+                return Err("the wgpu zone kernel failed on a repeat run".into());
             }
+            return Ok(None);
         };
         times.push((t.elapsed().as_secs_f64(), 0.0));
         let mut bytes = Vec::new();
@@ -454,11 +429,11 @@ fn measure_zone<'a>(
         match &mut first {
             None => {
                 let count = |k: Kind| s.class.iter().filter(|c| c.kind() == Some(k)).count();
-                let fr = Frame {
+                first = Some(Frame {
                     view,
                     p,
                     kernel: h.kernel,
-                    stats: st,
+                    stats: fd_kernel::Stats::default(),
                     bytes,
                     times: Vec::new(),
                     deterministic: true,
@@ -473,17 +448,14 @@ fn measure_zone<'a>(
                     peak_rss_scope: if reset { "run" } else { "process" },
                     atlas: None,
                     own_bla: None,
-                };
-                first = Some((fr, zst));
+                });
             }
-            Some((f, _)) => {
-                f.deterministic &= f.bytes == bytes && f.stats.iterations == st.iterations
-            }
+            Some(f) => f.deterministic &= f.bytes == bytes,
         }
     }
-    let (mut frame, zst) = first.expect("runs >= 1");
+    let mut frame = first.expect("runs >= 1");
     frame.times = times;
-    Ok((frame, zst))
+    Ok(Some(frame))
 }
 
 /// The totals record; quantities over zero frames are `null`.
