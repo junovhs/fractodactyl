@@ -1,0 +1,15 @@
+[package]
+name = "fd-viewer"
+description = "The Fractodactyl explorer in its own Dioxus desktop window"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+dioxus = { version = "0.7.3", features = ["desktop"] }
+# The explorer page loads in a plain child webview: Dioxus's own webview refuses every
+# navigation outside dioxus:// (and on Linux every iframe) and hands it to the browser.
+# Same versions as dioxus-desktop 0.7's, so one wry/tao is built; rwh_06 is the window
+# handle wry 0.53 needs.
+wry = "0.53.5"
+tao = { version = "0.34", features = ["rwh_06"] }

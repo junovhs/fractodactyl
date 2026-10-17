@@ -154,6 +154,29 @@
   windowButtons[1].onclick = fullscreen;
   windowButtons[2].title = "Return to classic viewer";
   windowButtons[2].onclick = () => { location.href = "/"; };
+  // VIEW-06: inside fd-viewer's frameless desktop window (window.ipc), the stone chrome
+  // is the window's chrome: the three buttons minimise, maximise and close it, the
+  // banner moves it, and the 6px rim resizes it.
+  if (window.ipc) {
+    const send = m => window.ipc.postMessage(m);
+    [["Minimise", "minimize"], ["Maximise", "maximize"], ["Close", "close"]].forEach(([t, m], i) => {
+      windowButtons[i].title = t;
+      windowButtons[i].onclick = () => send(m);
+    });
+    const bar = document.getElementById("titlebar");
+    bar.addEventListener("pointerdown", e => { if (e.button === 0 && !e.target.closest(".winbtns")) send("drag"); });
+    bar.addEventListener("dblclick", e => { if (!e.target.closest(".winbtns")) send("maximize"); });
+    const rim = e => (e.clientY < 6 ? "n" : e.clientY > innerHeight - 6 ? "s" : "")
+      + (e.clientX < 6 ? "w" : e.clientX > innerWidth - 6 ? "e" : "");
+    addEventListener("pointermove", e => {
+      const d = rim(e);
+      document.documentElement.style.cursor = d ? d + "-resize" : "";
+    }, true);
+    addEventListener("pointerdown", e => {
+      const d = rim(e);
+      if (d && e.button === 0) { e.preventDefault(); e.stopPropagation(); send("resize:" + d); }
+    }, true);
+  }
   addEventListener("pointerdown", e => { if (menuBox && !menuBox.contains(e.target) && !e.target.closest(".menubar,.toolbar")) closeMenu(); }, true);
   addEventListener("keydown", e => {
     if (e.target.matches("input,select,textarea")) return;
