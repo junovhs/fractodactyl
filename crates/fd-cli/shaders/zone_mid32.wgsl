@@ -80,32 +80,48 @@ fn fallback(gid: i32, dc: CE, maxit: i32, esc: f32, px: R, cs: f32, sn: f32) {
     output_sample(gid, 2u, ff(0.0), 0.0, 0.0);
 }
 
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3<u32>,
-        @builtin(num_workgroups) groups: vec3<u32>) {
+// Two entry points (CLEA-06): main runs the approach, the cycle-point shift, Newton
+// for w0 and the Koenigs jump; main_finish runs the escape finish, or the fallback
+// orbit for samples main declined. DXC inlines every call site into one function per
+// entry, and the one-entry kernel was too large for DX12 WARP (zeros or a hang).
+// Per sample: z after the jump (re.hi, re.lo, im.hi, im.lo), dz/dc (x, y, e), n0;
+// n0 < 0 declines the sample to the fallback.
+@group(0) @binding(4) var<storage, read_write> state: array<u32>;
+const STATE_WORDS: i32 = 8;
+
+struct Pixel { gid: i32, dc: CE, maxit: i32, esc: f32, h: R, px: R, cs: f32, sn: f32 }
+
+// The sample's parameter offset and the frame constants; None-like gid -1 past the grid.
+fn pixel(id: vec3<u32>, groups: vec3<u32>) -> Pixel {
     let gid = i32(id.x + id.y * (groups.x * 64u));
     // Runtime zero for the reassociation guard: nx is an exact small f64 integer,
     // whose low word is 0.
     ff_init(input_data[0].x);
     let nx = int_at(0);
     let ny = int_at(1);
-    if (gid >= nx * ny) { return; }
-    let maxit = int_at(2);
-    let esc = ff_at(3).hi;
-    let h = r_fe(fe_at(4));
-    let px = r_fe(fe_at(5));
     let x = f32(gid % nx) + 0.5 - f32(nx) * 0.5;
     let y = f32(gid / nx) + 0.5 - f32(ny) * 0.5;
     let csf = ff_at(10);
     let snf = ff_at(11);
-    let cs = csf.hi;
-    let sn = snf.hi;
     let uv = ce_from_ff(ff_add(ff_mul_f(csf, x), ff_mul_f(snf, y)), ff_sub(ff_mul_f(snf, x), ff_mul_f(csf, y)));
     let dc = ce_add(ce_at(6), ce_mul_fe(uv, fe_at(4)));
+    return Pixel(select(gid, -1, gid >= nx * ny), dc, int_at(2), ff_at(3).hi, r_fe(fe_at(4)), r_fe(fe_at(5)), csf.hi, snf.hi);
+}
+
+fn ce_pick(a: CE, b: CE, take_b: bool) -> CE {
+    return CE(FF(select(a.re.hi, b.re.hi, take_b), select(a.re.lo, b.re.lo, take_b)),
+              FF(select(a.im.hi, b.im.hi, take_b), select(a.im.lo, b.im.lo, take_b)),
+              select(a.e, b.e, take_b));
+}
+
+struct Jumped { z: ZF, dz: CF, n0: i32 }
+const DECLINE = Jumped(ZF(FF(0.0, 0.0), FF(0.0, 0.0)), CF(vec2<f32>(0.0), 0), -1);
+
+// The accelerated operator up to the jump; n0 < 0 declines the sample.
+fn jump(dc: CE, maxit: i32) -> Jumped {
     let dcl = ce_len(dc);
     if (!chart_parameter_ok(dcl) || maxit <= APPROACH) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     var d = ce_zero();
     var dz = ce_zero();
@@ -117,8 +133,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     // Closed-form shift p(c) - p(C), without subtracting two rounded cycle points.
     let s2 = ce_mul_f(ce_at(15), 2.0);
     let m4dc = ce_mul_f(dc, -4.0);
-    var ds = ce_div(m4dc, s2);
-    for (var i = 0; i < 2; i += 1) {
+    // ds = -4 dc / (s2 + ds), three times from ds = 0 (ce_add returns s2 exactly then).
+    var ds = ce_zero();
+    for (var i = 0; i < 3; i += 1) {
         ds = ce_div(m4dc, ce_add(s2, ds));
     }
     let dp = ce_mul_f(ds, 0.5 * ff_at(19).hi);
@@ -129,8 +146,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let lam = ce_add(lambda, ce_mul_f(dc, 4.0));
     let laml = ce_len(lam);
     if (!(r_lt(r_of(1.0), laml) && r_lt(ce_len(u0), r_div(r_of(0.03), laml)) && r_ok(ce_len(u0)))) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     for (var i = 0; i < NK; i += 1) {
         k[i] = ce_add(ce_at(K_AT + 2 * i), ce_mul(dc, ce_at(KP_AT + 2 * i)));
@@ -139,67 +155,89 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     for (var i = 0; i < 3; i += 1) {
         let e = eval_k(w0);
         if (!(e.d.re.hi != 0.0 || e.d.im.hi != 0.0) || ce_bad(e.d)) {
-            fallback(gid, dc, maxit, esc, px, cs, sn);
-            return;
+            return DECLINE;
         }
         w0 = ce_sub(w0, ce_div(ce_sub(e.v, u0), e.d));
     }
     if (ce_bad(w0) || (w0.re.hi == 0.0 && w0.im.hi == 0.0)) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     // j = ln(RADIUS / |w0|) / ln|lambda|.
     let jf = ff_div(ff_sub(ff_log(ff(0.03)), ce_ln_abs(w0)), ce_ln_abs(lam)).hi;
     if (!(finite_f32(jf) && jf >= 1.0 && jf < 512.0)) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     let j = i32(floor(jf));
     let n0 = APPROACH + 2 * j;
     if (n0 >= maxit) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     // Tabulated lambda(C)^j with a first-order parameter correction.
     let factor = ce_add(ce_one(), ce_div(ce_mul_f(dc, 4.0 * f32(j)), lambda));
     let lj = ce_mul(ce_at(T_AT + 2 * j), factor);
     let q = ce_mul(w0, lj);
     if (!(r_ok(ce_len(q)) && r_le(ce_len(q), r_of(0.031)))) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
-    let dkw = eval_k(w0).d;
-    let eq = eval_k(q);
-    let pcw = eval_kp(w0);
-    let pcq = eval_kp(q);
+    // k and k' at w0 (t = 0) and at q (t = 1), from one call site each.
+    var ek: array<Ev, 2>;
+    var kp: array<CE, 2>;
+    for (var t = 0; t < 2; t += 1) {
+        let x = ce_pick(w0, q, t == 1);
+        ek[t] = eval_k(x);
+        kp[t] = eval_kp(x);
+    }
+    let dkw = ek[0].d;
+    let eq = ek[1];
+    let pcw = kp[0];
+    let pcq = kp[1];
     if (!(dkw.re.hi != 0.0 || dkw.im.hi != 0.0) || ce_bad(dkw)) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
     let jl = ce_div(ce_from_ff(ff(4.0 * f32(j)), ff(0.0)), lam);
     let bracket = ce_add(ce_sub(ce_sub(dz, pprime), pcw), ce_mul(ce_mul(w0, dkw), jl));
     let dzj = ce_add(ce_add(pprime, ce_mul(ce_div(ce_mul(lj, eq.d), dkw), bracket)), pcq);
     let zj = ce_add(pc, eq.v);
     if (ce_bad(zj) || ce_bad(dzj)) {
-        fallback(gid, dc, maxit, esc, px, cs, sn);
-        return;
+        return DECLINE;
     }
+    return Jumped(zf_of(zj), cf_of(dzj), n0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>,
+        @builtin(num_workgroups) groups: vec3<u32>) {
+    let p = pixel(id, groups);
+    if (p.gid < 0) { return; }
+    let j = jump(p.dc, p.maxit);
+    let s0 = STATE_WORDS * p.gid;
+    state[s0] = bitcast<u32>(j.z.re.hi);
+    state[s0 + 1] = bitcast<u32>(j.z.re.lo);
+    state[s0 + 2] = bitcast<u32>(j.z.im.hi);
+    state[s0 + 3] = bitcast<u32>(j.z.im.lo);
+    state[s0 + 4] = bitcast<u32>(j.dz.m.x);
+    state[s0 + 5] = bitcast<u32>(j.dz.m.y);
+    state[s0 + 6] = bitcast<u32>(j.dz.e);
+    state[s0 + 7] = bitcast<u32>(j.n0);
+}
+
+// The escape finish from the jump at the pixel's own c; true declines it to `fallback`.
+fn finish(p: Pixel, z_in: ZF, du_in: CF, n0: i32) -> bool {
     // The finish MUST use the pixel's own c, not the nucleus C (PROB-14).
-    let cre = ff_add(ff_at(8), ce_re(dc));
-    let cim = ff_add(ff_at(9), ce_im(dc));
-    var z = zf_of(zj);
-    var du = cf_of(dzj);
-    let far = r_lt(r_of(1e-8), dcl);
-    for (var n = n0 + 1; n <= maxit; n += 1) {
+    let cre = ff_add(ff_at(8), ce_re(p.dc));
+    let cim = ff_add(ff_at(9), ce_im(p.dc));
+    var z = z_in;
+    var du = du_in;
+    let far = r_lt(r_of(1e-8), ce_len(p.dc));
+    for (var n = n0 + 1; n <= p.maxit; n += 1) {
         du = cf_add(cf_scale(cf_mul(CF(vec2<f32>(z.re.hi, z.im.hi), 0), du), 2.0), cf_one());
         let r2 = ff_mul(z.re, z.re);
         let i2 = ff_mul(z.im, z.im);
         let ri = ff_mul(z.re, z.im);
         z = ZF(ff_add(ff_sub(r2, i2), cre), ff_add(ff_mul_f(ri, 2.0), cim));
-        if (escaped32(z, esc)) {
+        if (escaped32(z, p.esc)) {
             if (cf_bad(du) || (du.m.x == 0.0 && du.m.y == 0.0)) {
-                fallback(gid, dc, maxit, esc, px, cs, sn);
-                return;
+                return true;
             }
             // A long chaotic finish near the boundary needs the full orbit:
             // de_px = 2 |z| ln|z| / (|dz| h) < 1 falls back.
@@ -208,15 +246,31 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
                 let kk = i32((bitcast<u32>(big) >> 23u) & 255u) - 126;
                 let zs = vec2<f32>(ff_scale(z.re, -kk).hi, ff_scale(z.im, -kk).hi);
                 let lnz = log(length(zs)) + f32(kk) * 0.6931471805599453;
-                let de_px = r_div(R(2.0 * length(zs) * lnz, kk), r_mul(cf_len(du), h));
+                let de_px = r_div(R(2.0 * length(zs) * lnz, kk), r_mul(cf_len(du), p.h));
                 if (r_lt(de_px, r_of(1.0)) || !r_ok(de_px)) {
-                    fallback(gid, dc, maxit, esc, px, cs, sn);
-                    return;
+                    return true;
                 }
             }
-            emit_escape(gid, n, z, du, px, cs, sn);
-            return;
+            emit_escape(p.gid, n, z, du, p.px, p.cs, p.sn);
+            return false;
         }
     }
-    output_sample(gid, 2u, ff(0.0), 0.0, 0.0);
+    output_sample(p.gid, 2u, ff(0.0), 0.0, 0.0);
+    return false;
+}
+
+@compute @workgroup_size(64)
+fn main_finish(@builtin(global_invocation_id) id: vec3<u32>,
+               @builtin(num_workgroups) groups: vec3<u32>) {
+    let p = pixel(id, groups);
+    if (p.gid < 0) { return; }
+    let s0 = STATE_WORDS * p.gid;
+    let n0 = bitcast<i32>(state[s0 + 7]);
+    let z = ZF(FF(bitcast<f32>(state[s0]), bitcast<f32>(state[s0 + 1])),
+               FF(bitcast<f32>(state[s0 + 2]), bitcast<f32>(state[s0 + 3])));
+    let du = CF(vec2<f32>(bitcast<f32>(state[s0 + 4]), bitcast<f32>(state[s0 + 5])),
+                bitcast<i32>(state[s0 + 6]));
+    if (n0 < 0 || finish(p, z, du, n0)) {
+        fallback(p.gid, p.dc, p.maxit, p.esc, p.px, p.cs, p.sn);
+    }
 }

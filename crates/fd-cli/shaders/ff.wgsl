@@ -176,12 +176,16 @@ fn ce_add(x: CE, y: CE) -> CE {
     // A zero carries exponent 0, which must not decide the alignment.
     if (x.re.hi == 0.0 && x.im.hi == 0.0) { return y; }
     if (y.re.hi == 0.0 && y.im.hi == 0.0) { return x; }
-    if (x.e >= y.e) {
-        let d = max(y.e - x.e, -150);
-        return ce_norm(ff_add(x.re, ff_scale(y.re, d)), ff_add(x.im, ff_scale(y.im, d)), x.e);
-    }
-    let d = max(x.e - y.e, -150);
-    return ce_norm(ff_add(ff_scale(x.re, d), y.re), ff_add(ff_scale(x.im, d), y.im), y.e);
+    // Align the smaller exponent to the larger one, without branches: DXC inlines
+    // both arms of an if, and every CE op is inlined at every call site (CLEA-06).
+    let swap = x.e < y.e;
+    let big_re = FF(select(x.re.hi, y.re.hi, swap), select(x.re.lo, y.re.lo, swap));
+    let big_im = FF(select(x.im.hi, y.im.hi, swap), select(x.im.lo, y.im.lo, swap));
+    let small_re = FF(select(y.re.hi, x.re.hi, swap), select(y.re.lo, x.re.lo, swap));
+    let small_im = FF(select(y.im.hi, x.im.hi, swap), select(y.im.lo, x.im.lo, swap));
+    let e = max(x.e, y.e);
+    let d = max(min(x.e, y.e) - e, -150);
+    return ce_norm(ff_add(big_re, ff_scale(small_re, d)), ff_add(big_im, ff_scale(small_im, d)), e);
 }
 
 const FF_LN2 = FF(0.6931471824645996, -1.9046542121259336e-09);
