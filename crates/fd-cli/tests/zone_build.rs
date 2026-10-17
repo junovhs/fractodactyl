@@ -417,3 +417,124 @@ fn zone_patches_render_v0() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(failed.is_empty(), "{failed:?}");
 }
+
+/// A fixture frame: (name, re, im, width, max_iter).
+type FixtureFrame = (String, String, String, String, u64);
+
+/// Write a zone with `fd zone -o` (optionally at `period`), then render each fixture
+/// frame `(name, re, im, width, iter)` from it and hold it to the frozen frame at the
+/// strict bar. Returns the failing frame names.
+fn written_zone_renders(
+    centre: (&str, &str),
+    args: &[&str],
+    frames: &[FixtureFrame],
+    tag: &str,
+) -> Vec<String> {
+    let dir = std::env::temp_dir().join(format!("fd-prob12-{tag}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let zone = dir.join(format!("{tag}.zone"));
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+    cmd.args(["zone", centre.0, centre.1, "-o"])
+        .arg(&zone)
+        .args(args);
+    let o = cmd.output().unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    eprintln!(
+        "PROB-12 {tag}: {}",
+        String::from_utf8_lossy(&o.stdout).trim()
+    );
+    let mut failed = Vec::new();
+    for (name, re, im, width, iter) in frames {
+        let out = dir.join(format!("{name}.fds"));
+        let o = Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args(["render", "--re", re, "--im", im, "--width", width])
+            .args([
+                "--size",
+                "96x54",
+                "--iter",
+                &iter.to_string(),
+                "--columns",
+                "nu,de,normal",
+            ])
+            .arg("--zone")
+            .arg(&zone)
+            .arg("-o")
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let frozen = root().join(format!(
+            "crates/fd-cli/tests/fixtures/zones/frames/{name}.fds"
+        ));
+        let d = strict_diff(&read_fds(&frozen), &read_fds(&out));
+        eprintln!(
+            "PROB-12 {name}: class {}, nu > 1e-3 px {}, de > 0.2% {}, normal > 0.2 deg {}; worst nu {:.1e} px",
+            d.0, d.1, d.2, d.3, d.4
+        );
+        if (d.0, d.1, d.2, d.3) != (0, 0, 0, 0) {
+            failed.push(name.clone());
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    failed
+}
+
+/// The ladder rung `k`'s centre, period and fixture frames (zone_fixtures.rs: 5000, 500,
+/// 50 and 5 minibrot sizes, max_iter 40 periods).
+fn rung_frames(k: u32, size: &str) -> (String, String, u64, Vec<FixtureFrame>) {
+    let rungs = std::fs::read_to_string(root().join("tools/research/misiurewicz/ladder_rungs.txt"))
+        .unwrap();
+    let line = rungs
+        .lines()
+        .find(|l| l.starts_with(&format!("{k} ")))
+        .unwrap();
+    let f: Vec<&str> = line.split_whitespace().collect();
+    let period: u64 = f[1].parse().unwrap();
+    let (m, e) = size.split_once('e').unwrap();
+    let frames = [5000.0, 500.0, 50.0, 5.0]
+        .iter()
+        .map(|mult| {
+            (
+                format!("rung{k}-{mult}"),
+                f[2].to_string(),
+                f[3].to_string(),
+                format!("{}e{e}", m.parse::<f64>().unwrap() * mult),
+                40 * period,
+            )
+        })
+        .collect();
+    (f[2].to_string(), f[3].to_string(), period, frames)
+}
+
+#[test]
+fn zone_written_renders() {
+    // v0 from its centre alone (period by record return), then the k = 409 rung.
+    let (re, im) = v0_centre();
+    let deep: Vec<_> = ["1e-35", "1e-38", "1e-40", "1e-43", "1e-46", "2e-48"]
+        .iter()
+        .map(|w| {
+            (
+                format!("v0-deep-{w}"),
+                re.clone(),
+                im.clone(),
+                w.to_string(),
+                100_000,
+            )
+        })
+        .collect();
+    let mut failed = written_zone_renders((&re, &im), &[], &deep, "v0");
+    // The tail atlas only saves steps; depth 2 keeps the default test run short.
+    let (r, i, p, frames) = rung_frames(409, "9.2e-101");
+    let args = ["--period", &p.to_string(), "--patch-depth", "2"].map(String::from);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    failed.extend(written_zone_renders((&r, &i), &args, &frames, "rung409"));
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
+#[test]
+#[ignore = "builds a 2088-digit, period-16116 zone (about 66 s release); run with --ignored"]
+fn zone_written_renders_rung7676() {
+    let (r, i, p, frames) = rung_frames(7676, "1.01e-1000");
+    let failed = written_zone_renders((&r, &i), &["--period", &p.to_string()], &frames, "rung7676");
+    assert!(failed.is_empty(), "{failed:?}");
+}

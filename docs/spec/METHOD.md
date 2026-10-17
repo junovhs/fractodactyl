@@ -3340,3 +3340,40 @@ committed patch-free v0 fixture zone, renders PROB-08's six deep frames on the G
 frozen CPU-zone frames, which were made without patches, at the strict bar: 0 class
 mismatches, 0 nu/DE/normal failures, worst nu 3.8e-8 px. The patches are in use: at 1e-35
 the worst nu is 7.5e-11 px with them and 1.4e-12 without.
+
+### PROB-12: `fd zone -o` writes complete zones in Rust (2026-10-17)
+
+`fd zone RE IM [--period P] [--patch-depth N] -o ZONE` writes a loadable zone, replacing
+make_zone.sh's koenigs_bench_consts.py and tail_patches.py for production (DEC-09). It
+combines PROB-31's structure, PROB-32's return map, PROB-33's Koenigs chart and PROB-34's
+tail atlas, and adds the remaining lines:
+- guard: scale x 1e-3, the generator's `auto`;
+- r0 = 0.03;
+- the 23-point approach orbit and z24_minus_alpha(_x).
+
+scale and guard are written as mantissa and binary exponent. Every one of these lines is
+character-identical to the committed v0 zone's. `--period` skips the record-return search,
+as make_zone.sh took a period for rungs. The kernel is written for M(24, 2), so other
+relations are refused with the reason. Mid-band constants (mid_*, ref) are not written
+(KERN-02's operator, separate): a written v0 zone's mid frames render with the
+perturbation kernel.
+
+**Build times** (release, one core, with the depth-6 atlas):
+
+| zone | Rust | Python (make_zone.sh) |
+|---|---|---|
+| v0, P = 764 | 7.8 s | 0.4 s + 10.9 s |
+| rung 409, P = 1582 | 8.0 s | |
+| rung 7676, P = 16116, 2088 digits | 66 s | 47.6 s + 9.6 s |
+
+**Check** (`cargo test -p fd-cli --release --test zone_build zone_written_renders`, plus
+`zone_written_renders_rung7676 --ignored`). Zones written by `fd zone -o` from their
+centres render the frozen fixture frames with `fd render --zone` (GPU, f64; the rung 7676
+zone runs f32only) at the strict bar: 0 class mismatches and 0 nu/DE/normal failures on
+all 14 frames.
+
+| zone | frames | worst nu px |
+|---|---|---|
+| v0 (period found by record return) | PROB-08's 6 deep frames | 3.8e-8 |
+| rung 409 (depth-2 atlas in the default test) | 4 rung frames | 1.2e-7 |
+| rung 7676 | 4 rung frames | 6.5e-10 |
