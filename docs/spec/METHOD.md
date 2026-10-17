@@ -3377,3 +3377,42 @@ all 14 frames.
 | v0 (period found by record return) | PROB-08's 6 deep frames | 3.8e-8 |
 | rung 409 (depth-2 atlas in the default test) | 4 rung frames | 1.2e-7 |
 | rung 7676 | 4 rung frames | 6.5e-10 |
+
+### VIEW-06: the explorer in its own desktop window (2026-10-17)
+
+New crate crates/fd-viewer, binary `fd-viewer`, on Dioxus 0.7 desktop. The window is
+built as ../ishoo's: a WindowBuilder with title, icon (the explore icon, 64 px RGBA),
+size and resizing, then LaunchBuilder::desktop().
+
+`fd-viewer` starts the real renderer as a child process, `fd explore --exit-with-stdin 1`,
+on a free loopback port and from the repository root, and shows its V2 page (the approved
+stone viewer). The renderer holds the viewer's stdin pipe: `--exit-with-stdin 1` (new)
+exits when the pipe closes, so it stops however the viewer ends. Dioxus's event loop
+exits the process directly, so no cleanup code would run.
+
+**Why a child webview.** Dioxus's own webview allows no navigation outside `dioxus://`
+and opens such URLs in the system browser. On WebKitGTK this also covers iframes, since
+decide-policy sees subframe navigations. A first build that loaded the page into
+Dioxus's webview opened it in Chrome and left the window white. The page therefore loads
+in a plain wry 0.53 webview (the version Dioxus uses), built as a child of the Dioxus
+window, filling it and following Resized events.
+
+**Chrome.** The window is frameless. live.js, when `window.ipc` exists (only inside
+fd-viewer), turns the stone banner into the title bar:
+- the three buttons minimise, maximise and close the window;
+- dragging the banner moves it, and a double-click maximises;
+- the 6 px rim resizes it.
+
+In a browser V2 behaves as before.
+
+**Check** (this Linux desktop, X11, WebKitGTK 2.50.4; driven with xdotool):
+- the window opens showing the V2 viewer rendered by pert-f64/1;
+- dragging the banner moved it by exactly the pointer's travel;
+- the bottom-right rim resized it from 1280x820 to 1480x920, and the page reflowed;
+- the stone maximise button filled the screen (3840x2044);
+- the stone close button closed the window, and `fd explore` was gone with it.
+
+`fd-viewer --check` (also `cargo test -p fd-viewer`) fetches /v2/ and a 64x36 render
+through the child renderer and exits. Linux CI now installs WebKitGTK and friends
+(libwebkit2gtk-4.1-dev, libgtk-3-dev, libsoup-3.0-dev, libxdo-dev) to build the
+workspace. Not yet checked on Windows (WebView2).
