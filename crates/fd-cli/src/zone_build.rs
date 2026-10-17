@@ -5,7 +5,8 @@
 //! multiplier `rho`) the critical orbit of `C` shadows before returning. It follows
 //! zone_seed.py's `nucleus`/`misiurewicz` and koenigs_tail.py's cycle Newton. PROB-32
 //! adds the first-return biseries and its diagonal series (returns_exit_tail.py
-//! `build_map_mp`, koenigs_bench_consts.py `diagonal`).
+//! `build_map_mp`, koenigs_bench_consts.py `diagonal`); PROB-33 the Koenigs chart phi at
+//! A and psi = phi^-1 (koenigs_tail.py `setup`, psi_series.py `reverse`).
 use crate::args::Args;
 use fd_fixed::{bits_for_digits, Complex, Float};
 use std::time::Instant;
@@ -14,6 +15,9 @@ const USAGE: &str = "usage: fd zone RE IM [--max-iter N (3000)] [--emit report|l
 
 /// Biseries degree (make_zone.sh: koenigs_bench_consts.py DEGREE 4).
 const DEGREE: usize = 4;
+/// Koenigs series terms written (make_zone.sh: TERMS 12 and PSI_TERMS 18).
+const PHI_TERMS: usize = 12;
+const PSI_TERMS: usize = 18;
 
 /// Longest cycle tried for the Misiurewicz relation (zone_seed.py `RMAX`).
 const RMAX: usize = 8;
@@ -43,7 +47,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     match a.str("emit").unwrap_or("report") {
         "report" => {}
         "lines" => {
-            print!("{}", lines(&s, &return_map(&s, DEGREE)));
+            let k = koenigs(&s, PSI_TERMS);
+            print!("{}", lines(&s, &return_map(&s, DEGREE), &k));
             return Ok(());
         }
         e => return Err(format!("--emit: expected report or lines, got {e:?}")),
@@ -350,7 +355,7 @@ fn fx(z: &Complex) -> (f64, f64, i64) {
 }
 
 /// Zone-file lines (KERN-01's format) for the constants built so far.
-fn lines(s: &Seed, m: &ReturnMap) -> String {
+fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     use std::fmt::Write as _;
     let c = |z: &Complex| format!("{:?} {:?}", z.re.to_f64(), z.im.to_f64());
     let x = |z: &Complex| {
@@ -378,8 +383,93 @@ fn lines(s: &Seed, m: &ReturnMap) -> String {
     for (i, j, a) in &m.coeff {
         let _ = writeln!(o, "biseries_x {i} {j} {}", x(a));
     }
-    for (k, d) in m.diag.iter().enumerate() {
-        let _ = writeln!(o, "diag {} {}", k + 1, x(d));
+    for (n, d) in m.diag.iter().enumerate() {
+        let _ = writeln!(o, "diag {} {}", n + 1, x(d));
+    }
+    for (n, a) in k.phi.iter().take(PHI_TERMS).enumerate() {
+        let _ = writeln!(o, "phi {} {}", n + 1, c(a));
+    }
+    for (n, a) in k.psi.iter().enumerate() {
+        let _ = writeln!(o, "psi {} {}", n + 1, c(a));
     }
     o
+}
+
+/// The Koenigs chart at the r-cycle point A: phi linearises g(h) = f^r(A + h) - A,
+/// phi(g(h)) = rho phi(h) with phi'(0) = 1, and psi = phi^-1 (PROB-09). `phi[k - 1]` and
+/// `psi[k - 1]` are the coefficients of h^k and w^k.
+pub(crate) struct Koenigs {
+    pub(crate) phi: Vec<Complex>,
+    pub(crate) psi: Vec<Complex>,
+}
+
+/// Power series product truncated after degree `n` (index = power).
+fn series_mul(x: &[Complex], y: &[Complex], n: usize) -> Vec<Complex> {
+    let bits = x[0].re.precision();
+    let mut out = vec![Complex::zero(bits); n + 1];
+    for (i, xi) in x.iter().enumerate().take(n + 1) {
+        if xi.is_zero() {
+            continue;
+        }
+        for (j, yj) in y.iter().enumerate().take(n + 1 - i) {
+            if !yj.is_zero() {
+                out[i + j] = out[i + j].add(&xi.mul(yj));
+            }
+        }
+    }
+    out
+}
+
+/// phi and psi to `n` terms. A coefficient of index k depends only on lower ones, so the
+/// truncation at `n` leaves every written term exact.
+pub(crate) fn koenigs(s: &Seed, n: usize) -> Koenigs {
+    let bits = s.c.re.precision();
+    let zero = Complex::zero(bits);
+    // g(h) = f^r(A + h) - A by composing f r times on the series A + h.
+    let mut p = vec![zero.clone(); n + 1];
+    p[0] = s.alpha.clone();
+    p[1] = Complex::from_i64(1, bits);
+    for _ in 0..s.r {
+        p = series_mul(&p, &p, n);
+        p[0] = p[0].add(&s.c);
+    }
+    let mut g = p;
+    g[0] = zero.clone();
+    let rho = g[1].clone();
+    let mut powers = vec![Vec::new(), g.clone()];
+    for k in 2..=n {
+        let next = series_mul(&powers[k - 1], &g, n);
+        powers.push(next);
+    }
+    // phi(g(h)) = rho phi(h), term by term: phi_n (rho^n - rho) = -sum_{k<n} phi_k [h^n] g^k.
+    let mut phi = vec![zero.clone(); n + 1];
+    phi[1] = Complex::from_i64(1, bits);
+    let mut rho_n = rho.clone();
+    for m in 2..=n {
+        rho_n = rho_n.mul(&rho);
+        let mut acc = zero.clone();
+        for k in 1..m {
+            acc = acc.add(&phi[k].mul(&powers[k][m]));
+        }
+        phi[m] = acc.neg().div(&rho_n.sub(&rho));
+    }
+    // psi by series reversion: the w^m term of sum_k phi_k psi^k vanishes for m > 1.
+    let mut psi = vec![zero.clone(); n + 1];
+    psi[1] = Complex::from_i64(1, bits);
+    for m in 2..=n {
+        let mut q = psi.clone();
+        q[m] = zero.clone();
+        let mut pw = q.clone();
+        let mut acc = zero.clone();
+        for (k, phi_k) in phi.iter().enumerate().take(m + 1).skip(1) {
+            if k > 1 {
+                pw = series_mul(&pw, &q, n);
+            }
+            acc = acc.add(&phi_k.mul(&pw[m]));
+        }
+        psi[m] = acc.neg();
+    }
+    phi.remove(0);
+    psi.remove(0);
+    Koenigs { phi, psi }
 }

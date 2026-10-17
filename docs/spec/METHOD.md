@@ -3293,3 +3293,20 @@ R^(i+j) against a_01 R, R = 1e-3 in u, v units): a_10 and Im a_01. They are the 
 residual, about 1e-51 in the Python build, which iterates the unrefined 100-digit centre,
 and about 1e-144 here, after Newton refinement. Either way they contribute about 1e-54 to
 a map whose leading term is 1e-3.
+
+### PROB-33: `fd zone` builds the Koenigs chart in Rust (2026-10-17)
+
+`fd zone --emit lines` now also writes `phi` (12 terms) and `psi` (18 terms). They port
+koenigs_tail.py's `setup` and psi_series.py's `reverse`, generalised from r = 2 to any
+cycle length:
+- g(h) = f^r(A + h) - A is built by composing f r times on the series A + h.
+- phi solves phi(g(h)) = rho phi(h) term by term, with phi'(0) = 1.
+- psi = phi^-1 by series reversion.
+
+Coefficient k depends only on lower ones, so truncating at 18 terms leaves every written
+term exact. The Python build truncated at 40.
+
+**Check** (`cargo test -p fd-cli --test zone_build zone_koenigs_v0`; `compare_map` now also
+compares phi and psi). v0's phi and psi lines are bit-identical to the committed v0.zone,
+and so are rung 409's (tolerance 1e-30). The whole v0 build, now including the chart,
+takes 0.12 s.

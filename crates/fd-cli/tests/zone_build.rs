@@ -153,13 +153,19 @@ fn compare_map(centre: (&str, &str), fixture: &str, tol: f64) -> f64 {
         assert!((g - w).abs() <= tol, "bias: {bg:?} vs {bw:?}");
     }
     let mut worst = 0.0f64;
-    for (key, idx) in [("biseries", 2), ("biseries_x", 2), ("diag", 1)] {
+    for (key, idx) in [
+        ("biseries", 2),
+        ("biseries_x", 2),
+        ("diag", 1),
+        ("phi", 1),
+        ("psi", 1),
+    ] {
         let (g, w) = (keyed(&got, key, idx), keyed(&want, key, idx));
         assert_eq!(g.len(), w.len(), "{fixture}: {key} count");
         for ((gi, gv), (wi, wv)) in g.iter().zip(&w) {
             assert_eq!(gi, wi, "{key} order");
             // `unit`: what one unit of the compared pair is worth (2^e for `_x` lines).
-            let (a, b, unit) = if key == "biseries" {
+            let (a, b, unit) = if matches!(key, "biseries" | "phi" | "psi") {
                 let p = |v: &[String]| (v[0].parse().unwrap(), v[1].parse().unwrap());
                 (p(gv), p(wv), 1.0)
             } else {
@@ -232,4 +238,17 @@ fn zone_biseries_rung409() {
         1e-30,
     );
     eprintln!("PROB-32 rung409: worst biseries/diag relative difference {worst:e}");
+}
+
+#[test]
+fn zone_koenigs_v0() {
+    // phi/psi are compared inside compare_map (with the return map); the claim is
+    // PROB-33's: v0's 12 phi and 18 psi terms within 1e-12 relative.
+    let (re, im) = v0_centre();
+    let worst = compare_map(
+        (&re, &im),
+        "crates/fd-cli/tests/fixtures/zones/v0.zone",
+        1e-12,
+    );
+    eprintln!("PROB-33 v0: worst biseries/diag/phi/psi relative difference {worst:e}");
 }
