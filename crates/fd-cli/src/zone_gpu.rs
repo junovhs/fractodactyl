@@ -295,16 +295,22 @@ impl Opened {
     }
 }
 
-/// Bytes of per-sample state between the f32-only kernel's two entry points
-/// (zone32.wgsl STATE_WORDS).
-const STATE_BYTES: u64 = 9 * 4;
+/// The f32-only kernels' second entry point and the bytes of per-sample state it reads
+/// (zone32.wgsl and zone_mid32.wgsl STATE_WORDS): each kernel is two entry points so
+/// that neither is too large for DX12 WARP (CLEA-05, CLEA-06).
+fn second_entry(stage: Stage) -> (&'static str, u64) {
+    match stage {
+        Stage::Deep | Stage::Extended(_) => ("main_front", 9 * 4),
+        Stage::Mid => ("main_finish", 8 * 4),
+    }
+}
 
 struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::ComputePipeline,
     group: wgpu::BindGroup,
-    /// The f32-only kernel's second entry point (approach and finish) and its group;
+    /// The f32-only kernel's second entry point (second_entry) and its group;
     /// the per-sample state between the two lives in a device-only buffer (CLEA-05).
     front: Option<(wgpu::ComputePipeline, wgpu::BindGroup)>,
     constants: wgpu::Buffer,
@@ -340,8 +346,9 @@ impl Gpu {
             return Err("zone keyframe exceeds the wgpu device's limits".into());
         }
         let dispatch = (x as u32, groups.div_ceil(x) as u32);
-        let split = mode == Kernel::F32Only && stage != Stage::Mid;
-        let state_bytes = column_bytes / 8 * STATE_BYTES;
+        let split = mode == Kernel::F32Only;
+        let (second, state_per_sample) = second_entry(stage);
+        let state_bytes = column_bytes / 8 * state_per_sample;
         if split
             && (state_bytes > limits.max_storage_buffer_binding_size
                 || state_bytes > limits.max_buffer_size)
@@ -388,10 +395,38 @@ impl Gpu {
             (Stage::Deep, Kernel::F32Only) => &all[..3],
             (Stage::Deep, _) => &all[..],
         };
+        // A split kernel's entries share one bind group, so its layout is explicit: an
+        // entry's automatic layout lists only the bindings it touches.
+        let layout = split.then(|| {
+            let entries: Vec<_> = (0..5)
+                .map(|binding| wgpu::BindGroupLayoutEntry {
+                    binding,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: binding == 0,
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                })
+                .collect();
+            let group = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("fd zone"),
+                entries: &entries,
+            });
+            let pipeline = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("fd zone"),
+                bind_group_layouts: &[Some(&group)],
+                immediate_size: 0,
+            });
+            (group, pipeline)
+        });
         let entry = |name| {
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("fd zone kernel"),
-                layout: None,
+                layout: layout.as_ref().map(|(_, pipeline)| pipeline),
                 module: &module,
                 entry_point: Some(name),
                 compilation_options: wgpu::PipelineCompilationOptions {
@@ -438,18 +473,13 @@ impl Gpu {
             .collect();
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("fd zone"),
-            layout: &pipeline.get_bind_group_layout(0),
+            layout: &match &layout {
+                Some((group, _)) => group.clone(),
+                None => pipeline.get_bind_group_layout(0),
+            },
             entries: &entries,
         });
-        let front = split.then(|| {
-            let pipeline = entry("main_front");
-            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("fd zone front"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries: &entries,
-            });
-            (pipeline, group)
-        });
+        let front = split.then(|| (entry(second), group.clone()));
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("wgpu zone pipeline rejected: {e}"));
         }
