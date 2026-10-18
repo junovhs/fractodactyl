@@ -12,6 +12,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `fd --help` and `fd-viewer --help` print their usage and a link to the manual.
+
 ### Fixed
 
 - The manual's header shows the version you are reading about (it said 0.1.0).

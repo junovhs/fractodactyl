@@ -19,3 +19,15 @@ fn viewer_check_reaches_the_renderer() {
     assert!(out.status.success());
     assert!(stdout.contains("64x36 render 6912 bytes"), "{stdout}");
 }
+
+/// SITE-11 (DEC-31): `fd-viewer --help` points at the site's manual, without a window.
+#[test]
+fn help_links_docs() {
+    let out = Command::new(env!("CARGO_BIN_EXE_fd-viewer"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("https://fractodactyl.dev/docs/"), "{text}");
+}

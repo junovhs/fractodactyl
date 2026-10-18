@@ -50,3 +50,14 @@ fn version_flag_prints_the_workspace_version() {
         format!("fd {}", env!("CARGO_PKG_VERSION"))
     );
 }
+
+#[test]
+fn help_links_docs() {
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("https://fractodactyl.dev/docs/"), "{text}");
+}

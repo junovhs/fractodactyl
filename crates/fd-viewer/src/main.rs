@@ -19,7 +19,8 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: fd-viewer [--check] [--fd PATH]";
+const USAGE: &str =
+    "usage: fd-viewer [--check] [--fd PATH]\n\nManual: https://fractodactyl.dev/docs/";
 
 /// The V2 page the window shows.
 static URL: OnceLock<String> = OnceLock::new();
@@ -39,6 +40,11 @@ fn run() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            // SITE-11 (DEC-31): help points at the site's manual.
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return Ok(());
+            }
             "--check" => check = true,
             "--fd" => fd = Some(args.next().ok_or("--fd needs a path")?.into()),
             _ => return Err(USAGE.into()),

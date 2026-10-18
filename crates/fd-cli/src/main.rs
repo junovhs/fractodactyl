@@ -98,7 +98,9 @@ usage:
   fd zone RE IM [--period P | --max-iter N] [--patch-depth N] [-o ZONE | --emit report|lines]
           (builds a deep-band zone for --zone; without -o, reports its structure)
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
-      2 any other error";
+      2 any other error
+
+Manual: https://fractodactyl.dev/docs/";
 
 /// Exit code of `fd schedule` when a chunk misses its first-use deadline (without
 /// `--on-miss report`). Every other failure (usage, build, I/O) exits 2.
@@ -128,6 +130,11 @@ fn main() {
         Some("lod") => lod::run(&argv[1..]),
         Some("explore") => explore::run(&argv[1..]),
         Some("zone") => zone_build::run(&argv[1..]),
+        // SITE-11 (DEC-31): help goes to stdout and points at the site's manual.
+        Some("--help" | "-h" | "help") => {
+            println!("{USAGE}");
+            Ok(())
+        }
         // REL-01: release packages are checked by the version they report.
         Some("--version" | "version") => {
             println!("fd {}", env!("CARGO_PKG_VERSION"));

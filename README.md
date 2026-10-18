@@ -1,5 +1,7 @@
 # Fractodactyl
 
+**Manual:** https://fractodactyl.dev/docs/ · **Download:** https://fractodactyl.dev/download/ · **Changes:** [CHANGELOG.md](CHANGELOG.md)
+
 **Fractodactyl aims to be the fastest deep-zoom generator that shows the real Mandelbrot set and looks visually perfect to humans:** much longer and much deeper zoom films, made much faster than anything else can. The north star is held in Ishoo (`ishoo_north_star op:show`) and mirrored in `docs/spec/NORTH-STAR.md`.
 
 The speed comes from exact dynamics: near a minibrot, theorems (Tan Lei, Koenigs) turn most of each deep pixel's iterations into a few return-map loops and one exact jump, run on the GPU (wgpu). The project began as a path-compiled "mathematical atlas" (`SPEC.md`); that machinery still exists, but Gate C showed it only caches what is cheap to recompute (DEC-15), so the fast per-pixel path is the main line.
@@ -22,6 +24,9 @@ What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
 The website, https://fractodactyl.dev, lives in `site/` (Astro, with the docs written as dopedocs data in `site/src/docs.ts`); `cd site && npm run deploy` builds and publishes it.
 
 ## Make a film
+
+A quick start; the full guide to films, looks and places is the manual at
+https://fractodactyl.dev/docs/.
 
 ```sh
 # once: the v0 zone, built from its centre (about 8 s)
