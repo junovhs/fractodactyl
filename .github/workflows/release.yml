@@ -1,0 +1,130 @@
+name: release
+# DEC-32: a workspace version on main with no vX.Y.Z tag yet becomes a GitHub Release,
+# built here for Windows and Linux, with CHANGELOG.md's section for that version as its
+# notes. CI never writes to main or CHANGELOG.md: the issue that bumps the version names
+# its changelog section, and this job refuses a version without one.
+on:
+  push:
+    branches: [main]
+    paths: ["Cargo.toml", ".github/workflows/release.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: version, tag and changelog section
+        run: |
+          set -euo pipefail
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p}' Cargo.toml | head -1)
+          [ -n "$version" ] || { echo "no [workspace.package] version in Cargo.toml"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released; nothing to do"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash scripts/release-notes.sh "$version" > notes.md
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          cat notes.md
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x86_64
+          - os: windows-latest
+            target: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      # mach-dxcompiler-rs (wgpu static-dxc) asks the GitHub API, via plain curl, whether its
+      # DXC release is immutable; unauthenticated calls from shared runners hit the rate
+      # limit (same step as ci.yml).
+      - name: authenticate curl for the GitHub API
+        shell: bash
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$HOME/.curlrc"
+          if [ -n "${APPDATA:-}" ]; then cp "$HOME/.curlrc" "$HOME/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/_curlrc"; cp "$HOME/.curlrc" "$APPDATA/.curlrc"; fi
+      - name: WebKitGTK (fd-viewer)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libxdo-dev
+      - name: build fd and fd-viewer
+        run: cargo build --release --locked -p fd-cli -p fd-viewer
+      - name: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          v="${{ needs.plan.outputs.version }}"
+          name="fractodactyl-$v-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          cp "target/release/fd$ext" "target/release/fd-viewer$ext" "dist/$name/"
+          cp -r looks places "dist/$name/"
+          cp CHANGELOG.md "dist/$name/"
+          sed "s/@VERSION@/$v/g" scripts/release-readme.txt > "dist/$name/README.txt"
+          "dist/$name/fd$ext" --version
+          cd dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            pwsh -NoProfile -Command "Compress-Archive -Path '$name' -DestinationPath '$name.zip'"
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - name: publish v${{ needs.plan.outputs.version }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v="${{ needs.plan.outputs.version }}"
+          bash scripts/release-notes.sh "$v" > notes.md
+          (cd assets && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          gh release create "v$v" assets/* --target "$GITHUB_SHA" \
+            --title "Fractodactyl $v" --notes-file notes.md
+      # A release made with the job token does not fire other workflows' `release` events,
+      # but workflow_dispatch is allowed: redeploy the site so /download/ shows it (DEC-32).
+      - name: redeploy fractodactyl.dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f .github/workflows/site.yml ]; then gh workflow run site.yml --ref main
+          else echo "site.yml not on main yet; the site picks the release up on its next deploy"; fi

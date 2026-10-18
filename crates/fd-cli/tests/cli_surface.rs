@@ -37,3 +37,16 @@ fn first_atlas_frame_renders_and_film_remains_dispatched() {
     assert_eq!(film.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&film.stderr).contains("usage: fd film"));
 }
+
+#[test]
+fn version_flag_prints_the_workspace_version() {
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        format!("fd {}", env!("CARGO_PKG_VERSION"))
+    );
+}

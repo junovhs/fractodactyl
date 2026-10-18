@@ -128,6 +128,11 @@ fn main() {
         Some("lod") => lod::run(&argv[1..]),
         Some("explore") => explore::run(&argv[1..]),
         Some("zone") => zone_build::run(&argv[1..]),
+        // REL-01: release packages are checked by the version they report.
+        Some("--version" | "version") => {
+            println!("fd {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {

@@ -12,11 +12,7 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-
-- **One menu across fractodactyl.dev.** Every page, including the manual, now has the
-  same bar: Home, Docs, Explore, Download and GitHub. Explore and Download say what is
-  coming until the web explorer and the release downloads arrive.
+Nothing yet.
 
 ## [0.5.0] - 2026-10-18
 
@@ -24,6 +20,11 @@ The first public version. Everything below is what Fractodactyl can do today.
 
 ### Added
 
+- **Downloads.** Ready-built packages for Windows and Linux (fd-viewer, fd, looks and
+  places in one folder), published automatically for each version. `fd --version` says
+  which one you have.
+- **One menu across fractodactyl.dev.** Every page, including the manual, has the same
+  bar: Home, Docs, Explore, Download and GitHub.
 - **Zoom films in one command.** `fd film` goes from a location to a 1080p60 MP4: an
   eased camera that can twist, flowing or breathing colour bands, and variable zoom speed
   from a speed-curve file. Keyframe films (`--keyframes`) render a few frames per zoom

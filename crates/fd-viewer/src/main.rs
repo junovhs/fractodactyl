@@ -226,15 +226,22 @@ fn sibling_fd() -> Result<PathBuf, String> {
 
 /// The directory `fd explore` resolves looks/, places/ and data/zones/ in: the first
 /// ancestor of the `fd` binary or the working directory that has a looks/ folder (the
-/// repository), else the working directory.
+/// repository), else the release package `fd` sits in (REL-01: its looks/ is beside it),
+/// else the working directory.
 fn home(fd: &Path) -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let from_fd = fd.canonicalize().ok();
+    let package = from_fd
+        .as_deref()
+        .and_then(Path::parent)
+        .filter(|d| d.join("looks").is_dir())
+        .map(Path::to_path_buf);
     [Some(cwd.clone()), from_fd]
         .into_iter()
         .flatten()
         .flat_map(|p| p.ancestors().map(Path::to_path_buf).collect::<Vec<_>>())
         .find(|d| d.join("looks").is_dir() && d.join("viewer").is_dir())
+        .or(package)
         .unwrap_or(cwd)
 }
 
