@@ -1,0 +1,16 @@
+/* Accent colours from the master-ice look: ice blue on deep navy. */
+:root {
+  --sl-color-accent-low: #0b2447;
+  --sl-color-accent: #3d8bfd;
+  --sl-color-accent-high: #cfe3ff;
+  --sl-color-black: #0d0f14;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d6e6ff;
+  --sl-color-accent: #1f5fc4;
+  --sl-color-accent-high: #0b2447;
+}
+.fd-figure { margin: 1.5rem 0; }
+.fd-figure img { width: 100%; height: auto; border-radius: 0.5rem; }
+.fd-figure figcaption { font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); margin-top: 0.4rem; }
+.fd-numbers td:first-child { white-space: nowrap; font-weight: 600; }

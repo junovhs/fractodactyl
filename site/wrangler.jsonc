@@ -1,0 +1,8 @@
+// fractodactyl.dev: the built site (home page + dopedocs /docs/) as a static-assets Worker on a custom domain.
+// Deploy with `npm run deploy` (build, then `wrangler deploy`).
+{
+  "name": "fractodactyl-site",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "fractodactyl.dev", "custom_domain": true }]
+}

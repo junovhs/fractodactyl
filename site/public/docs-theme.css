@@ -1,0 +1,43 @@
+/* Fractodactyl's palette for the home page and dopedocs' static pages: warm paper, ink
+   black, hairlines, and the mascot's orange, pink and purple with the viewer's blue. */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+:root {
+  --fd-bg: #f4f0e6;
+  --fd-panel: #f7f6f2;
+  --fd-panel-muted: #e4e2db;
+  --fd-text: #121212;
+  --fd-text-soft: #3b3a36;
+  --fd-muted: #77756d;
+  --fd-line: #d3d0c8;
+  --fd-accent: #0a2fd6;   /* the viewer's selection blue */
+  --fd-coral: #fa4b6c;    /* the viewer's close button */
+  /* the mascot's colours */
+  --fd-orange: #ff9a1f;
+  --fd-pink: #ff6fae;
+  --fd-purple: #7b3ff2;
+  --fd-blue: #0a2fd6;
+  --fd-yellow: #ffd23f;
+  --fd-periwinkle: #a6a1f4;
+  --fd-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fd-display: "Inter Tight", "Inter", system-ui, sans-serif;
+  --fd-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --dd-bg: var(--fd-bg);
+  --dd-panel: var(--fd-panel);
+  --dd-panel-muted: var(--fd-panel-muted);
+  --dd-ink: var(--fd-text);
+  --dd-on-ink: #e9e7e0;
+  --dd-on-ink-strong: #ffffff;
+  --dd-text: var(--fd-text);
+  --dd-text-soft: var(--fd-text-soft);
+  --dd-muted: var(--fd-muted);
+  --dd-line: var(--fd-line);
+  --dd-line-soft: #e2e0d9;
+  --dd-edge: #b9b6ad;
+  --dd-accent: var(--fd-accent);
+  --dd-on-accent: #ffffff;
+  --dd-sans: var(--fd-sans);
+  --dd-mono: var(--fd-mono);
+  color-scheme: light;
+}
