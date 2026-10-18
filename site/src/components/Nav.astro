@@ -1,0 +1,7 @@
+---
+// The site nav (DEC-31 rule 2). One source: src/nav.ts.
+import { navHtml } from "../nav.ts";
+interface Props { current: string }
+const { current } = Astro.props;
+---
+<Fragment set:html={navHtml(current)} />

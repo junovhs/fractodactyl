@@ -1,9 +1,10 @@
 ---
 // fractodactyl.dev: the plain-language explainer. Static HTML and CSS, no client script.
 // Layout follows the owner's mockup: the viewer's pixel banner as the title bar, a tab
-// bar (on-page anchors; only Docs leaves for /docs/), a hero on the "Parchment Edge
+// bar of on-page anchors under the site nav (DEC-31), a hero on the "Parchment Edge
 // Tropical Sunset Valley" pixel art with the mascot floating over it, then parchment
 // cards. Colour pairs are declared below and checked by check-home.sh.
+import Nav from "../components/Nav.astro";
 const repo = "https://github.com/junovhs/fractodactyl";
 const tabs = [
   ["#top", "Home"],
@@ -71,6 +72,7 @@ const renders = [
     </style>
   </head>
   <body>
+    <Nav current="/" />
     <div class="page" id="top">
       <header class="top">
         <div class="titlebar">
@@ -80,10 +82,6 @@ const renders = [
         </div>
         <nav class="tabs" aria-label="On this page">
           <div class="tablist">{tabs.map(([href, label], i) => <a class={i === 0 ? "tab on" : "tab"} href={href}>{label}</a>)}</div>
-          <div class="out">
-            <a class="tab" href={repo}>GitHub ↗</a>
-            <a class="tab" href="/docs/">Docs</a>
-          </div>
         </nav>
       </header>
 
@@ -220,7 +218,7 @@ const renders = [
 
   /* Tab bar */
   .tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; padding: 8px 10px; background: linear-gradient(#ece6dc, #d9d1c4); border-bottom: 2px solid var(--c-line); }
-  .tablist, .out { display: flex; flex-wrap: wrap; gap: 5px; }
+  .tablist { display: flex; flex-wrap: wrap; gap: 5px; }
   .tab { padding: 5px 14px; background: var(--c-tab); color: var(--c-ink); text-decoration: none; font: 600 14px var(--fd-sans); border-radius: 3px;
     box-shadow: inset -1px -1px 0 #4a443c, inset 1px 1px 0 #fff, inset -2px -2px 0 #9a9286; }
   .tab:hover { background: #f1ece4; }

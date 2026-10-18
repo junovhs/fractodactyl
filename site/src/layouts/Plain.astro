@@ -1,0 +1,24 @@
+---
+// A plain page under the site nav: the 404 page and the /explore/ and /download/
+// placeholders until WEB-04 and SITE-10 replace them.
+import Nav from "../components/Nav.astro";
+interface Props { title: string; current: string; description?: string }
+const { title, current, description } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · Fractodactyl</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" href="/favicon.png" />
+    <link rel="stylesheet" href="/docs-theme.css" />
+  </head>
+  <body class="fd-plain">
+    <Nav current={current} />
+    <main class="fd-plain-main">
+      <slot />
+    </main>
+  </body>
+</html>

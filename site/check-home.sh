@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# SITE-04 check: the home page's top nav stays on the page (anchors), except one Docs
-# link and GitHub; no desktop/taskbar layout; and the page's colour pairs meet WCAG AA.
+# SITE-04 check, updated for DEC-31 (SITE-09): the home page's tab bar stays on the page
+# (anchors only), the site nav above it carries Docs and GitHub; no desktop/taskbar
+# layout; and the page's colour pairs meet WCAG AA.
 #   ./check-home.sh [URL]   (default https://fractodactyl.dev/)
 set -u
 URL="${1:-https://fractodactyl.dev/}"
@@ -17,8 +18,11 @@ else:
     others = [h for h in hrefs if not h.startswith("#") and h != "/"]
     docs = [h for h in others if h.startswith("/docs")]
     rest = [h for h in others if not h.startswith("/docs") and "github.com" not in h]
-    if docs != ["/docs/"]: fail.append(f"header docs links {docs} (want exactly one /docs/)")
-    if rest: fail.append(f"header links leave the page: {rest}")
+    if docs or rest: fail.append(f"header links leave the page: {docs + rest}")
+nav = re.search(r'<nav class="fd-sitenav".*?</nav>', html, re.S)
+if not nav: fail.append("no site nav (DEC-31)")
+elif 'href="/docs/"' not in nav.group(0) or "github.com" not in nav.group(0):
+    fail.append("site nav lacks Docs or GitHub")
 for bad in ('class="taskbar"', 'class="icons"', "confetti"):
     if bad in html: fail.append(f"page still has {bad}")
 # WCAG contrast of the page's declared pairs: /* aa: --fg on --bg */ comments in the CSS.

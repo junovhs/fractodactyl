@@ -48,3 +48,24 @@
   #specs .dd-table th,
   #specs .dd-table td { overflow-wrap: anywhere; }
 }
+
+/* DEC-31: the one site nav on every page (src/nav.ts). The viewer's navy, with the
+   mascot's yellow marking the current part of the site. */
+.fd-sitenav {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; padding: 6px 16px; background: #1d2370; color: #eef0ff;
+  font: 600 14px/1.4 var(--fd-sans); border-bottom: 2px solid #0e1240;
+}
+.fd-sitenav-brand { display: inline-flex; align-items: center; gap: 8px; font-family: var(--fd-display); }
+.fd-sitenav-brand img { image-rendering: pixelated; }
+.fd-sitenav-links { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.fd-sitenav a { color: #eef0ff; text-decoration: none; padding: 2px 0; border-bottom: 2px solid transparent; }
+.fd-sitenav a:hover { border-bottom-color: #a6a1f4; }
+.fd-sitenav a:focus-visible { outline: 2px solid var(--fd-yellow); outline-offset: 2px; }
+.fd-sitenav a[aria-current="page"] { border-bottom-color: var(--fd-yellow); }
+
+/* Plain pages (404, placeholders) under the nav. */
+body.fd-plain { margin: 0; min-height: 100vh; background: var(--fd-bg); color: var(--fd-text-soft); font: 17px/1.6 var(--fd-sans); }
+.fd-plain-main { max-width: 640px; margin: 0 auto; padding: 64px 16px; }
+.fd-plain-main h1 { color: var(--fd-text); font-family: var(--fd-display); }
+.fd-plain-main a { color: var(--fd-accent); }

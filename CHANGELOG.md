@@ -12,7 +12,11 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **One menu across fractodactyl.dev.** Every page, including the manual, now has the
+  same bar: Home, Docs, Explore, Download and GitHub. Explore and Download say what is
+  coming until the web explorer and the release downloads arrive.
 
 ## [0.5.0] - 2026-10-18
 

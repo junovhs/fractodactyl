@@ -2,6 +2,7 @@
 import { defineConfig } from "astro/config";
 import dopedocs from "dopedocs/astro";
 import { docs } from "./src/docs.ts";
+import siteNav from "./src/integrations/site-nav.mjs";
 
 export default defineConfig({
   site: "https://fractodactyl.dev",
@@ -10,5 +11,5 @@ export default defineConfig({
     entityType: "SoftwareApplication",
     stylesheet: [true, "/docs-theme.css"],
     search: true,
-  })],
+  }), siteNav()],
 });
