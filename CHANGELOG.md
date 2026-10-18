@@ -23,8 +23,8 @@ The first public version. Everything below is what Fractodactyl can do today.
 ### Added
 
 - **Downloads.** Ready-built packages for Windows and Linux (fd-viewer, fd, looks and
-  places in one folder), published automatically for each version. `fd --version` says
-  which one you have.
+  places in one folder, with the MIT and Apache-2.0 licence texts), published
+  automatically for each version. `fd --version` says which one you have.
 - **One menu across fractodactyl.dev.** Every page, including the manual, has the same
   bar: Home, Docs, Explore, Download and GitHub.
 - **Zoom films in one command.** `fd film` goes from a location to a 1080p60 MP4: an

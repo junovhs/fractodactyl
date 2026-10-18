@@ -17,4 +17,5 @@ Run it
   Keep fd and fd-viewer in the same folder: the explorer starts fd for you.
 
 Manual:  https://fractodactyl.dev/docs/
-Source:  https://github.com/junovhs/fractodactyl  (MIT OR Apache-2.0)
+Source:  https://github.com/junovhs/fractodactyl
+Licence: MIT OR Apache-2.0, at your choice (LICENSE-MIT, LICENSE-APACHE)

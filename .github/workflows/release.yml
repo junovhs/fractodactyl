@@ -81,7 +81,7 @@ jobs:
           ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
           cp "target/release/fd$ext" "target/release/fd-viewer$ext" "dist/$name/"
           cp -r looks places "dist/$name/"
-          cp CHANGELOG.md "dist/$name/"
+          cp CHANGELOG.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
           sed "s/@VERSION@/$v/g" scripts/release-readme.txt > "dist/$name/README.txt"
           "dist/$name/fd$ext" --version
           cd dist
