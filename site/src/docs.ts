@@ -3,7 +3,13 @@
 // Numbers come from the results log in docs/spec/METHOD.md; the facts registry holds
 // each one once, with the date it was last checked.
 import { defineDocs, defineFacts } from "dopedocs";
+import { readFileSync } from "node:fs";
 import { researchPages } from "./research";
+
+// SITE-12: the manual states the version the workspace builds (Cargo.toml), not a copy.
+const cargo = readFileSync(new URL("../../Cargo.toml", import.meta.url), "utf8");
+const VERSION = /\[workspace\.package\][^[]*?\nversion = "([^"]+)"/.exec(cargo)?.[1];
+if (!VERSION) throw new Error("no [workspace.package] version in Cargo.toml");
 
 const REPO = "https://github.com/junovhs/fractodactyl";
 
@@ -42,7 +48,7 @@ export const docs = defineDocs({
     },
     identity: {
         name: "Fractodactyl",
-        version: "0.1.0",
+        version: VERSION,
         channel: "Work in progress",
         maker: { name: "junovhs", href: REPO },
         mark: "/favicon.png",
