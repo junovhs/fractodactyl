@@ -1,12 +1,22 @@
 ---
-// fractodactyl.dev: the plain-language explainer, as a 90s desktop. Static HTML and CSS,
-// no client script. Each section is a window; the taskbar and desktop icons are links.
-// The documentation pages under /docs/ are written by dopedocs from src/docs.ts.
+// fractodactyl.dev: the plain-language explainer. Static HTML and CSS, no client script.
+// A clean, readable page with a tint of the viewer's 90s look: slim title strips on the
+// cards, a viewer-style frame for Fig. 1, bevelled buttons, the pixel banner and the
+// mascot. The top nav stays on this page; only the Docs link goes to /docs/ (written by
+// dopedocs from src/docs.ts). Colour pairs are declared below and checked by check-home.sh.
 const repo = "https://github.com/junovhs/fractodactyl";
 const pic = (name: string) => ({
   src: `/img/${name}-1600.webp`,
   srcset: `/img/${name}-800.webp 800w, /img/${name}-1600.webp 1600w`,
 });
+const nav = [
+  ["#about", "About"],
+  ["#rules", "Rules"],
+  ["#speed", "Speed"],
+  ["#receipts", "Receipts"],
+  ["#explorer", "Explorer"],
+  ["#plans", "Plans"],
+];
 const ticker = [
   "z ↦ z² + c",
   "period-764 minibrot at width 1e-48 in 0.25 s",
@@ -15,28 +25,12 @@ const ticker = [
   "every frame is the real set",
   "the pterodactyl is load-bearing",
 ];
-const icons = [
-  { href: "#welcome", glyph: "", img: "/img/ui/mascot-icon.png", label: "Fractodactyl", sel: true },
-  { href: "/docs/", glyph: "📁", label: "Docs" },
-  { href: "#receipts", glyph: "📊", label: "Receipts" },
-  { href: "#explorer", glyph: "🖼️", label: "Screenshots" },
-  { href: repo, glyph: "🌐", label: "GitHub" },
-];
-const tasks = [
-  ["#readme", "readme.txt"],
-  ["#rules", "house_rules.txt"],
-  ["#speed", "speed.exe"],
-  ["#receipts", "receipts.xls"],
-  ["#explorer", "explorer.exe"],
-  ["#todo", "todo.txt"],
-];
 const shots = [
   { n: "elephant", place: "Elephant Valley", look: "master-ice" },
   { n: "antenna", place: "Antenna minibrot", look: "ice" },
   { n: "deepvalley", place: "Deep valley, 1.3e12×", look: "smoke" },
   { n: "coral", place: "Seahorse Valley", look: "coral" },
 ];
-const win = (glyph: string) => glyph;
 ---
 <!doctype html>
 <html lang="en">
@@ -51,132 +45,145 @@ const win = (glyph: string) => glyph;
     <meta property="og:description" content="Deep Mandelbrot zooms, built in public." />
     <meta property="og:image" content="https://fractodactyl.dev/img/minibrot-1600.webp" />
     <link rel="stylesheet" href="/docs-theme.css" />
+    <style is:inline>
+      /* Page colours. Text pairs meet WCAG AA (4.5:1); check-home.sh verifies each:
+         aa: --c-ink on --c-bg        aa: --c-ink on --c-card       aa: --c-soft on --c-bg
+         aa: --c-soft on --c-card     aa: --c-muted on --c-bg       aa: --c-muted on --c-card
+         aa: --c-link on --c-card     aa: --c-link on --c-bg        aa: --c-strip-ink on --c-strip
+         aa: --c-ink on --c-btn       aa: --c-ink on --c-nav        aa: --c-orange-ink on --c-card
+         aa: --c-pink-ink on --c-card aa: --c-purple-ink on --c-card aa: --c-tick-ink on --c-tick
+         aa: --c-stamp-ink on --c-stamp aa: --c-ink on --c-orange    aa: --c-ink on --c-pink
+         aa: --c-vbar-ink on --c-vbar  aa: --c-vbar-ink on --c-vbar-lo  aa: --c-stamp-ink on --c-stamp */
+      :root {
+        --c-bg: #f5f3ee;
+        --c-card: #ffffff;
+        --c-ink: #1a1814;
+        --c-soft: #45403a;
+        --c-muted: #5e584f;
+        --c-line: #d9d5cc;
+        --c-link: #1d3fd1;
+        --c-strip: #e6e4fb;
+        --c-strip-ink: #262a6e;
+        --c-btn: #dedbd4;
+        --c-nav: #ece9e2;
+        --c-orange: #ffa94d;
+        --c-orange-ink: #8a3c00;
+        --c-pink: #ff8fc0;
+        --c-pink-ink: #9b1458;
+        --c-purple-ink: #4b20b0;
+        --c-tick: #14161c;
+        --c-tick-ink: #a6f07a;
+        --c-stamp: #0a2fd6;
+        --c-stamp-ink: #ffffff;
+        --c-frame: #3a45bf;
+        --c-vbar: #4a55cf;
+        --c-vbar-lo: #333da8;
+        --c-vbar-ink: #ffffff;
+      }
+    </style>
   </head>
   <body>
-    <svg class="confetti" viewBox="0 0 1440 1040" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g opacity=".85">
-        <polygon points="265,40 330,20 300,85" fill="#9b5de5"/><polygon points="1120,25 1175,8 1160,70" fill="#4cc9f0"/>
-        <polygon points="40,780 95,745 90,815" fill="#2ec4b6"/><polygon points="15,960 80,935 55,1010" fill="#9b5de5"/>
-        <polygon points="1390,560 1435,520 1440,600" fill="#f15bb5"/><polygon points="1300,980 1360,955 1350,1030" fill="#fee440"/>
-        <rect x="880" y="10" width="70" height="12" rx="3" fill="#fee440" transform="rotate(18 915 16)"/>
-        <rect x="20" y="880" width="58" height="11" rx="3" fill="#f15bb5" transform="rotate(-30 49 885)"/>
-        <path d="M560 1012 q20 -20 40 0 t40 0 t40 0" stroke="#f15bb5" stroke-width="7" fill="none" stroke-linecap="round"/>
-        <path d="M1340 300 q16 -16 32 0 t32 0" stroke="#fee440" stroke-width="6" fill="none" stroke-linecap="round"/>
-        <circle cx="105" cy="740" r="7" fill="#f15bb5"/><circle cx="1380" cy="140" r="6" fill="#4cc9f0"/>
-      </g>
-    </svg>
+    <header class="top">
+      <a class="brand" href="#top"><img src="/img/ui/mascot-icon.png" alt="" width="34" height="28" /><span>Fractodactyl</span></a>
+      <nav aria-label="On this page">
+        {nav.map(([href, label]) => <a href={href}>{label}</a>)}
+      </nav>
+      <div class="out">
+        <a class="b95" href="/docs/">Docs</a>
+        <a class="gh" href={repo}>GitHub ↗</a>
+      </div>
+    </header>
 
-    <nav class="icons" aria-label="Desktop">
-      {icons.map((i) => (
-        <a class={`icon${i.sel ? " sel" : ""}`} href={i.href}>
-          {i.img ? <img src={i.img} alt="" width="56" height="47" /> : <span class="glyph">{i.glyph}</span>}
-          <span class="name">{i.label}</span>
-        </a>
-      ))}
-    </nav>
+    <section class="hero wrap" id="top">
+      <div class="hero-copy">
+        <img class="banner" src="/img/ui/banner-band.png" alt="Fractodactyl: Explore the Infinite! A pixel-art pterodactyl banner." width="640" height="66" />
+        <h1>A deep-zoom renderer for the Mandelbrot set that never fakes a frame.</h1>
+        <p class="lede">Fractodactyl is open source and built in public. We aim to make it the fastest way to render deep zoom films: films that go much deeper and run much longer than today's, made much faster, where every pixel is the real set at that depth.</p>
+        <p class="actions"><a class="b95 primary" href="#speed">See how it works</a><a class="b95" href="/docs/">Read the docs</a></p>
+      </div>
+      <div class="hero-art">
+        <img class="mascot" src="/img/ui/mascot-900.webp" srcset="/img/ui/mascot-450.webp 450w, /img/ui/mascot-900.webp 900w" sizes="(max-width: 820px) 60vw, 340px" alt="Fractodactyl's mascot: a grinning pterodactyl in sunglasses with fractal-patterned wings" width="900" height="750" />
+        <span class="stamp">100%<br />real set</span>
+      </div>
+    </section>
 
-    <main class="desk">
-      <section class="window hero" id="welcome">
-        <div class="title"><img src="/img/ui/mascot-icon.png" alt="" width="18" height="15" /><span>Welcome to Fractodactyl</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="menubar"><a href="/docs/"><u>F</u>ile</a><a href="/docs/how-its-fast/"><u>H</u>ow it works</a><a href="/docs/results/"><u>R</u>esults</a><a href={repo}><u>S</u>ource</a><a href="/docs/"><u>H</u>elp</a></div>
-        <div class="pane">
-          <img class="banner" src="/img/ui/banner-band.png" alt="Fractodactyl: Explore the Infinite! A pixel-art pterodactyl banner." width="640" height="66" />
-          <div class="hero-grid">
-            <div>
-              <h1>A deep-zoom renderer for the Mandelbrot set that never fakes a frame.</h1>
-              <p>Fractodactyl is open source and built in public. We aim to make it the fastest way to render deep zoom films: films that go much deeper and run much longer than today's, made much faster, where every pixel is the real set at that depth.</p>
-              <p class="actions"><a class="b95 primary" href="/docs/what-it-is/">How it works</a><a class="b95" href={repo}>View source</a></p>
-            </div>
-            <div class="hero-art">
-              <img class="mascot" src="/img/ui/mascot-900.webp" srcset="/img/ui/mascot-450.webp 450w, /img/ui/mascot-900.webp 900w" sizes="(max-width: 760px) 70vw, 340px" alt="Fractodactyl's mascot: a grinning pterodactyl in sunglasses with fractal-patterned wings" width="900" height="750" />
-              <span class="stamp">100%<br />real set</span>
-            </div>
-          </div>
-        </div>
-        <div class="marquee" aria-hidden="true"><div class="track">{[0, 1].map(() => ticker.map((t) => <span>{t}</span>))}</div></div>
-      </section>
+    <div class="ticker" aria-hidden="true"><div class="track">{[0, 1].map(() => ticker.map((t) => <span>{t}</span>))}</div></div>
 
-      <section class="window viewer" id="fig">
-        <div class="title"><span>minibrot-764.fds · fd-viewer</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="canvas"><img {...pic("minibrot")} sizes="(max-width: 960px) 100vw, 880px" alt="A period-764 minibrot at width 1e-48, rendered by fd" width="1600" height="900" fetchpriority="high" /></div>
-        <div class="statusbar">
-          <span class="cell grow">Ready · master-ice<span class="progress"><i></i></span></span>
-          <span class="cell">Width: 1e-48</span>
-          <span class="cell">0.25 s</span>
-          <span class="cell">zone-wgpu-f64</span>
-        </div>
-      </section>
+    <main class="wrap">
+      <figure class="viewer">
+        <div class="vbar"><span>minibrot-764.fds · fd-viewer</span><b class="btns" aria-hidden="true"><i></i><i></i><i class="x"></i></b></div>
+        <img {...pic("minibrot")} sizes="(max-width: 980px) 100vw, 920px" alt="A period-764 minibrot at width 1e-48, rendered by fd" width="1600" height="900" fetchpriority="high" />
+        <figcaption class="status"><span>Fig. 1 · period-764 minibrot</span><span>width 1e-48</span><span>0.25 s</span><span>zone-wgpu-f64</span></figcaption>
+      </figure>
 
-      <section class="window" id="readme">
-        <div class="title"><span>📄 readme.txt</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="about">
+        <p class="strip">readme.txt</p>
+        <div class="body">
           <h2>What this is</h2>
           <p>A deep zoom dives into the Mandelbrot set until the screen is far smaller than an atom, and then keeps going. The set never runs out of detail, but the arithmetic gets harder the deeper you go, which is why long, deep zoom films are rare and slow to make. We're working to make them routine.</p>
-          <table class="t95">
-            <tbody>
-              <tr><th>Language</th><td>Rust, with the GPU code in WGSL on wgpu</td></tr>
-              <tr><th>Aims to run on</th><td>Windows and Linux, any modern GPU, or no GPU at all</td></tr>
-              <tr><th>Tested on so far</th><td>AMD RX 5700 XT, Mesa lavapipe, DX12 WARP</td></tr>
-              <tr><th>Licence</th><td>MIT or Apache-2.0</td></tr>
-              <tr><th>Mascot</th><td>One pterodactyl, sunglasses non-optional</td></tr>
-            </tbody>
-          </table>
+          <dl class="spec">
+            <div><dt>Language</dt><dd>Rust, with the GPU code in WGSL on wgpu</dd></div>
+            <div><dt>Aims to run on</dt><dd>Windows and Linux, any modern GPU, or no GPU at all</dd></div>
+            <div><dt>Tested on so far</dt><dd>AMD RX 5700 XT, Mesa lavapipe, DX12 WARP</dd></div>
+            <div><dt>Licence</dt><dd>MIT or Apache-2.0</dd></div>
+            <div><dt>Mascot</dt><dd>One pterodactyl, sunglasses non-optional</dd></div>
+          </dl>
         </div>
       </section>
 
-      <section class="window" id="rules">
-        <div class="title"><span>📜 house_rules.txt</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="rules">
+        <p class="strip">house_rules.txt</p>
+        <div class="body">
           <h2>House rules</h2>
           <p>Every idea in the project has to pass three tests, in this order, or it doesn't ship.</p>
           <ol class="rules">
-            <li><b class="n orange">1</b><div><strong>It shows the real set.</strong> Every frame is the actual Mandelbrot set at that place and depth. We never swap in a look-alike location to save time.</div></li>
-            <li><b class="n pink">2</b><div><strong>It looks perfect, measurably.</strong> A viewer can't tell a film frame from an exact render of the same frame, and <code>fd filmcheck</code> checks that on every frame.</div></li>
-            <li><b class="n purple">3</b><div><strong>It earns its keep.</strong> It makes zooms faster, deeper or longer. Ideas that stop paying off get dropped, with a note in the log about why.</div></li>
+            <li><b class="n o">1</b><div><strong>It shows the real set.</strong> Every frame is the actual Mandelbrot set at that place and depth. We never swap in a look-alike location to save time.</div></li>
+            <li><b class="n p">2</b><div><strong>It looks perfect, measurably.</strong> A viewer can't tell a film frame from an exact render of the same frame, and <code>fd filmcheck</code> checks that on every frame.</div></li>
+            <li><b class="n v">3</b><div><strong>It earns its keep.</strong> It makes zooms faster, deeper or longer. Ideas that stop paying off get dropped, with a note in the log about why.</div></li>
           </ol>
         </div>
       </section>
 
-      <section class="window" id="speed">
-        <div class="title"><span>⚙️ speed.exe</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="speed">
+        <p class="strip">speed.exe</p>
+        <div class="body">
           <h2>Where the speed comes from</h2>
           <p>A conventional renderer follows each pixel's orbit step by step, often for hundreds of thousands of steps. Near a minibrot, Fractodactyl uses exact results about how those orbits behave (theorems of Tan Lei and Koenigs) to replace most of the steps with a few loops of a small map and one exact jump. It's a shortcut the maths guarantees, not a guess, and every result is checked against full-precision renders.</p>
           <div class="pair">
-            <figure><div class="sunken"><img {...pic("seahorse")} sizes="(max-width: 760px) 100vw, 420px" alt="Seahorse Valley in the master-ice look" width="1600" height="900" loading="lazy" /></div><figcaption>Seahorse Valley, width 0.0065, master-ice.</figcaption></figure>
-            <figure><div class="sunken"><img {...pic("spiral")} sizes="(max-width: 760px) 100vw, 420px" alt="A spiral near M(24,2) at width 1e-24 in the coral look" width="1600" height="900" loading="lazy" /></div><figcaption>Spiral at M(24,2), width 1e-24, coral: 4.1 s on the ordinary kernel.</figcaption></figure>
+            <figure><img {...pic("seahorse")} sizes="(max-width: 700px) 100vw, 440px" alt="Seahorse Valley in the master-ice look" width="1600" height="900" loading="lazy" /><figcaption>Seahorse Valley, width 0.0065, master-ice.</figcaption></figure>
+            <figure><img {...pic("spiral")} sizes="(max-width: 700px) 100vw, 440px" alt="A spiral near M(24,2) at width 1e-24 in the coral look" width="1600" height="900" loading="lazy" /><figcaption>Spiral at M(24,2), width 1e-24, coral: 4.1 s on the ordinary kernel.</figcaption></figure>
           </div>
-          <p class="note">The minibrot in the viewer window above is twenty-four decades deeper than the spiral and took 0.25 s on the fast path.</p>
+          <p class="note">Fig. 1 is twenty-four decades deeper than the spiral and took 0.25 s on the fast path.</p>
         </div>
       </section>
 
-      <section class="window" id="receipts">
-        <div class="title"><span>📊 receipts.xls</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="receipts">
+        <p class="strip">receipts.xls</p>
+        <div class="body">
           <h2>Receipts</h2>
           <p>Measurements on the zoom paths we've tested so far, each against the best renderer that could use the same trick. Making the fast path cover any film is the big open problem we're working on.</p>
-          <table class="t95 sheet">
-            <thead><tr><th></th><th>Speed-up</th><th>What was measured</th></tr></thead>
+          <table class="sheet">
+            <thead><tr><th scope="col">Speed-up</th><th scope="col">What was measured</th></tr></thead>
             <tbody>
-              <tr><th>1</th><td class="num orange">8-25×</td><td>Deep frames near a minibrot, against fd's own BLA renderer. 0 wrong pixels out of 777,600.</td></tr>
-              <tr><th>2</th><td class="num pink">~1000×</td><td>Frames at a depth of 1e-1000: 0.023 s against 23-42 s, every pixel correct.</td></tr>
-              <tr><th>3</th><td class="num purple">5×</td><td>A whole 10-second 1080p60 film on the GPU: 36.6 s against 183.6 s on every CPU core.</td></tr>
+              <tr><td class="num o">8-25×</td><td>Deep frames near a minibrot, against fd's own BLA renderer. 0 wrong pixels out of 777,600.</td></tr>
+              <tr><td class="num p">~1000×</td><td>Frames at a depth of 1e-1000: 0.023 s against 23-42 s, every pixel correct.</td></tr>
+              <tr><td class="num v">5×</td><td>A whole 10-second 1080p60 film on the GPU: 36.6 s against 183.6 s on every CPU core.</td></tr>
             </tbody>
           </table>
           <p class="note">Every number has its command and data in the public results log, filed right next to the ideas that didn't work.</p>
         </div>
       </section>
 
-      <section class="window" id="explorer">
-        <div class="title"><span>🦖 explorer.exe</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="explorer">
+        <p class="strip">explorer.exe</p>
+        <div class="body">
           <h2>The explorer</h2>
           <p><code>fd-viewer</code> is our desktop explorer for wandering the set, picking places for films and trying looks. It's an early build that already drives the real renderer, and it has a pterodactyl in the title bar because we have standards.</p>
           <div class="shots">
             {shots.map((s) => (
               <figure>
-                <div class="sunken"><img src={`/img/viewer-${s.n}-1280.webp`} srcset={`/img/viewer-${s.n}-640.webp 640w, /img/viewer-${s.n}-1280.webp 1280w`} sizes="(max-width: 760px) 100vw, 420px" alt={`fd-viewer showing ${s.place} in the ${s.look} look`} width="1280" height="1082" loading="lazy" /></div>
-                <figcaption>{s.place} · <span class="look">{s.look}</span></figcaption>
+                <img src={`/img/viewer-${s.n}-1280.webp`} srcset={`/img/viewer-${s.n}-640.webp 640w, /img/viewer-${s.n}-1280.webp 1280w`} sizes="(max-width: 700px) 100vw, 440px" alt={`fd-viewer showing ${s.place} in the ${s.look} look`} width="1280" height="1082" loading="lazy" />
+                <figcaption>{s.place}, {s.look}.</figcaption>
               </figure>
             ))}
           </div>
@@ -184,154 +191,118 @@ const win = (glyph: string) => glyph;
         </div>
       </section>
 
-      <section class="window" id="todo">
-        <div class="title"><span>📝 todo.txt</span><b class="btns"><i>_</i><i>□</i><i class="x">×</i></b></div>
-        <div class="pane doc">
+      <section class="card" id="plans">
+        <p class="strip">todo.txt</p>
+        <div class="body">
           <h2>What we're working on</h2>
           <ul class="todo">
-            <li><span class="box"></span><div><strong>Fast paths for any film.</strong> We're working to find and build the shortcuts automatically for any zoom path, not only the ones tested so far.</div></li>
-            <li><span class="box"></span><div><strong>Directed films.</strong> We aspire to a trip planner that finds minibrots, spirals and embedded Julia sets and strings them into journeys with proper climaxes.</div></li>
-            <li><span class="box"></span><div><strong>A native explorer.</strong> We aim to rebuild the viewer in Rust, drawing through the same pipeline as the films.</div></li>
+            <li><span class="box" aria-hidden="true"></span><div><strong>Fast paths for any film.</strong> We're working to find and build the shortcuts automatically for any zoom path, not only the ones tested so far.</div></li>
+            <li><span class="box" aria-hidden="true"></span><div><strong>Directed films.</strong> We aspire to a trip planner that finds minibrots, spirals and embedded Julia sets and strings them into journeys with proper climaxes.</div></li>
+            <li><span class="box" aria-hidden="true"></span><div><strong>A native explorer.</strong> We aim to rebuild the viewer in Rust, drawing through the same pipeline as the films.</div></li>
           </ul>
           <p class="actions"><a class="b95 primary" href="/docs/">Read the docs</a><a class="b95" href={repo}>Follow along on GitHub</a></p>
         </div>
       </section>
-
-      <p class="credits">Fractodactyl is open source (MIT or Apache-2.0) and built in public. Made with z² + c and an unreasonable amount of precision.</p>
     </main>
 
-    <footer class="taskbar">
-      <a class="start w95" href="#welcome"><img src="/img/ui/mascot-icon.png" alt="" width="24" height="20" /><b>Start</b></a>
-      <nav class="tasks">{tasks.map(([href, label]) => <a class="task w95" href={href}>{label}</a>)}</nav>
-      <span class="tray w95in"><i></i>building in public</span>
+    <footer class="foot wrap">
+      <img src="/img/ui/mascot-icon.png" alt="" width="40" height="33" />
+      <p>Fractodactyl is open source (MIT or Apache-2.0) and built in public. Made with z² + c and an unreasonable amount of precision. <a href={repo}>github.com/junovhs/fractodactyl</a></p>
     </footer>
   </body>
 </html>
 
 <style is:global>
-  /* Colours from the viewer mockup (viewer/mockup/index.html), plus the mascot's. */
-  :root {
-    --desk: #0e8a8c;
-    --frame-outer: #1d2370;
-    --frame-blue: #5e6cf6;
-    --frame-light: #bbc4f8;
-    --frame-inner: #313981;
-    --menu: #d9cfc4;
-    --paper: #f7f2ea;
-    --peri-hi: #d4cbf2;
-    --peri: #a6a1f4;
-    --peri-lo: #9e96f7;
-    --peri-line: #333886;
-    --close: #fa4b6c;
-    --close-hi: #ff8ea3;
-    --select: #0a2fd6;
-    --ink: #161310;
-    --gray: #c1c0c1;
-  }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; scroll-padding-top: 16px; -webkit-text-size-adjust: 100%; }
-  body { margin: 0; min-height: 100vh; padding: 28px 16px 72px; color: var(--ink); font: 400 16px/1.6 var(--fd-sans);
-    background: radial-gradient(ellipse at 30% 20%, #17a3a5, transparent 60%), radial-gradient(ellipse at 80% 90%, #0b7375, transparent 55%), var(--desk) fixed; }
-  a { color: var(--select); }
+  html { scroll-behavior: smooth; scroll-padding-top: 72px; -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--c-bg); color: var(--c-ink); font: 400 17px/1.65 var(--fd-sans); }
+  a { color: var(--c-link); text-underline-offset: 2px; }
+  a:focus-visible, .b95:focus-visible { outline: 2px solid var(--c-link); outline-offset: 2px; }
   img { display: block; max-width: 100%; height: auto; }
-  code { font: 0.86em var(--fd-mono); background: #ebe4d8; padding: 0.1em 0.35em; border-radius: 2px; }
-  .confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+  code { font: 0.88em var(--fd-mono); background: #efece6; padding: 0.1em 0.35em; border-radius: 3px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
 
-  /* Desktop icons */
-  .icons { position: fixed; top: 24px; left: 12px; z-index: 1; display: flex; flex-direction: column; gap: 18px; }
-  .icon { width: 96px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: #fff; text-decoration: none; text-align: center; font-size: 13px; text-shadow: 1px 1px 0 #000; }
-  .icon .glyph { font-size: 38px; line-height: 1; filter: drop-shadow(2px 2px 0 rgba(0,0,0,.35)); }
-  .icon img { width: 56px; height: auto; filter: drop-shadow(2px 2px 0 rgba(0,0,0,.35)); }
-  .icon .name { padding: 1px 4px; }
-  .icon.sel .name, .icon:hover .name, .icon:focus-visible .name { background: var(--select); outline: 1px dotted #fff; }
-  @media (max-width: 1240px) { .icons { display: none; } }
-
-  /* Windows: navy line / blue / light stripe, as the viewer's frame */
-  .desk { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 30px; }
-  .window { min-width: 0; }
-  .window { border: 1px solid var(--frame-outer); border-radius: 7px 7px 4px 4px; padding: 3px; background: linear-gradient(#7e8bfa, var(--frame-blue) 30%, #5363ec); box-shadow: 6px 8px 0 rgba(0,0,0,.28); }
-  .desk > .window:nth-child(even) { margin-left: 28px; margin-right: -28px; }
-  @media (max-width: 1000px) { .desk > .window:nth-child(even) { margin: 0; } }
-  .title { display: flex; align-items: center; gap: 8px; padding: 4px 4px 6px 8px; color: #fff; font: 700 14px var(--fd-sans); text-shadow: 1px 1px 0 var(--frame-outer); }
-  .title span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .btns { display: flex; gap: 3px; }
-  .btns i { width: 24px; height: 21px; display: grid; place-items: center; font: 900 13px/1 var(--fd-sans); font-style: normal; color: #000; text-shadow: none; border: 2px solid var(--peri-line); border-radius: 4px;
-    background: linear-gradient(var(--peri-hi), var(--peri) 40%, var(--peri-lo)); box-shadow: inset 2px 2px 0 rgba(255,255,255,.75), inset -2px -2px 0 rgba(58,52,170,.35); }
-  .btns i.x { background: linear-gradient(var(--close-hi), var(--close) 40%, #ef3d60); }
-  .menubar { display: flex; flex-wrap: wrap; gap: 2px; padding: 3px 6px 4px; background: var(--menu); border: 1px solid var(--frame-inner); border-bottom: 0; }
-  .menubar a { padding: 2px 9px; color: var(--ink); text-decoration: none; font-size: 14px; }
-  .menubar a:hover { background: var(--select); color: #fff; }
-  .pane { background: var(--paper); border: 1px solid var(--frame-inner); padding: 22px 26px 24px; }
-  .doc h2 { margin: 0 0 10px; font: 700 24px/1.2 var(--fd-display); letter-spacing: -0.01em; }
-  .doc p { margin: 0 0 14px; max-width: 70ch; }
-  .note { font-size: 14px; color: #5b5146; }
+  /* Top bar: a light menu bar; anchors stay on the page. */
+  .top { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 20px; padding: 8px 20px; background: var(--c-nav); border-bottom: 1px solid var(--c-line); box-shadow: 0 1px 0 #fff inset; }
+  .brand { display: flex; align-items: center; gap: 8px; color: var(--c-ink); text-decoration: none; font-weight: 700; }
+  .top nav { display: flex; gap: 2px; flex-wrap: wrap; }
+  .top nav a { padding: 4px 10px; color: var(--c-ink); text-decoration: none; font-size: 15px; border-radius: 3px; }
+  .top nav a:hover { background: var(--c-stamp); color: #fff; }
+  .out { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .gh { font-size: 15px; }
+  .b95 { display: inline-block; padding: 7px 16px; background: var(--c-btn); color: var(--c-ink); font: 600 15px var(--fd-sans); text-decoration: none; border-radius: 2px;
+    box-shadow: inset -1px -1px 0 #3d3a36, inset 1px 1px 0 #fff, inset -2px -2px 0 #8d8981, inset 2px 2px 0 #f2f0eb; }
+  .b95:hover { background: #e7e4dd; }
+  .b95:active { box-shadow: inset 1px 1px 0 #3d3a36, inset -1px -1px 0 #fff, inset 2px 2px 0 #8d8981; }
+  .b95.primary { background: var(--c-orange); }
+  .b95.primary:hover { background: #ffb866; }
+  @media (max-width: 820px) { .top { flex-wrap: wrap; gap: 8px 14px; position: static; } .top nav { order: 3; width: 100%; } }
 
   /* Hero */
-  .banner { width: 640px; max-width: none; margin: -22px auto 18px; image-rendering: pixelated; border: 1px solid var(--frame-inner); border-top: 0; }
-  @media (max-width: 720px) { .banner { width: 100%; max-width: 320px; } }
-  .hero-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: center; }
-  .hero h1 { margin: 0 0 14px; font: 700 clamp(1.6rem, 3.2vw, 2.2rem)/1.15 var(--fd-display); letter-spacing: -0.02em; }
+  .hero { display: grid; grid-template-columns: 1fr 320px; gap: 24px; align-items: center; padding-top: 40px; padding-bottom: 36px; }
+  .banner { width: 640px; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--c-line); margin-bottom: 26px; }
+  h1 { margin: 0 0 16px; font: 700 clamp(1.8rem, 3.6vw, 2.6rem)/1.15 var(--fd-display); letter-spacing: -0.02em; }
+  .lede { margin: 0; font-size: 1.1rem; color: var(--c-soft); max-width: 60ch; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 24px 0 0; }
   .hero-art { position: relative; }
-  .mascot { width: 100%; filter: drop-shadow(4px 6px 0 rgba(0,0,0,.15)); animation: glide 6s ease-in-out infinite; }
+  .mascot { width: 100%; animation: glide 6s ease-in-out infinite; }
   @keyframes glide { 50% { transform: translateY(-8px) rotate(-1.5deg); } }
-  .stamp { position: absolute; left: -6px; bottom: 0; display: grid; place-items: center; width: 92px; height: 92px; border-radius: 50%; background: var(--select); color: #fff; font: 700 13px/1.1 var(--fd-mono); text-align: center; text-transform: uppercase; transform: rotate(-12deg); border: 3px dashed rgba(255,255,255,.7); outline: 3px solid var(--select); }
-  @media (max-width: 720px) { .hero-grid { grid-template-columns: 1fr; } .hero-art { max-width: 260px; margin: 0 auto; } }
-  .marquee { max-width: 100%; overflow: hidden; margin-top: 3px; background: #000; border: 1px solid var(--frame-inner); color: #7CFC00; font: 13px var(--fd-mono); }
-  .marquee .track { display: flex; width: max-content; animation: scroll 40s linear infinite; }
-  .marquee span { padding: 6px 0; white-space: nowrap; }
-  .marquee span::after { content: "✶"; margin: 0 20px; color: var(--fd-orange); }
+  .stamp { position: absolute; left: 0; bottom: 4%; display: grid; place-items: center; width: 86px; height: 86px; border-radius: 50%; background: var(--c-stamp); color: var(--c-stamp-ink); font: 700 12px/1.15 var(--fd-mono); text-align: center; text-transform: uppercase; transform: rotate(-12deg); border: 2px dashed rgba(255,255,255,.75); outline: 3px solid var(--c-stamp); }
+  @media (max-width: 820px) { .hero { grid-template-columns: 1fr; } .hero-art { max-width: 260px; margin: 0 auto; } }
+
+  .ticker { overflow: hidden; background: var(--c-tick); color: var(--c-tick-ink); font: 13px var(--fd-mono); }
+  .ticker .track { display: flex; width: max-content; animation: scroll 45s linear infinite; }
+  .ticker span { padding: 7px 0; white-space: nowrap; }
+  .ticker span::after { content: "✶"; margin: 0 20px; color: var(--c-orange); }
   @keyframes scroll { to { transform: translateX(-50%); } }
 
-  /* Win95 buttons */
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 0 !important; }
-  .b95, .w95 { background: var(--gray); box-shadow: inset -1px -1px 0 #0a0a0a, inset 1px 1px 0 #fff, inset -2px -2px 0 #808080, inset 2px 2px 0 #dfdfdf; }
-  .b95 { display: inline-block; padding: 8px 18px; color: var(--ink); font: 600 15px var(--fd-sans); text-decoration: none; }
-  .b95.primary { outline: 1px solid #000; outline-offset: -1px; }
-  .b95:active { box-shadow: inset 1px 1px 0 #0a0a0a, inset -1px -1px 0 #fff, inset 2px 2px 0 #808080; }
-  .b95:focus-visible { outline: 1px dotted #000; outline-offset: -5px; }
-  .w95in { box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #fff; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; padding-top: 36px; padding-bottom: 48px; }
 
-  /* Viewer window for Fig. 1 */
-  .viewer .canvas { border: 3px solid; border-color: #3a2a9c #7b6cf0 #7b6cf0 #3a2a9c; outline: 1px solid var(--frame-inner); background: #000; }
-  .statusbar { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px; background: var(--menu); border: 1px solid var(--frame-inner); border-top: 0; font-size: 13px; }
-  .cell { padding: 3px 10px; background: #e0d9d3; box-shadow: inset 1px 1px 0 #77706a, inset -1px -1px 0 #fff; white-space: nowrap; display: flex; align-items: center; gap: 10px; }
-  .cell.grow { flex: 1; min-width: 200px; }
-  .progress { flex: 1; height: 16px; padding: 2px; background: #f4f0ea; box-shadow: inset 1px 1px 0 #77706a, inset -1px -1px 0 #fff; }
-  .progress i { display: block; height: 100%; background: repeating-linear-gradient(90deg, #2286fb 0 12px, #0d2a78 12px 14px); }
-  @media (max-width: 560px) { .statusbar .cell:not(.grow) { display: none; } }
+  /* Fig. 1 in a light take on the viewer's window */
+  .viewer { margin: 0; border: 1px solid var(--c-frame); border-radius: 6px; overflow: hidden; background: #fff; box-shadow: 0 6px 18px rgba(30, 30, 60, .12); }
+  .vbar { display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 12px; background: linear-gradient(var(--c-vbar), var(--c-vbar-lo)); color: var(--c-vbar-ink); font: 600 13px var(--fd-sans); text-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  .vbar span { flex: 1; }
+  .btns { display: flex; gap: 3px; }
+  .btns i { width: 18px; height: 16px; border: 1px solid #333886; border-radius: 3px; background: #d4cbf2; }
+  .btns i.x { background: #fa4b6c; }
+  .status { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 7px 12px; background: var(--c-nav); border-top: 1px solid var(--c-line); font: 13px var(--fd-mono); color: var(--c-ink); }
 
-  /* Sunken frames and tables */
-  .sunken { padding: 2px; background: #fff; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #fff, inset 2px 2px 0 #0a0a0a; }
+  /* Section cards with a slim 90s title strip */
+  .card { background: var(--c-card); border: 1px solid var(--c-line); border-radius: 6px; overflow: hidden; }
+  .strip { margin: 0; padding: 5px 14px; background: var(--c-strip); color: var(--c-strip-ink); border-bottom: 1px solid #cfcbf2; font: 600 13px var(--fd-mono); }
+  .body { padding: 22px 26px 24px; }
+  .body h2 { margin: 0 0 10px; font: 700 24px/1.2 var(--fd-display); letter-spacing: -0.01em; }
+  .body > p { max-width: 70ch; margin: 0 0 14px; }
+  .note { font-size: 15px; color: var(--c-muted); }
+
+  .spec { margin: 8px 0 0; border-top: 1px solid var(--c-line); }
+  .spec div { display: grid; grid-template-columns: 170px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--c-line); }
+  .spec dt { font-weight: 600; } .spec dd { margin: 0; color: var(--c-soft); }
+  @media (max-width: 560px) { .spec div { grid-template-columns: 1fr; gap: 0; } }
+
+  .rules, .todo { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 14px; }
+  .rules li, .todo li { display: grid; grid-template-columns: 36px 1fr; gap: 12px; align-items: start; }
+  .rules .n { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--c-ink); font: 700 15px var(--fd-mono); border: 1px solid var(--c-ink); }
+  .n.o { background: var(--c-orange); } .n.p { background: var(--c-pink); } .n.v { background: #c9b8ff; }
+  .todo .box { width: 18px; height: 18px; margin: 5px 0 0 8px; background: #fff; box-shadow: inset 1px 1px 0 #8d8981, inset -1px -1px 0 #fff, inset 2px 2px 0 #3d3a36; }
+
   figure { margin: 0; }
-  figcaption { font-size: 13px; color: #5b5146; margin-top: 6px; }
-  .look { color: var(--select); font-weight: 600; }
+  figure img { border-radius: 4px; }
+  figcaption { font-size: 14px; color: var(--c-muted); margin-top: 6px; }
+  .viewer figcaption { margin: 0; }
+  .viewer img { border-radius: 0; }
   .pair, .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 6px 0 16px; }
-  @media (max-width: 640px) { .pair, .shots { grid-template-columns: 1fr; } }
-  .t95 { width: 100%; border-collapse: collapse; background: #fff; font-size: 15px; box-shadow: inset 1px 1px 0 #808080; border: 1px solid #808080; margin: 6px 0 4px; }
-  .t95 th, .t95 td { padding: 8px 12px; border: 1px solid #c9c2b6; text-align: left; vertical-align: top; }
-  .t95 tbody th { width: 34%; background: #efe9df; font-weight: 600; }
-  .sheet thead th { background: var(--gray); font: 600 13px var(--fd-sans); box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #fff; }
-  .sheet tbody th { width: 40px; text-align: center; background: var(--gray); font-weight: 400; color: #333; }
+  .shots img { border: 1px solid var(--c-line); }
+  @media (max-width: 700px) { .pair, .shots { grid-template-columns: 1fr; } }
+
+  .sheet { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 16px; }
+  .sheet th { text-align: left; font: 600 13px var(--fd-mono); color: var(--c-soft); background: var(--c-nav); padding: 7px 12px; border: 1px solid var(--c-line); }
+  .sheet td { padding: 10px 12px; border: 1px solid var(--c-line); vertical-align: top; }
   .sheet .num { font: 700 24px/1.1 var(--fd-display); white-space: nowrap; }
-  .orange { color: #d96a00; } .pink { color: #d42a7a; } .purple { color: #6a2fe0; }
+  .num.o { color: var(--c-orange-ink); } .num.p { color: var(--c-pink-ink); } .num.v { color: var(--c-purple-ink); }
 
-  .rules, .todo { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 12px; }
-  .rules li, .todo li { display: grid; grid-template-columns: 38px 1fr; gap: 12px; align-items: start; }
-  .rules .n { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #fff; font: 700 16px var(--fd-mono); border: 2px solid var(--ink); }
-  .rules .n.orange { background: var(--fd-orange); color: var(--ink); } .rules .n.pink { background: var(--fd-pink); color: var(--ink); } .rules .n.purple { background: var(--fd-purple); }
-  .todo .box { width: 18px; height: 18px; margin: 4px 0 0 10px; background: #fff; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #fff, inset 2px 2px 0 #0a0a0a; }
+  .foot { display: flex; align-items: center; gap: 14px; padding-top: 20px; padding-bottom: 36px; border-top: 1px solid var(--c-line); font-size: 15px; color: var(--c-soft); }
+  .foot p { margin: 0; }
 
-  .credits { margin: 0; text-align: center; color: #e8fbfb; font-size: 14px; text-shadow: 1px 1px 0 rgba(0,0,0,.4); }
-
-  /* Taskbar */
-  .taskbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; height: 44px; display: flex; align-items: center; gap: 6px; padding: 5px; background: var(--gray); border-top: 1px solid #fff; box-shadow: 0 -1px 0 #dfdfdf; }
-  .start { height: 34px; padding: 0 10px; display: flex; align-items: center; gap: 6px; color: var(--ink); text-decoration: none; font-size: 15px; }
-  .tasks { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
-  .task { height: 34px; padding: 0 12px; display: flex; align-items: center; color: var(--ink); text-decoration: none; font: 13px var(--fd-mono); white-space: nowrap; }
-  .tray { margin-left: auto; height: 34px; padding: 0 12px; display: flex; align-items: center; gap: 8px; font: 12px var(--fd-mono); white-space: nowrap; }
-  .tray i { width: 8px; height: 8px; border-radius: 50%; background: var(--close); animation: blink 1.6s steps(2, start) infinite; }
-  @keyframes blink { to { visibility: hidden; } }
-  @media (max-width: 900px) { .tasks { display: none; } }
-
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .mascot, .marquee .track, .tray i { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .mascot, .ticker .track { animation: none; } }
 </style>
