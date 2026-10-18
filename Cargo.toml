@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
-# GPU film uses raw Vulkan; the CPU renderer remains std-only.
+# GPU stages run on wgpu (WGSL, compiled at run time); the CPU kernel is std-only.
 [profile.release]
 codegen-units = 1
 lto = "thin"

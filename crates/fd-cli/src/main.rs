@@ -95,7 +95,8 @@ usage:
   fd lod in.fds [--tile-px N] [--max-px E]
   fd explore [--port 8737] [--threads N] [--exit-with-stdin 1]   (local browser explorer;
              fd-viewer runs it in a desktop window)
-  fd zone RE IM [--max-iter N]   (zone structure report: nucleus, M(q,r), A, rho)
+  fd zone RE IM [--period P | --max-iter N] [--patch-depth N] [-o ZONE | --emit report|lines]
+          (builds a deep-band zone for --zone; without -o, reports its structure)
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error";
 

@@ -1,4 +1,4 @@
-# Where We Are (updated 2026-10-15)
+# Where We Are (updated 2026-10-17)
 
 Read this first in a new session, then call `ishoo_status`. **Ishoo is the source of
 truth for what to do next** (`ishoo_status`, then `ishoo_plan op:next`); this page is a
@@ -16,7 +16,8 @@ available for stills and research.
 ## Active plan: "Foundation: one source, portable 32-bit-first GPU"
 
 **Outcome:** every kernel stage and the studio look exist once (GPU-route stages as
-their one WGSL source; everything else in Rust), and `fd film`'s GPU path runs on wgpu
+their one WGSL source; everything else in Rust), fd-kernel's tiers are one generic
+kernel, and `fd film`'s GPU path runs on wgpu
 with an f32-only baseline on NVIDIA, AMD and Intel under Windows and Linux, with the
 ash/GLSL code deleted.
 
@@ -58,12 +59,26 @@ ash/GLSL code deleted.
   GPU); a frame it declines renders with the perturbation kernel. fd-kernel's zone pixel
   stages are deleted. `zone_fixtures` holds every kernel to 24 CPU-zone frames frozen
   beforehand (`crates/fd-cli/tests/fixtures/zones`).
+- GPU-22, GPU-23 (2026-10-16): mid-band frames and extended-range zones (the ~1e-1000
+  rung) run on the GPU zone kernel; extended-range zones use f32only.
+
+- PROB-30..34, PROB-12 (2026-10-17): `fd zone RE IM -o ZONE` builds a complete deep-band
+  zone in Rust from its centre (structure, return map, Koenigs chart, tail patch atlas),
+  line-for-line identical to the committed v0 zone; 7.8 s for v0, 66 s for the 1e-1000
+  rung. It does not yet write the v0 mid-band constants (PROB-35), so make_zone.sh is
+  still needed for those.
+
+**Also landed (plan "Desktop viewer"):** VIEW-06 `fd-viewer`, the V2 stone explorer in
+its own Dioxus window (it runs `fd explore --exit-with-stdin 1` as a child); VIEW-08 the
+explorer's navigation streams 256-sample tiles shaded on the GPU, like a map; VIEW-09 on
+Linux the page is a GTK widget, so the mouse wheel keeps zooming after a drag.
 
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
-BENC-11 (BENC-10's race on the RTX 3050 Ti laptop), GPU-21 (zone output stays on the GPU
-into shading) · GPU-05 (f32-only zone kernel, gated by film-equivalence) → GPU-22 (mid-band
-frames on the GPU), GPU-23 (extended-range zones on the GPU) · PROB-12 (`fd zone` in Rust) → CLEA-02 (retire research copies of the zone
-pipeline).
+BENC-11 (BENC-10's race on the RTX 3050 Ti laptop) · GPU-29, SHAD-12 (the f32-only zone
+kernel and the studio look on the laptop's RTX 3050 Ti and no-f64 Intel Iris Xe) ·
+GPU-05 (f32-only replacements for every binary64 zone stage) · PROB-35 (`fd zone` writes
+the mid-band constants) → CLEA-02 (retire make_zone.sh, koenigs_bench and the other
+research copies of the zone pipeline).
 
 ## Decisions to know
 
@@ -97,22 +112,26 @@ DX12 (WARP without a GPU) on Windows. No SDK or shader compiler is needed to bui
 shaders are WGSL, compiled by wgpu at run time).
 `fd` below means `<target>/release/fd` (`fd.exe` on Windows).
 
-- Build: `cargo build --release -p fd-cli`. `viewer\explore.cmd` expects
+- Build: `cargo build --release -p fd-cli` (add `-p fd-viewer` for the desktop
+  explorer; on Linux it needs WebKitGTK 4.1). `viewer\explore.cmd` expects
   `target\release\fd.exe`.
-- Explorer: `viewer\explore.cmd` (Windows, double-click) or `viewer/explore.sh`
-  (Linux); `viewer/explore-v2.sh` opens the V2 UI (Linux, see `viewer/README-v2.md`).
+- Explorer: `target/release/fd-viewer` opens it in its own window. In a browser:
+  `viewer\explore.cmd` (Windows, double-click) or `viewer/explore.sh` (Linux) for the
+  classic page; `viewer/explore-v2.sh` for the V2 UI (see `viewer/README-v2.md`).
 - A short v0 zone film using the committed zone file (the GPU-02 gate's arguments):
 
   ```
   fd film -0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502 0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922 --from 1e-29 --to 1e-31 --seconds 2 --fps 30 --size 480x270 --keyframes 2 --zone bench/zones/v0-core.zone --preset master-ice --mp4 out/v0.mp4
   ```
 
-  Add `--gpu-kernel mixed` to render zone keyframes on the wgpu zone kernel (shading is
-  always on wgpu). `scripts/check/GPU-02.sh` runs the full CPU-vs-GPU zone
-  film-equivalence gate.
+  Zone frames run on the wgpu zone kernel by default (binary64, or f32only without an
+  f64-capable GPU); `--gpu-kernel f32|mixed|f32only` picks another. Shading is always on
+  wgpu. `scripts/check/GPU-02.sh` runs the film-equivalence gate of the f32 or mixed
+  kernel against binary64.
 - Re-shade stored samples without iterating: `fd shade X.fds --preset ice -o DIR`.
-- Other zones: `tools/research/misiurewicz/make_zone.sh` generates zone files (Python
-  research generator until PROB-12 lands `fd zone`).
+- Other zones: `fd zone RE IM -o FILE` writes a deep-band zone from a minibrot centre
+  near M(24,2) (`--period P` skips the period search). The v0 path's mid-band constants
+  still come from `tools/research/misiurewicz/make_zone.sh` until PROB-35.
 
 ## Known loose ends
 
