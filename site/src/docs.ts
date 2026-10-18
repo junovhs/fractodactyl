@@ -275,9 +275,7 @@ export const docs = defineDocs({
                             { title: "Promote", text: "Under 5 min: 20-50 small frames, with honest wall-clock time." },
                             { title: "Benchmark", text: "The real path at real size, only to confirm what the first two showed." },
                         ] },
-                        { kind: "cards", items: [
-                            { title: "The method and results log", text: "Every measured result, with its command and numbers.", href: `${SPEC}/METHOD.md`, label: "Read on GitHub" },
-                        ] },
+                        { kind: "p", text: `Read [the method and results log](${SPEC}/METHOD.md) for every measured result, with its command and numbers.` },
                     ],
                 },
                 {
@@ -293,9 +291,7 @@ export const docs = defineDocs({
                             "**Native explorer:** `fd-viewer` in Rust and Dioxus, drawing through the film pipeline.",
                             "**Head-to-heads:** published races against rival renderers on common locations.",
                         ] },
-                        { kind: "cards", items: [
-                            { title: "Where we are", text: "The current state, decisions and work order.", href: `${SPEC}/STATE.md`, label: "Read on GitHub" },
-                        ] },
+                        { kind: "p", text: `Read [where we are](${SPEC}/STATE.md) for the current state, decisions and work order.` },
                     ],
                 },
                 {

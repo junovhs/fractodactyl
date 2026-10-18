@@ -1,0 +1,86 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, extname, join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const dist = join(site, 'dist');
+const pkg = JSON.parse(await readFile(join(site, 'node_modules/dopedocs/package.json'), 'utf8'));
+assert.equal(pkg.version, '0.5.0');
+const manifest = JSON.parse(await readFile(join(site, 'package.json'), 'utf8'));
+const dependency = manifest.dependencies.dopedocs;
+if (dependency.startsWith('file:')) {
+  const lock = JSON.parse(await readFile(join(site, 'package-lock.json'), 'utf8'));
+  const archive = await readFile(join(site, dependency.slice(5)));
+  assert.equal(`sha512-${createHash('sha512').update(archive).digest('base64')}`, lock.packages['node_modules/dopedocs'].integrity);
+}
+const config = await readFile(join(site, 'astro.config.mjs'), 'utf8');
+assert(config.includes('from "dopedocs/astro"'));
+assert(!config.includes('buildStatic') && !config.includes('docsPages'));
+const html = await readFile(join(dist, 'docs/what-it-is/index.html'), 'utf8');
+assert(html.includes('href="/docs/dopedocs.css"'));
+assert(html.includes('href="/docs-theme.css"'));
+assert(html.includes('src="/docs/search.js"'));
+assert(html.includes('aria-current="page"'));
+assert(html.includes('Manual reading progress'));
+const method = await readFile(join(dist, 'docs/how-we-work/index.html'), 'utf8');
+assert(/<a class="dd-link"[^>]*href="https:\/\/github.com\/junovhs\/fractodactyl\/blob\/main\/docs\/spec\/METHOD.md"/.test(method));
+const roadmap = await readFile(join(dist, 'docs/roadmap/index.html'), 'utf8');
+assert(roadmap.includes('href="https://github.com/junovhs/fractodactyl/blob/main/docs/spec/STATE.md"'));
+for (const name of ['docs/dopedocs.css', 'docs/search.js', 'sitemap.xml', 'robots.txt', 'llms.txt', 'questions.json', 'facts.json']) assert((await stat(join(dist, name))).size > 0, name);
+const facts = JSON.parse(await readFile(join(dist, 'facts.json'), 'utf8'));
+assert.equal(facts.facts.deep1000Frame.value, '0.023 s');
+assert(!JSON.stringify(facts).includes('PROB-19'));
+
+const mime = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.json':'application/json', '.svg':'image/svg+xml', '.png':'image/png', '.webp':'image/webp', '.woff2':'font/woff2' };
+const server = createServer(async (request, response) => {
+  try {
+    let path = resolve(dist, '.' + decodeURIComponent(new URL(request.url, 'http://localhost').pathname));
+    if (path !== dist && !path.startsWith(dist + sep)) throw new Error('outside root');
+    if ((await stat(path)).isDirectory()) path = join(path, 'index.html');
+    response.writeHead(200, { 'content-type': mime[extname(path)] ?? 'text/plain' });
+    response.end(await readFile(path));
+  } catch { response.writeHead(404); response.end('Not found'); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+let browser;
+try {
+  for (const [path, content] of [['/', 'Fractodactyl'], ['/docs/', 'How Fractodactyl works'], ['/docs/what-it-is/', 'What is Fractodactyl?']]) {
+    const response = await fetch(base + path); assert.equal(response.status, 200); assert((await response.text()).includes(content));
+  }
+  const response = await fetch(base + '/docs/search.js'); assert(response.headers.get('content-type').startsWith('text/javascript'));
+  let playwright;
+  try { playwright = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright'); }
+  catch (error) { if (process.env.PLAYWRIGHT_MODULE) throw error; }
+  if (playwright) {
+    browser = await playwright.chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    // External fonts are unrelated to this static integration check.
+    await context.route('https://fonts.googleapis.com/**', route => route.fulfill({ contentType: 'text/css', body: '' }));
+    const page = await context.newPage();
+    const errors = []; const failed = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('response', response => { if (response.url().startsWith(base) && response.status() >= 400) failed.push(`${response.status()} ${response.url()}`); });
+    await page.goto(base + '/docs/what-it-is/');
+    await page.getByRole('searchbox').fill('7.8');
+    await page.locator('.dd-search-results a').first().waitFor();
+    await page.getByRole('searchbox').press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await page.waitForURL('**/docs/zones/');
+    assert.equal(await page.locator('h1').innerText(), 'Zones');
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.goto(base + '/docs/how-we-work/');
+    assert.equal(await page.locator('a.dd-link[href$="/METHOD.md"]').count(), 1);
+    assert.deepEqual(errors, []); assert.deepEqual(failed, []);
+    const nojs = await browser.newContext({ javaScriptEnabled: false });
+    const plain = await nojs.newPage(); await plain.goto(base + '/docs/what-it-is/');
+    assert((await plain.locator('h1').innerText()).includes('Fractodactyl'));
+    await plain.locator('a[rel="next"]').click(); await plain.waitForURL('**/docs/the-rules/');
+    console.log('PASS browser: keyboard search → zones, canonical destination, mobile width, inline source link, zero local HTTP/JS errors, no-script next navigation');
+  } else console.log('NOTE: Playwright unavailable; browser checks skipped (HTTP/artifact checks only)');
+  console.log(`PASS dopedocs ${pkg.version}: archive/lock integrity, native Astro integration, styled pages, inline links, search, machine-readable files and local HTTP routes`);
+} finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); }

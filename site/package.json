@@ -7,11 +7,12 @@
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && wrangler deploy",
-    "check": "./check.sh"
+    "check": "./check.sh",
+    "check:docs": "node scripts/verify-docs.mjs"
   },
   "dependencies": {
     "astro": "7.4.0",
-    "dopedocs": "0.4.0",
+    "dopedocs": "file:vendor/dopedocs-0.5.0.tgz",
     "sharp": "0.35.5"
   },
   "devDependencies": {
