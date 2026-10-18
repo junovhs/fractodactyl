@@ -6,6 +6,9 @@ snapshot and does not override it. The north star is `ishoo_north_star op:show`.
 for how we work are in METHOD.md (DEC-14), and every measured result is in its results
 log.
 
+Product goals beyond the north star (the leading commercial solutions feature benchmark and the
+web and desktop experience goals) are in [FEATURE-BENCHMARK.md](FEATURE-BENCHMARK.md).
+
 ## The aim, in one line
 
 The fastest deep-zoom generator that shows the real Mandelbrot set and looks visually
