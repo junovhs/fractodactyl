@@ -129,13 +129,26 @@ fn App() -> Element {
     let page = use_hook(|| {
         let url = URL.get().cloned().unwrap_or_default();
         let win = ctx.window.clone();
-        wry::WebViewBuilder::new()
+        let builder = wry::WebViewBuilder::new()
             .with_url(&url)
             .with_ipc_handler(move |req| chrome(&win, req.body()))
-            .with_bounds(fill(ctx.window.inner_size()))
-            .build_as_child(&*ctx.window)
-            .map(std::rc::Rc::new)
-            .map_err(|e| e.to_string())
+            .with_bounds(fill(ctx.window.inner_size()));
+        // On Linux the page is a GTK widget in the window's own box, in place of Dioxus's
+        // webview (hidden). As an X11 child window (build_as_child) it stopped receiving
+        // the mouse wheel after the first click, so wheel zoom died after a pan (VIEW-09).
+        #[cfg(target_os = "linux")]
+        let built = {
+            use dioxus::desktop::tao::platform::unix::WindowExtUnix;
+            use wry::WebViewBuilderExtUnix;
+            let _ = ctx.webview.set_visible(false);
+            match ctx.window.default_vbox() {
+                Some(vbox) => builder.build_gtk(vbox),
+                None => builder.build_as_child(&*ctx.window),
+            }
+        };
+        #[cfg(not(target_os = "linux"))]
+        let built = builder.build_as_child(&*ctx.window);
+        built.map(std::rc::Rc::new).map_err(|e| e.to_string())
     });
     let view = page.clone();
     use_wry_event_handler(move |event, _| {
