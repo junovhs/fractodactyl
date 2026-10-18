@@ -20,4 +20,7 @@ while :; do
   fi
   sleep 10
 done
+if [ "$fail" -eq 0 ]; then
+  node "$(dirname "$0")/scripts/check-download-live.mjs" || fail=1
+fi
 exit "$fail"

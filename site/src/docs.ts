@@ -131,6 +131,7 @@ export const docs = defineDocs({
                     question: "How do I build Fractodactyl?",
                     answer: "Fractodactyl builds with stable Rust: `cargo build --release -p fd-cli` produces the `fd` tool, and adding `-p fd-viewer` builds the desktop explorer. FFmpeg on PATH is needed for MP4 output, and the shaders need no SDK because wgpu compiles them at run time.",
                     blocks: [
+                        { kind: "p", text: "**Ready-built packages:** [Download](https://fractodactyl.dev/download/) has the Windows ZIP and Linux tar.gz, runtime requirements and checksums. Extract the package and keep fd, fd-viewer, looks/ and places/ together. See [Changelog](https://fractodactyl.dev/changelog/) for release history." },
                         { kind: "steps", items: [
                             { title: "Get the source", text: "Clone `github.com/junovhs/fractodactyl`." },
                             { title: "Build", text: "`cargo build --release -p fd-cli -p fd-viewer` (on Linux the viewer needs WebKitGTK 4.1)." },

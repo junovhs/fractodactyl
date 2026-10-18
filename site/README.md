@@ -39,6 +39,15 @@ the repository, preserving the production settings above and disabling previews.
 
 ## Documentation package
 
+`/download/` reads the latest stable GitHub Release and its `SHA256SUMS` at build
+time; `/changelog/` renders the repository's `CHANGELOG.md`. A missing release
+shows the source-build instructions. GitHub errors or incomplete packages fail the
+build so an existing download page is not replaced with broken links. `GITHUB_TOKEN`
+is optional for a higher GitHub API limit; no token is needed for public releases.
+`./check-download.sh` builds offline fixtures (published, absent and incomplete
+releases) and checks desktop/mobile behavior when `PLAYWRIGHT_MODULE` is set.
+`./check-live.sh` also compares the live downloads and changelog to GitHub's release.
+
 The site currently uses the committed `vendor/dopedocs-0.5.1.tgz` archive from
 the tested dopedocs patch commit. `npm ci` installs it like a normal package;
 there is no sibling dependency. The native Astro integration emits the bundled

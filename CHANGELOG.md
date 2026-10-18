@@ -14,6 +14,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The website downloads page shows the latest Windows and Linux packages, checksums,
+  setup instructions and release notes, with a full changelog at /changelog/.
 - `fd --help` and `fd-viewer --help` print their usage and a link to the manual.
 
 ### Fixed

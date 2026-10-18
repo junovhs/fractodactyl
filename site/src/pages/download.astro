@@ -1,9 +1,63 @@
 ---
-// Placeholder until SITE-10 fills this page from the latest GitHub Release (DEC-32).
-import Plain from "../layouts/Plain.astro";
+import Plain from '../layouts/Plain.astro';
+import { getLatestRelease, formatSize, ALL_RELEASES } from '../lib/releases.mjs';
+import { renderMarkdown } from '../lib/markdown.mjs';
+const release = await getLatestRelease();
 ---
-<Plain title="Download" current="/download/" description="Fractodactyl for Windows and Linux.">
-  <h1>Download</h1>
-  <p>Ready-built Fractodactyl packages for Windows and Linux are coming soon. They will appear here automatically when each version is released.</p>
-  <p>Until then you can build it from source: see the <a href="https://github.com/junovhs/fractodactyl#readme" rel="noopener">README on GitHub</a>.</p>
+<Plain title="Download" current="/download/" description="Download Fractodactyl for Windows and Linux, with release notes and setup instructions.">
+  <p class="eyebrow">The desktop explorer & renderer</p>
+  <h1>Get Fractodactyl</h1>
+  <p>Explore the Mandelbrot set, try different looks, and turn your discoveries into zoom films. Free and open source.</p>
+  {release ? <>
+    <p class="release-meta" data-release-tag={release.tag}><strong>Version {release.version}</strong> · Released <time datetime={release.date}>{release.date}</time> · x86-64</p>
+    <div class="packages">
+      {release.packages.map(pkg => <section class="package" aria-labelledby={`${pkg.id}-title`}>
+        <h2 id={`${pkg.id}-title`}>{pkg.os}</h2>
+        <a class="download-button" data-download={pkg.id} href={pkg.url}>Download for {pkg.os} <span aria-hidden="true">↓</span></a>
+        <p class="package-meta">{pkg.format} · {formatSize(pkg.size)} · {pkg.size.toLocaleString('en-US')} bytes</p>
+        <p>{pkg.os === 'Windows' ? 'Extract the ZIP, then double-click fd-viewer.exe.' : <>Extract the archive, open its folder in a terminal, then run <code>./fd-viewer</code>.</>}</p>
+        <details><summary>SHA256 checksum</summary><code class="checksum" data-sha256={pkg.id}>{pkg.sha256}</code></details>
+      </section>)}
+    </div>
+    <p>These are portable packages: keep <code>fd</code>, <code>fd-viewer</code>, <code>looks/</code> and <code>places/</code> together in the extracted folder.</p>
+    <section class="setup" aria-labelledby="setup-title">
+      <h2 id="setup-title">Before you open it</h2>
+      <ul>
+        <li><strong>Windows:</strong> the viewer needs <a href="https://developer.microsoft.com/en-us/microsoft-edge/webview2/">Microsoft Edge WebView2 Runtime</a>, normally included with Windows 10 and 11.</li>
+        <li><strong>Linux:</strong> requires glibc 2.35 or newer and WebKitGTK 4.1. On Ubuntu 22.04 or newer, install <code>sudo apt install libwebkit2gtk-4.1-0</code>.</li>
+        <li><strong>Graphics:</strong> use an up-to-date Vulkan driver on Linux or DirectX 12 on Windows. Software rendering is available when supported by your system.</li>
+        <li><strong>Making MP4 films:</strong> install <a href="https://ffmpeg.org/download.html">FFmpeg</a> and put it on your PATH.</li>
+      </ul>
+      <p>New here? Read the <a href="/docs/explorer/">explorer guide</a> or the <a href="/docs/first-film/">first film guide</a>. Prefer to compile it? See <a href="/docs/build/">build from source</a>.</p>
+      <p>Verify a download against <a href={release.checksumsURL}>SHA256SUMS</a>: on Windows use <code>Get-FileHash -Algorithm SHA256 FILE.zip</code>; on Linux use <code>sha256sum FILE.tar.gz</code>.</p>
+    </section>
+    <section class="release-notes" aria-labelledby="notes-title">
+      <h2 id="notes-title">What’s new in {release.version}</h2>
+      <div class="markdown" set:html={renderMarkdown(release.notes)} />
+      <p><a href={release.url}>View this release on GitHub ↗</a></p>
+    </section>
+  </> : <section class="setup"><h2>Packages are coming soon</h2><p>No stable release has been published yet. You can <a href="/docs/build/">build Fractodactyl from source</a> in the meantime.</p></section>}
+  <p class="more-links"><a href="/changelog/">Full changelog</a> · <a href={ALL_RELEASES}>All releases on GitHub ↗</a></p>
 </Plain>
+
+<style>
+  :global(.fd-plain-main) { max-width: 960px; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .12em; font: 600 12px var(--fd-mono); color: var(--fd-text-soft); }
+  h1 { font-size: clamp(2.4rem, 6vw, 4rem); letter-spacing: -.045em; line-height: 1.05; margin: .5em 0; }
+  .release-meta { margin: 2rem 0 1rem; }
+  .packages { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .package { background: var(--fd-panel); border: 1px solid var(--fd-line); border-top: 4px solid var(--fd-accent); padding: 24px; }
+  .package h2 { margin: 0 0 20px; color: var(--fd-text); }
+  .download-button { display: inline-flex; justify-content: space-between; gap: 20px; background: #1d2370; color: #fff !important; padding: 12px 16px; font-weight: 600; text-decoration: none; }
+  .download-button:hover { background: #0a2fd6; }
+  .download-button:focus-visible { outline: 3px solid var(--fd-coral); outline-offset: 4px; }
+  .package-meta { font-size: 13px; }
+  details { font-size: 13px; }
+  summary { cursor: pointer; text-decoration: underline; }
+  .checksum { display: block; overflow-wrap: anywhere; margin-top: 10px; }
+  .setup, .release-notes { margin-top: 40px; border-top: 1px solid var(--fd-line); padding-top: 20px; }
+  .setup li { margin-bottom: 12px; }
+  code { font-family: var(--fd-mono); font-size: .85em; overflow-wrap: anywhere; }
+  .more-links { border-top: 1px solid var(--fd-line); margin-top: 40px; padding-top: 24px; }
+  @media (max-width: 640px) { .packages { grid-template-columns: 1fr; } .package { padding: 20px; } }
+</style>

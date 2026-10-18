@@ -1,0 +1,20 @@
+---
+import source from '../../../CHANGELOG.md?raw';
+import Plain from '../layouts/Plain.astro';
+import { renderMarkdown } from '../lib/markdown.mjs';
+// DEC-32: the public history is the repository's release-notes source of truth.
+const history = source.slice(source.indexOf('## [Unreleased]'));
+if (!history.startsWith('## [Unreleased]')) throw new Error('CHANGELOG.md has no Unreleased section');
+---
+<Plain title="Changelog" current="/download/" description="What changed in each version of Fractodactyl.">
+  <h1>Changelog</h1>
+  <p>What changed in Fractodactyl, newest first. Unreleased changes will ship in a future version.</p>
+  <p><a href="/download/">Download the latest release →</a></p>
+  <div class="history" set:html={renderMarkdown(history)} />
+</Plain>
+<style>
+  :global(.fd-plain-main) { max-width: 800px; }
+  .history :global(h2) { border-top: 1px solid var(--fd-line); margin-top: 40px; padding-top: 24px; color: var(--fd-text); }
+  .history :global(li) { margin-bottom: 12px; }
+  .history :global(code) { font-family: var(--fd-mono); font-size: .85em; overflow-wrap: anywhere; }
+</style>
