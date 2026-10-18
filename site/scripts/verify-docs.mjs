@@ -53,7 +53,7 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 let browser;
 try {
-  for (const [path, content] of [['/', 'Fractodactyl'], ['/docs/', 'How Fractodactyl works'], ['/docs/what-it-is/', 'What is Fractodactyl?']]) {
+  for (const [path, content] of [['/', 'Fractodactyl'], ['/docs/', 'Fractodactyl user manual'], ['/docs/what-it-is/', 'What is Fractodactyl?']]) {
     const response = await fetch(base + path); assert.equal(response.status, 200); assert((await response.text()).includes(content));
   }
   const response = await fetch(base + '/docs/search.js'); assert(response.headers.get('content-type').startsWith('text/javascript'));
@@ -84,7 +84,7 @@ try {
     const nojs = await browser.newContext({ javaScriptEnabled: false });
     const plain = await nojs.newPage(); await plain.goto(base + '/docs/what-it-is/');
     assert((await plain.locator('h1').innerText()).includes('Fractodactyl'));
-    await plain.locator('a[rel="next"]').click(); await plain.waitForURL('**/docs/the-rules/');
+    await plain.locator('a[rel="next"]').click(); await plain.waitForURL('**/docs/explorer/');
     console.log('PASS browser: keyboard search → zones, canonical destination, mobile width, inline source link, zero local HTTP/JS errors, no-script next navigation');
   } else console.log('NOTE: Playwright unavailable; browser checks skipped (HTTP/artifact checks only)');
   console.log(`PASS dopedocs ${pkg.version}: archive/lock integrity, native Astro integration, styled pages, inline links, search, machine-readable files and local HTTP routes`);
