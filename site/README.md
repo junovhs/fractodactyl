@@ -25,6 +25,18 @@ connected to this repository (branch `main`, root directory `site/`). Every push
 given commit. Build settings live in the Cloudflare dashboard (Workers & Pages →
 fractodactyl-site → Settings → Builds). Hand deploys are for recovery only.
 
+To verify an automatic deployment, run from the repository root after a push:
+
+```sh
+EXPECT=$(git rev-parse origin/main) RETRY_S=600 site/check-live.sh
+```
+
+Confirm that Cloudflare's deployment history shows a Git-triggered build for that
+commit. A successful recovery hand deploy also passes the live check, so it does
+not prove the Git connection works. If Builds reports a disconnected Git account,
+refresh the existing Cloudflare Workers and Pages GitHub installation and reconnect
+the repository, preserving the production settings above and disabling previews.
+
 ## Documentation package
 
 The site currently uses the committed `vendor/dopedocs-0.5.1.tgz` archive from
