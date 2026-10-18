@@ -3,9 +3,9 @@
 // Numbers come from the results log in docs/spec/METHOD.md; the facts registry holds
 // each one once, with the date it was last checked.
 import { defineDocs, defineFacts } from "dopedocs";
+import { researchPages } from "./research";
 
 const REPO = "https://github.com/junovhs/fractodactyl";
-const SPEC = `${REPO}/blob/main/docs/spec`;
 
 const facts = defineFacts({
     deepSpeedup: { value: "8-25x", reviewed: "2026-10-17", note: "PROB-08, GitHub Actions EPYC, 480x270" },
@@ -172,160 +172,7 @@ export const docs = defineDocs({
         {
             id: "research",
             title: "Research, mathematics and science",
-            children: [
-                {
-                    id: "the-rules",
-                    title: "The three tests",
-                    question: "What rules does Fractodactyl follow?",
-                    answer: "Every Fractodactyl idea must pass three tests in order: the frame shows the real Mandelbrot set at that place and depth; viewers cannot tell a film frame from an exact render, measured rather than eyeballed; and it makes zooms faster, deeper or longer.",
-                    keywords: ["north star", "genuine depth", "no faking"],
-                    blocks: [
-                        { kind: "steps", items: [
-                            { title: "Real", text: "The frame shows the actual Mandelbrot set at that location and depth." },
-                            { title: "Looks perfect", text: "Viewers cannot tell a film frame from an exact render of the same frame. `fd filmcheck` measures it on every frame." },
-                            { title: "Moves the outcome", text: "It makes zooms faster, deeper or longer, or unblocks something that does. Ideas that stop paying off are dropped." },
-                        ] },
-                        { kind: "callout", text: "**Depth is never faked.** No swapping in a look-alike location, and no skipping work a viewer would see. An early prototype that swapped deep regions for shallow look-alikes was retired for exactly this reason." },
-                    ],
-                },
-                {
-                    id: "how-its-fast",
-                    title: "How it gets its speed",
-                    question: "How does Fractodactyl render deep zooms so fast?",
-                    answer: "Fractodactyl accelerates selected minibrot neighbourhoods using parameter-dependent return maps, local Koenigs conjugacy and exit-tail evaluation. Perturbation and BLA supply fallback routes. Finite-series and floating-point errors are checked against high-precision reference data.",
-                    keywords: ["Koenigs linearization", "return map", "perturbation", "minibrot"],
-                    blocks: [
-                        { kind: "p", text: "**Dynamical model:** let `f_c(z) = z² + c`, with critical orbit `z₀ = 0` and `zₙ₊₁ = f_c(zₙ)`. For a period-P structure, a local return map approximates `f_c^P` in normalized state and parameter coordinates. Its validity domain limits where a truncated series may replace P direct iterations." },
-                        { kind: "p", text: "**Koenigs conjugacy:** near a repelling fixed point α of a return map F, with multiplier `λ = F′(α)` and `|λ| > 1`, a local chart φ satisfies `φ(F(z)) = λ φ(z)`. Within the chart and inverse-chart domains, `F^k(z) = φ⁻¹(λ^k φ(z))`. The implementation uses finite series, domain guards and derivative propagation; the theorem alone does not certify floating-point truncation error." },
-                        { kind: "p", text: "**Parameter dependence:** neighbouring pixels have different c. Return-map coefficients, chart evaluation and the exit tail must retain the parameter dependence required by the error budget. Tan Lei similarity motivates structure near Misiurewicz points; it is not permission to replace a frame with an image of a different location." },
-                        { kind: "compare",
-                            before: { title: "A usual deep-zoom renderer", text: "Follows each pixel's orbit step by step, often for hundreds of thousands of steps, with tricks (perturbation, BLA) to make each step cheaper." },
-                            after: { title: "Fractodactyl's fast path", text: "Near a minibrot, most of those steps become a few loops of a small return map plus one guarded Koenigs jump, then a short finish. The pixel is still computed, not guessed." } },
-                        { kind: "p", text: "That fast path is packaged as a **zone**: the constants for one stretch of a zoom path, built once by `fd zone`. Before a frame uses a zone, a guard checks the zone is valid there; if not, the frame falls back to perturbation with BLA." },
-                        img("spiral", "A spiral near the Misiurewicz point M(24,2) at width 1e-24", "The spiral around M(24,2) at width 1e-24, on fd's perturbation kernel: 4.1 s for 3200x1800 samples."),
-                        img("minibrot", "A period-764 minibrot at width 1e-48", "Twenty-four decades deeper: the period-764 minibrot at width 1e-48, on the GPU zone kernel, 0.25 s for the same 3200x1800 samples."),
-                    ],
-                },
-                {
-                    id: "exact-coordinates",
-                    title: "Exact coordinates",
-                    question: "How does Fractodactyl keep deep coordinates exact?",
-                    answer: "Fractodactyl preserves deep centres as high-precision values and carries explicit exponents for widths and offsets, avoiding binary64 rounding and underflow in camera coordinates. Orbit and sample accuracy are checked separately.",
-                    blocks: [
-                        { kind: "p", text: "**Perturbation recurrence:** write `c = C + δc` and `zₙ = Zₙ + δzₙ`, where `Zₙ₊₁ = Zₙ² + C`. Then `δzₙ₊₁ = 2Zₙδzₙ + δzₙ² + δc`. The reference orbit carries high precision; local offsets avoid subtracting nearby absolute coordinates in machine precision." },
-                        { kind: "p", text: "**Derivative state:** `Dₙ₊₁ = 2zₙDₙ + 1`, with `D₀ = 0`, propagates sensitivity to c. Accelerated jumps must also propagate the derivative used for distance estimation and normals. Mantissa/exponent representations extend range at extreme depth; they do not by themselves increase significand precision." },
-                        { kind: "p", text: "A 64-bit float runs out of digits around 1e-16 and out of range around 1e-308. Fractodactyl keeps a high-precision reference point and works in small offsets from it (perturbation), with explicit exponents where values would otherwise underflow." },
-                    ],
-                },
-                {
-                    id: "maths-and-colour",
-                    title: "Maths apart from colour",
-                    question: "Why does Fractodactyl separate rendering from colouring?",
-                    answer: "Fractodactyl keeps the deep maths and the colouring apart: the kernel produces palette-free samples, and a look is applied afterwards on the GPU. Recolouring or re-lighting a film never repeats the expensive part.",
-                    blocks: [
-                        { kind: "p", text: "**Sample interface:** the kernel emits class, smooth escape value ν, distance estimate and normal, independent of palette. The shading stage consumes these columns plus the look and animation time. Displaying unresolved samples as interior is a film presentation choice; scientific consumers must retain the unresolved class." },
-                        { kind: "list", items: [
-                            "**Samples:** class (escaped, interior, unresolved), smooth escape value, distance estimate and surface normal.",
-                            "**Looks:** palette stops, band density, terraces, slope lighting, contour lines and animation, all in one WGSL implementation.",
-                        ] },
-                    ],
-                },
-                {
-                    id: "gpu",
-                    title: "One source on the GPU",
-                    question: "Which GPUs does Fractodactyl run on?",
-                    answer: "Fractodactyl writes its GPU stages once in WGSL on wgpu, so the same code is meant to run on NVIDIA, AMD and Intel GPUs under Windows and Linux, with an f32-only path for GPUs without 64-bit floats. So far it is verified on an AMD RX 5700 XT and on software adapters.",
-                    blocks: [
-                        { kind: "p", text: "Each piece of maths is written once and reused everywhere; the only deliberate second copy is an independent high-precision oracle used to check results. Native GPU 64-bit floats are an optional fast path, used only where they measure faster." },
-                    ],
-                },
-                {
-                    id: "guards",
-                    title: "Guards and fallbacks",
-                    question: "How does Fractodactyl know a shortcut is safe to use?",
-                    answer: "Fractodactyl authorises every shortcut before rendering: a guard checks the frame lies where the shortcut is valid, and the shortcut can decline, sending the frame to perturbation with BLA. A shortcut is kept only after matching an exact render on every pixel of whole frames.",
-                    blocks: [
-                        { kind: "p", text: "**Admission contract:** a production shortcut must pass a pre-render validity-domain and profitability guard. A rejection is an ordinary outcome: use the appropriate perturbation/BLA or direct route. Post-render agreement is validation evidence, not a substitute for prospective admission." },
-                        { kind: "p", text: "**Numerical contract:** whole-frame comparisons require equivalent pixel displacement ≤1e-3 px and zero class mismatches. Distance estimates and normals are scored separately; the results log specifies relative/angle tolerances and conditioning exclusions. Escaped, interior and unresolved are distinct states: exhausting an iteration budget is not a proof of membership." },
-                        { kind: "p", text: "**Evidence boundary:** passing sampled points or tested whole frames is empirical validation on that corpus. It is not interval certification of every input in a domain. Films additionally use a perceptual contract: compare shaded output and temporal behaviour against the exact route. See the method log for the actual commands and measured limits." },
-                        { kind: "p", text: "For stills and research the bar is every pixel within 1e-3 px of the exact render, with no class mismatches. Films are judged by what viewers see: shaded frames within one colour level of the exact render on at least 99.9% of pixels, with no extra flicker." },
-                    ],
-                },
-                {
-                    id: "results",
-                    title: "What it has achieved",
-                    question: "How much faster is Fractodactyl?",
-                    answer: "Fractodactyl's zone fast path renders deep frames {fact:deepSpeedup} faster than its own BLA renderer with {fact:deepPixels} pixels, about 1000x faster at a depth of 1e-1000, and a whole 1080p60 film on the GPU {fact:filmSpeedup} faster than on all CPU cores.",
-                    keywords: ["benchmark", "speedup", "results"],
-                    blocks: [
-                        { kind: "metrics", items: [
-                            { value: "{fact:deepSpeedup}", label: "Deep frames near a minibrot", detail: "Against fd's own BLA renderer, {fact:deepPixels}." },
-                            { value: "{fact:hdSpeedup}", label: "At 1080p", detail: "{fact:hdPixels}." },
-                            { value: "{fact:deep1000Frame}", label: "Per frame at 1e-1000", detail: "Against {fact:deep1000Rival} for fd's best renderer there, every pixel correct." },
-                            { value: "{fact:filmSpeedup}", label: "Whole film on the GPU", detail: "{fact:filmGpu} against {fact:filmCpu} for 10 s of 1080p60, passing the film check on all 600 frames." },
-                        ] },
-                        { kind: "callout", tone: "note", text: "These are measurements on the zoom paths tested so far, not on every zoom. Every claim is against a fair opponent: the best renderer that could use the same trick. At 1e-1000 that opponent is fd's plain scaled perturbation, because fd has no BLA at that depth yet. The full log, with commands, is in How we work." },
-                    ],
-                },
-                {
-                    id: "how-we-work",
-                    title: "How we work",
-                    question: "How does the Fractodactyl project test ideas?",
-                    answer: "Fractodactyl tests ideas with seconds-scale probes before any expensive run, measures every speedup against a fair opponent, keeps a shortcut only after whole frames match the exact render, and writes every result, positive or negative, into a public results log.",
-                    blocks: [
-                        { kind: "p", text: "**Research protocol:** freeze coordinates, widths, iteration budgets, sampling, output columns and reference data before comparing candidates. Report the hardware, precision tier, cold construction cost, per-frame execution, fallback coverage and end-to-end time. Reduced iteration counts alone do not establish a speedup." },
-                        { kind: "p", text: "**Independent validation:** frozen truth points screen candidates; promotion requires whole-frame checks at each tested depth and high-precision adjudication of the worst disagreements. Preserve negative results and distinguish an implemented algorithm, a passing experiment and a proved bound." },
-                        { kind: "steps", items: [
-                            { title: "Probe", text: "Under 30 s: a few thousand points or a tiny frame. Kill or keep." },
-                            { title: "Promote", text: "Under 5 min: 20-50 small frames, with honest wall-clock time." },
-                            { title: "Benchmark", text: "The real path at real size, only to confirm what the first two showed." },
-                        ] },
-                        { kind: "p", text: `Read [the method and results log](${SPEC}/METHOD.md) for every measured result, with its command and numbers.` },
-                    ],
-                },
-                {
-                    id: "atlas",
-                    title: "The atlas, and what it taught",
-                    question: "What happened to Fractodactyl's mathematical atlas?",
-                    answer: "Fractodactyl began as a path-compiled mathematical atlas that cached reusable work across frames. The full machinery was built, and the decisive benchmark found it only tied per-frame rendering because what it cached was cheap to rebuild, so the project turned to per-pixel theorems.",
-                    blocks: [
-                        { kind: "p", text: "The lesson became a rule: cache only what is expensive to rebuild or inherently shared across frames. The atlas tools (`fd compile`, `fd play`, `fd schedule`) remain, and cross-frame reuse returns wherever it measurably pays." },
-                    ],
-                },
-                {
-                    id: "roadmap",
-                    title: "Where it is going",
-                    question: "What is next for Fractodactyl?",
-                    answer: "Fractodactyl's planned next steps are fast paths for any film rather than one family of places, a trip planner that strings minibrots, spirals and embedded Julia sets into directed films, a native Dioxus explorer on the film pipeline, and fair races against other deep-zoom renderers.",
-                    blocks: [
-                        { kind: "p", text: "**Open research questions:** can parameter-dependent local maps cover arbitrary paths with useful prospective error bounds? When do chart construction and derivative propagation amortize across frames? Which precision tiers preserve the sample contract on each GPU? These are experimental questions, not established capabilities." },
-                        { kind: "callout", tone: "note", text: "Plans, not promises: this is what is being worked on, in the open." },
-                        { kind: "list", items: [
-                            "**Fast everywhere:** find and build the right shortcuts automatically for any zoom path.",
-                            "**Directed films:** map the set's features and plan journeys with deliberate climaxes.",
-                            "**Native explorer:** `fd-viewer` in Rust and Dioxus, drawing through the film pipeline.",
-                            "**Head-to-heads:** published races against rival renderers on common locations.",
-                        ] },
-                        { kind: "p", text: `Read [where we are](${SPEC}/STATE.md) for the current state, decisions and work order.` },
-                    ],
-                },
-                {
-                    id: "specs",
-                    title: "Specifications",
-                    question: "Where are Fractodactyl's full specifications?",
-                    answer: "Fractodactyl's full specifications live in the repository under `docs/spec`: the north star, the current state, the research method and results log, the architecture, the feature map and one document per subsystem.",
-                    blocks: [
-                        { kind: "cards", items: [
-                            { title: "North star", text: "The promise and the three tests.", href: `${SPEC}/NORTH-STAR.md`, label: "Open" },
-                            { title: "Where we are", text: "Done, next, and how to run it.", href: `${SPEC}/STATE.md`, label: "Open" },
-                            { title: "Method", text: "How ideas are tested, and every result.", href: `${SPEC}/METHOD.md`, label: "Open" },
-                            { title: "Architecture", text: "Tiles, storage, GPU and refinement.", href: `${SPEC}/ARCHITECTURE.md`, label: "Open" },
-                            { title: "Feature map", text: "Every kind of feature in the set, and how to find it.", href: `${SPEC}/FEATURE-MAP.md`, label: "Open" },
-                            { title: "Explorer", text: "The explorer's server, tiles and look mode.", href: `${SPEC}/EXPLORE.md`, label: "Open" },
-                        ] },
-                    ],
-                },
-            ],
+            children: researchPages,
         },
     ],
 });

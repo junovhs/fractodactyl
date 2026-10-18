@@ -41,3 +41,10 @@
   --dd-mono: var(--fd-mono);
   color-scheme: light;
 }
+
+/* The scientific source index contains long module names in both columns. */
+@media (max-width: 760px) {
+  #specs .dd-table { table-layout: fixed; }
+  #specs .dd-table th,
+  #specs .dd-table td { overflow-wrap: anywhere; }
+}

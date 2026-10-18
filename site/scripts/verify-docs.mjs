@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { researchPages } from '../src/research.ts';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(site, 'dist');
@@ -56,6 +58,32 @@ try {
   for (const [path, content] of [['/', 'Fractodactyl'], ['/docs/', 'Fractodactyl user manual'], ['/docs/what-it-is/', 'What is Fractodactyl?']]) {
     const response = await fetch(base + path); assert.equal(response.status, 200); assert((await response.text()).includes(content));
   }
+  // Audit the actual generated scientific reference, including its source trail.
+  // Keep this tied to published routes and valid links rather than prose length.
+  const researchHtml = new Map();
+  const sourcePaths = new Set();
+  for (const entry of researchPages) {
+    const response = await fetch(`${base}/docs/${entry.id}/`);
+    assert.equal(response.status, 200, entry.id);
+    const body = await response.text();
+    const heading = body.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/)?.[1];
+    assert.equal(heading, entry.title, `missing title: ${entry.id}`);
+    researchHtml.set(entry.id, body);
+    for (const block of entry.blocks) {
+      if (block.kind !== 'p') continue;
+      for (const match of block.text.matchAll(/https:\/\/github\.com\/junovhs\/fractodactyl\/(?:blob|tree)\/main\/([^\s)]+)/g)) {
+        sourcePaths.add(match[1]);
+      }
+    }
+  }
+  for (const path of sourcePaths) await stat(resolve(site, '..', path));
+  for (const [id, body] of researchHtml) {
+    for (const match of body.matchAll(/href="(\/docs\/[^"#?]+\/)"/g)) {
+      const target = resolve(dist, '.' + match[1], 'index.html');
+      assert((await stat(target)).isFile(), `broken docs link on ${id}: ${match[1]}`);
+    }
+  }
+  console.log(`PASS research reference: ${researchPages.length} published pages, internal destinations and ${sourcePaths.size} implementation/evidence paths`);
   const response = await fetch(base + '/docs/search.js'); assert(response.headers.get('content-type').startsWith('text/javascript'));
   let playwright;
   try { playwright = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright'); }
@@ -80,6 +108,35 @@ try {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.goto(base + '/docs/how-we-work/');
     assert.equal(await page.locator('a.dd-link[href$="/METHOD.md"]').count(), 1);
+    // Long equations, binary-layout tables and source paths must remain readable
+    // on every research page at mobile width without widening the document.
+    for (const entry of researchPages) {
+      await page.goto(`${base}/docs/${entry.id}/`);
+      assert.equal(await page.locator('h1').innerText(), entry.title);
+      const overflow = await page.evaluate(() => {
+        if (document.documentElement.scrollWidth <= innerWidth) return null;
+        const elements = [...document.querySelectorAll('body *')]
+          .filter(el => el.getBoundingClientRect().right > innerWidth + 1 || (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === 'visible'))
+          .map(el => ({ tag: el.tagName, class: el.className, text: el.textContent.slice(0, 100), right: el.getBoundingClientRect().right, scroll: el.scrollWidth, client: el.clientWidth }))
+          .slice(0, 12);
+        return { width: document.documentElement.scrollWidth, viewport: innerWidth, elements };
+      });
+      if (overflow) await page.screenshot({ path: join(tmpdir(), 'fractodactyl-research-overflow.png'), fullPage: true });
+      assert.equal(overflow, null, `mobile overflow: ${entry.id}: ${JSON.stringify(overflow)}`);
+    }
+    await page.goto(base + '/docs/research-map/');
+    await page.getByRole('link', { name: 'BLA', exact: true }).first().click();
+    await page.waitForURL('**/docs/bla/');
+    console.log('PASS research browser: every page at mobile width, systems-map navigation to BLA');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(base + '/docs/koenigs-charts/');
+    const desktopShot = join(tmpdir(), 'fractodactyl-research-desktop.png');
+    await page.screenshot({ path: desktopShot });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base + '/docs/sample-format/');
+    const mobileShot = join(tmpdir(), 'fractodactyl-research-mobile.png');
+    await page.screenshot({ path: mobileShot });
+    console.log(`Research visual artifacts: ${desktopShot} ${mobileShot}`);
     assert.deepEqual(errors, []); assert.deepEqual(failed, []);
     const nojs = await browser.newContext({ javaScriptEnabled: false });
     const plain = await nojs.newPage(); await plain.goto(base + '/docs/what-it-is/');
