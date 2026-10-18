@@ -1,8 +1,8 @@
 # Temporary dopedocs release archive
 
-`dopedocs-0.5.0.tgz` is the npm package built from
-[`junovhs/dopedocs` tag `v0.5.0`](https://github.com/junovhs/dopedocs/tree/v0.5.0),
-commit `26f70105d5ccd11479ae23b878c140e1c30fe30d`.
+`dopedocs-0.5.1.tgz` is the npm package built from
+[`junovhs/dopedocs` commit `3a9981c`](https://github.com/junovhs/dopedocs/tree/3a9981cc3625ae86f32e632ffcf1d728a0bdafb6),
+commit `3a9981cc3625ae86f32e632ffcf1d728a0bdafb6`.
 
 It is committed here because npm publishing is awaiting the owner's trusted
 publisher configuration. A clean clone and deployment build need no sibling
@@ -13,15 +13,15 @@ The package is MIT; its licence is inside the archive.
 Archive integrity (also recorded in package-lock.json):
 
 ```
-sha512-8pXd5YZ8zFOID46F87AF0Hl7+nG03EbGS1gQHH9HrmD1KU/6UoLkPsoCLpzF05uHU2k66ejw0YHWvf0iWHjlNg==
+sha512-DWeZymRtNkgy4aiJ4+/eyNHmbEEz9RKN7m5UvJu/5mbUgaEVYCqM8JFci5Q6gF/L93qCEjWuHL2vSDl006KsDQ==
 ```
 
-## Switch to npm once 0.5.0 is published
+## Switch to npm once 0.5.1 is published
 
 From `site/`:
 
 ```sh
-npm install --save-exact dopedocs@0.5.0
+npm install --save-exact dopedocs@0.5.1
 npm run build
 ```
 
@@ -33,12 +33,12 @@ publishing succeeds. The archive may be removed after the switch is verified.
 To restore this snapshot before removing it:
 
 ```sh
-npm install --save-exact ./vendor/dopedocs-0.5.0.tgz
+npm install --save-exact ./vendor/dopedocs-0.5.1.tgz
 ```
 
 ## Recreate the archive
 
-Use a clean export of the recorded dopedocs tag, then run `npm ci` and
+Use a clean export of the recorded dopedocs commit, then run `npm ci` and
 `npm pack --ignore-scripts --pack-destination /path/to/fractodactyl/site/vendor`.
 The install's prepare hook builds the distributable. Check the archive integrity
 against the value above and update provenance/version/lockfile together for a

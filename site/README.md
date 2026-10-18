@@ -19,17 +19,17 @@ Use Node 24 (`nvm use`). Then:
 
 ## Documentation package
 
-The site currently uses the committed `vendor/dopedocs-0.5.0.tgz` archive from
-the tested dopedocs release tag. `npm ci` installs it like a normal package;
+The site currently uses the committed `vendor/dopedocs-0.5.1.tgz` archive from
+the tested dopedocs patch commit. `npm ci` installs it like a normal package;
 there is no sibling dependency. The native Astro integration emits the bundled
 stylesheet at `/docs/dopedocs.css`, then loads `/docs-theme.css` for the host
 palette. Static documentation search is enabled. The temporary `buildStatic`
 hook is gone.
 
-After dopedocs 0.5.0 reaches npm, switch from this directory with:
+After dopedocs 0.5.1 reaches npm, switch from this directory with:
 
 ```sh
-npm install --save-exact dopedocs@0.5.0
+npm install --save-exact dopedocs@0.5.1
 ```
 
 Commit both package files. The integration, theme and content stay the same.
