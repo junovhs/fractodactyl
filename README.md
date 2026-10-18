@@ -17,6 +17,8 @@ The previous twin-minibrot swap prototype is intentionally absent from this bran
 
 `fd` (crates/fd-cli) renders, films, compiles and plays genuine deep zooms and builds zones (`fd zone`). `fd-viewer` (crates/fd-viewer) is the explorer in its own desktop window (`cargo build --release -p fd-cli -p fd-viewer`, then `target/release/fd-viewer`; see `viewer/README-v2.md`). The browser explorer is `viewer/explore.cmd` (Windows) or `viewer/explore.sh` (Linux; `--install` adds a desktop icon, `--stop` stops the renderer); `viewer/explore-v2.sh` opens the V2 stone UI in a browser.
 
+What changed between versions is in [CHANGELOG.md](CHANGELOG.md).
+
 The website, https://fractodactyl.dev, lives in `site/` (Astro, with the docs written as dopedocs data in `site/src/docs.ts`); `cd site && npm run deploy` builds and publishes it.
 
 ## Make a film
