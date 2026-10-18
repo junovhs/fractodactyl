@@ -105,7 +105,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -123,11 +122,12 @@ jobs:
           (cd release-assets && sha256sum -- fractodactyl-* > SHA256SUMS && cat SHA256SUMS)
           gh release create "v$v" release-assets/fractodactyl-* release-assets/SHA256SUMS --target "$GITHUB_SHA" \
             --title "Fractodactyl $v" --notes-file notes.md
-      # A release made with the job token does not fire other workflows' `release` events,
-      # but workflow_dispatch is allowed: redeploy the site so /download/ shows it (DEC-32).
-      - name: redeploy fractodactyl.dev
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ -f .github/workflows/site.yml ]; then gh workflow run site.yml --ref main
-          else echo "site.yml not on main yet; the site picks the release up on its next deploy"; fi
+
+  refresh-site:
+    needs: [plan, publish]
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/refresh-site.yml
+    with:
+      release_tag: v${{ needs.plan.outputs.version }}
+    secrets:
+      CLOUDFLARE_SITE_DEPLOY_HOOK: ${{ secrets.CLOUDFLARE_SITE_DEPLOY_HOOK }}

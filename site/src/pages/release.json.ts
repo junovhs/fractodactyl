@@ -1,0 +1,15 @@
+import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { getLatestRelease } from '../lib/releases.mjs';
+
+// DEC-32: a fresh manifest proves a post-publication rebuild, even at the same commit.
+export const prerender = true;
+export async function GET() {
+  const release = await getLatestRelease();
+  return new Response(JSON.stringify({
+    buildId: randomUUID(),
+    commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    tag: release?.tag ?? null,
+    packages: release?.packages.map(({ name, url, sha256 }) => ({ name, url, sha256 })) ?? [],
+  }), { headers: { 'Content-Type': 'application/json' } });
+}

@@ -19,6 +19,7 @@
     "sharp": "0.35.5"
   },
   "devDependencies": {
-    "wrangler": "4.151.1"
+    "wrangler": "4.151.1",
+    "yaml": "2.9.1"
   }
 }

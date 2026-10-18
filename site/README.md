@@ -39,6 +39,19 @@ the repository, preserving the production settings above and disabling previews.
 
 ## Documentation package
 
+Release publication calls `.github/workflows/refresh-site.yml` after every package
+and `SHA256SUMS` is uploaded. It posts to the Cloudflare Deploy Hook restricted to
+`fractodactyl-site`'s `main` branch, then waits for a new `/release.json` build ID
+and verifies the live download links and checksums. Failures fail the workflow;
+they do not silently skip the refresh. This workflow can also be dispatched for
+the latest stable release without changing its version or republishing packages.
+
+One-time setup: in Cloudflare → fractodactyl-site → Settings → Builds → Deploy
+Hooks, create `github-release` for `main`. Store its URL as the GitHub repository
+Actions secret `CLOUDFLARE_SITE_DEPLOY_HOOK`. The URL permits builds of that branch;
+keep it secret. It requires no Cloudflare API token in GitHub. Rotate it by creating
+a replacement hook, updating the secret and retiring the old hook.
+
 `/download/` reads the latest stable GitHub Release and its `SHA256SUMS` at build
 time; `/changelog/` renders the repository's `CHANGELOG.md`. A missing release
 shows the source-build instructions. GitHub errors or incomplete packages fail the

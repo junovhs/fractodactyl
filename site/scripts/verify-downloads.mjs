@@ -20,6 +20,10 @@ try {
   const out = join(temporary, 'release');
   build(fixturePath, out);
   const html = await readFile(join(out, 'download/index.html'), 'utf8');
+  const manifest = JSON.parse(await readFile(join(out, 'release.json'), 'utf8'));
+  assert.equal(manifest.tag, 'v9.8.7');
+  assert.ok(manifest.buildId && manifest.commit);
+  assert.equal(manifest.packages.length, 2);
   assert.ok(html.includes('data-release-tag="v9.8.7"'));
   assert.ok(html.includes('2026-10-18'));
   for (const asset of fixture.release.assets) assert.ok(html.includes(asset.browser_download_url), asset.name);
