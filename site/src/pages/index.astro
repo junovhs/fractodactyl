@@ -30,14 +30,13 @@ const renders = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fractodactyl: deep Mandelbrot zooms, built in public</title>
-    <meta name="description" content="Fractodactyl aims to be the fastest deep Mandelbrot zoom renderer that never fakes a frame. Open source, built in public." />
+    <meta name="description" content="Explore the Mandelbrot set and render deep zoom films with Fractodactyl. Open source, built in public." />
     <link rel="canonical" href="https://fractodactyl.dev/" />
     <link rel="icon" href="/favicon.png" />
     <meta property="og:title" content="Fractodactyl" />
     <meta property="og:description" content="Deep Mandelbrot zooms, built in public." />
     <meta property="og:image" content="https://fractodactyl.dev/img/minibrot-1600.webp" />
     <link rel="stylesheet" href="/docs-theme.css" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&display=swap" />
     <style is:inline>
       /* Page colours. Text pairs meet WCAG AA (4.5:1); check-home.sh verifies each:
          aa: --c-ink on --c-page      aa: --c-ink on --c-card      aa: --c-soft on --c-card
@@ -78,7 +77,6 @@ const renders = [
         <div class="titlebar">
           <span class="fill-r" aria-hidden="true"></span>
           <img class="band" src="/img/ui/banner-band.png" alt="Fractodactyl: Explore the Infinite!" width="640" height="66" />
-          <span class="winbtns" aria-hidden="true"><i>_</i><i>□</i><i class="x">×</i></span>
         </div>
         <nav class="tabs" aria-label="On this page">
           <div class="tablist">{tabs.map(([href, label], i) => <a class={i === 0 ? "tab on" : "tab"} href={href}>{label}</a>)}</div>
@@ -88,21 +86,20 @@ const renders = [
       <section class="hero">
         <div class="hero-copy">
           <p class="eyebrow">Fractodactyl</p>
-          <h1>A deep-zoom renderer for the Mandelbrot set that never fakes a frame.</h1>
-          <p class="lede">Fractodactyl is <b>open source</b> and built in public. We aim to make it the fastest way to render deep zoom films: films that go much deeper and run much longer than today's, made much faster, where every pixel is the real set at that depth.</p>
+          <h1>Explore the Mandelbrot set. Render deeper zoom films.</h1>
+          <p class="lede">Fractodactyl is <b>open source</b> and built in public. We’re building faster ways to render longer, deeper zoom films, with an explorer for discovering places and designing their look.</p>
           <p class="actions">
             <a class="gold" href="/docs/"><img src="/img/ui/icon-map.png" alt="" width="30" height="30" />Explore the docs <span aria-hidden="true">→</span></a>
             <a class="gold" href="#explorer"><img src="/img/ui/icon-explore.png" alt="" width="30" height="30" />See the explorer <span aria-hidden="true">→</span></a>
           </p>
           <ul class="feats">
-            <li><img src="/img/ui/icon-zoom.png" alt="" width="28" height="28" /><span>Real pixels<br />(no fakes)</span></li>
+            <li><img src="/img/ui/icon-zoom.png" alt="" width="28" height="28" /><span>Precise<br />Mandelbrot detail</span></li>
             <li><img src="/img/ui/icon-snapshot.png" alt="" width="28" height="28" /><span>Fast<br />deep zooms</span></li>
             <li><img src="/img/ui/icon-fossils.png" alt="" width="28" height="28" /><span>Open source<br />MIT or Apache-2.0</span></li>
             <li><img src="/img/ui/icon-nest.png" alt="" width="28" height="28" /><span>Windows, Linux<br />modern GPUs</span></li>
           </ul>
         </div>
         <img class="mascot" src="/img/ui/mascot-900.webp" srcset="/img/ui/mascot-450.webp 450w, /img/ui/mascot-900.webp 900w" sizes="(max-width: 760px) 70vw, 380px" alt="Fractodactyl's mascot: a grinning pterodactyl in sunglasses with fractal-patterned wings" width="900" height="750" />
-        <p class="scrawl" aria-hidden="true">Same fractals.<br />Bigger adventures.</p>
       </section>
 
       <main>
@@ -134,7 +131,7 @@ const renders = [
             <h2 class="head"><img src="/img/ui/icon-fossils.png" alt="" width="28" height="28" />House rules</h2>
             <div class="body">
               <ol class="rules">
-                <li><b class="n o">1</b><span><strong>It shows the real set.</strong> We never swap in a look-alike location to save time.</span></li>
+                <li><b class="n o">1</b><span><strong>Precise locations.</strong> Explore and render from the same saved coordinates and zoom depth.</span></li>
                 <li><b class="n p">2</b><span><strong>It looks perfect, measurably.</strong> <code>fd filmcheck</code> compares every film frame with an exact render.</span></li>
                 <li><b class="n v">3</b><span><strong>It earns its keep.</strong> Ideas that stop paying off get dropped, with a note in the log.</span></li>
               </ol>
@@ -211,10 +208,6 @@ const renders = [
     .titlebar .band { left: calc(50% - 345px); width: 640px; height: 66px; }
     .titlebar .fill-r { left: calc(50% + 295px); background-size: 48px 66px; }
   }
-  .winbtns { position: absolute; top: 8px; right: 8px; display: flex; gap: 3px; }
-  .winbtns i { width: 30px; height: 26px; display: grid; place-items: center; font: 900 14px/1 var(--fd-sans); font-style: normal; color: #000; border: 2px solid #333886; border-radius: 4px; background: linear-gradient(#d4cbf2, #a6a1f4 40%, #9e96f7); box-shadow: inset 2px 2px 0 rgba(255,255,255,.75); }
-  .winbtns i.x { background: linear-gradient(#ff8ea3, #fa4b6c 40%, #ef3d60); }
-  @media (max-width: 560px) { .winbtns { display: none; } }
 
   /* Tab bar */
   .tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: space-between; padding: 8px 10px; background: linear-gradient(#ece6dc, #d9d1c4); border-bottom: 2px solid var(--c-line); }
@@ -239,13 +232,12 @@ const renders = [
   .gold:active { transform: translateY(2px); box-shadow: inset 0 2px 0 rgba(255,255,255,.6), 0 1px 0 #6b4a17; }
   .feats { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 14px 22px; font-size: 13.5px; line-height: 1.3; }
   .feats li { display: flex; align-items: center; gap: 8px; }
-  .mascot { position: absolute; z-index: 1; right: 4%; top: 22px; width: 380px; filter: drop-shadow(5px 8px 0 rgba(0,0,0,.18)); animation: glide 6s ease-in-out infinite; }
+  .mascot { position: absolute; z-index: 1; right: 10%; top: 150px; width: min(380px, 32vw); filter: drop-shadow(5px 8px 0 rgba(0,0,0,.18)); animation: glide 6s ease-in-out infinite; }
+  @media (min-width: 901px) { .hero-copy { max-width: min(560px, 54%); } }
   @keyframes glide { 50% { transform: translateY(-10px) rotate(-1.5deg); } }
-  .scrawl { position: absolute; z-index: 2; right: 39%; top: 300px; margin: 0; font: 700 26px/1.05 "Caveat", cursive; color: #2a1d8f; transform: rotate(-24deg); text-shadow: 0 1px 0 rgba(255,255,255,.4); }
   @media (max-width: 900px) {
     .hero { padding: 28px 22px 26px; background: linear-gradient(var(--c-parch), rgba(242,217,178,.9) 60%, rgba(242,217,178,.7)), url(/img/ui/hero-valley.png) right bottom / cover; }
     .mascot { position: relative; right: auto; top: auto; width: min(320px, 80%); margin: 18px auto 0; }
-    .scrawl { display: none; }
   }
 
   /* Cards */

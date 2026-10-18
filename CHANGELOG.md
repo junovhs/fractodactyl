@@ -20,6 +20,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The website hero has a clearer headline and mascot placement, without a slogan
+  or decorative window controls.
+
 - The manual's header shows the version you are reading about (it said 0.1.0).
 
 ## [0.5.0] - 2026-10-18
