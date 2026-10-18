@@ -10,5 +10,5 @@ page() { # PATH TEXT
 }
 page / "Fractodactyl"
 page /docs/what-it-is/ "What is Fractodactyl?"
-page /docs/ "How Fractodactyl works"
+page /docs/ "Fractodactyl user manual"
 exit "$fail"

@@ -6,9 +6,10 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && wrangler deploy",
+    "deploy": "astro build && node scripts/stamp-version.mjs && wrangler deploy",
     "check": "./check.sh",
-    "check:docs": "node scripts/verify-docs.mjs"
+    "check:docs": "node scripts/verify-docs.mjs",
+    "check:live": "./check-live.sh"
   },
   "dependencies": {
     "astro": "7.4.0",

@@ -14,8 +14,16 @@ Use Node 24 (`nvm use`). Then:
 
     npm install
     npm run dev       # local preview
-    npm run deploy    # build and publish to fractodactyl.dev (Cloudflare, wrangler)
+    npm run deploy    # recovery only: build and publish by hand (Cloudflare, wrangler)
     ./check.sh        # the live site answers on /, /docs/what-it-is/ and /docs/
+    ./check-live.sh   # the live site serves this checkout's commit (/version.txt)
+
+Deploys are automatic (DEC-31): Cloudflare Workers Builds for `fractodactyl-site` is
+connected to this repository (branch `main`, root directory `site/`). Every push to
+`main` runs `npm run build && git rev-parse HEAD > dist/version.txt` and
+`npx wrangler deploy` on Cloudflare; `./check-live.sh` confirms the live site serves a
+given commit. Build settings live in the Cloudflare dashboard (Workers & Pages →
+fractodactyl-site → Settings → Builds). Hand deploys are for recovery only.
 
 ## Documentation package
 
