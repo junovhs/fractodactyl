@@ -1,25 +1,16 @@
 # Feature benchmark: leading commercial solutions
 
-Fractodactyl is free and open source and will remain free. leading commercial solutions is an established reference for fractal creation and animation. Our ambition is to at least match the capabilities below and, where practical, exceed them in usability, rendering efficiency, and creative control.
+Fractodactyl is free and open source and will remain free. A leading commercial solution is an established reference for fractal creation and animation. Our ambition is to at least match the capabilities below and, where practical, exceed them in usability, rendering efficiency, and creative control.
 
 This is a feature reference and statement of intent, not a claim of current parity or measured superiority. It does not set implementation order or replace the project's existing issue and decision process.
 
-## Official references
+## Reference scope
 
-Reviewed 2026-10-17.
-
-- commercial reference documentation
-- commercial reference documentation
-- commercial reference documentation
-- commercial reference documentation
-- commercial reference documentation
-- commercial reference documentation
-
-The PDF covers the application; the detailed compiler reference is provided through the help system.
+Reviewed public manuals and feature descriptions of leading commercial solutions on 2026-10-17. The feature baseline below summarizes creative and production workflows without naming an individual product.
 
 ## Capabilities to match and improve upon
 
-| Area | Documented commercial-reference capabilities to use as a reference |
+| Area | Commercial capabilities to use as a reference |
 | --- | --- |
 | Exploration | Deep zooming; pan, rotate, stretch and skew; interactive parameter previews. |
 | Fractal definitions | Community formula library, formula plug-ins, custom formulas and a built-in compiler. |
@@ -31,9 +22,9 @@ The PDF covers the application; the detailed compiler reference is provided thro
 | Organization | Thumbnail browsers, saved parameter sets and file search. |
 | Compute | Multicore rendering and distributed calculations across computers. |
 
-commercial-reference Express includes core rendering and deep zooming; Creative adds layers, masks and transformations; Extended adds animation and network calculations. Animation and long-running render management are established capabilities worth learning from.
+Commercial editions commonly separate core rendering and deep zooming from layering, animation and distributed rendering features. Animation and long-running render management are established capabilities worth learning from.
 
-Matching a capability means supporting the useful creative workflow; it does not require copying commercial-reference's interface, formula language or file formats. Numerical quality, speed and usability need separate validation with representative projects.
+Matching a capability means supporting the useful creative workflow; it does not require copying a commercial application's interface, formula language or file formats. Numerical quality, speed and usability need separate validation with representative projects.
 
 ## Fractodactyl experience goals
 

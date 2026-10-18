@@ -58,7 +58,7 @@ The first public version. Everything below is what Fractodactyl can do today.
   the sidebar, snapshots, and a tile engine that only computes what comes into view.
 - **fractodactyl.dev.** The project's website, with a user manual covering the explorer,
   making videos, and the maths and research behind them.
-- **Product goals.** The leading commercial solutions feature benchmark and the web and desktop goals
+- **Product goals.** The a leading commercial solution feature benchmark and the web and desktop goals
   we aim for (docs/spec/FEATURE-BENCHMARK.md).
 
 ### Fixed
