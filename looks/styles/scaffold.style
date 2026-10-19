@@ -1,0 +1,12 @@
+# A tiny composition for inspect; rendering is introduced by STYL-02.
+version 1
+surface base
+emission glow
+base = color #08152e
+gold = color #ffd080
+strength = param 4
+de = source de
+width = param 1.5
+edge = boundary de width
+bright = mul edge strength
+glow = mul gold bright

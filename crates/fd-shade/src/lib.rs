@@ -9,6 +9,7 @@ mod png;
 mod relief;
 mod resolve;
 mod studio;
+pub mod style;
 mod umber;
 
 pub use looks::{looks_dir, save_look};

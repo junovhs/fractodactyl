@@ -24,6 +24,7 @@ mod render;
 mod reuse;
 mod schedule;
 mod shade;
+mod style;
 mod zone_build;
 mod zone_ff;
 mod zone_gpu;
@@ -46,6 +47,7 @@ usage:
            [--lines L] [--line-px W]   (studio look: looks/NAME.look or a built-in)
   fd shade <umber|palette|relief> in.fds out.png
   fd info in.fds
+  fd style inspect GRAPH [-o generated-body.wgsl]
   fd addr locate --re X --im Y --level L
   fd addr show <key>
   fd addr sample <key> --grid K --at I,J
@@ -112,6 +114,7 @@ fn main() {
         Some("render") => render::run(&argv[1..]),
         Some("bench") => bench::run(&argv[1..]),
         Some("shade") => shade::run(&argv[1..]),
+        Some("style") => style::run(&argv[1..]),
         Some("info") => shade::info(&argv[1..]),
         Some("addr") => addr::run(&argv[1..]),
         Some("chunk") => chunk::run(&argv[1..]),
