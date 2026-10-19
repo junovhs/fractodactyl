@@ -18,9 +18,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+mod style_workspace;
 
 const USAGE: &str =
-    "usage: fd-viewer [--check] [--fd PATH]\n\nManual: https://fractodactyl.dev/docs/";
+    "usage: fd-viewer [--check] [--fd PATH]\n       fd-viewer --style [--samples INPUT.fds] [--check --style-output DIR]\n\nManual: https://fractodactyl.dev/docs/";
 
 /// The V2 page the window shows.
 static URL: OnceLock<String> = OnceLock::new();
@@ -36,6 +37,9 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let mut check = false;
+    let mut style = false;
+    let mut samples = None;
+    let mut style_output = None;
     let mut fd = std::env::var_os("FD_BIN").map(PathBuf::from);
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -46,9 +50,24 @@ fn run() -> Result<(), String> {
                 return Ok(());
             }
             "--check" => check = true,
+            "--style" => style = true,
+            "--samples" => {
+                samples = Some(PathBuf::from(args.next().ok_or("--samples needs a path")?))
+            }
+            "--style-output" => {
+                style_output = Some(PathBuf::from(
+                    args.next().ok_or("--style-output needs a path")?,
+                ))
+            }
             "--fd" => fd = Some(args.next().ok_or("--fd needs a path")?.into()),
             _ => return Err(USAGE.into()),
         }
+    }
+    if style {
+        return style_workspace::run(samples, check, style_output);
+    }
+    if samples.is_some() || style_output.is_some() {
+        return Err("--samples and --style-output require --style".into());
     }
     let fd = match fd {
         Some(f) => f,
@@ -185,6 +204,13 @@ fn chrome(win: &dioxus::desktop::tao::window::Window, message: &str) {
         eprintln!("fd-viewer: chrome {message}");
     }
     match message {
+        "style" => {
+            if let Err(error) =
+                std::env::current_exe().and_then(|exe| Command::new(exe).arg("--style").spawn())
+            {
+                eprintln!("fd-viewer: could not open styling workspace: {error}");
+            }
+        }
         "minimize" => win.set_minimized(true),
         "maximize" => win.set_maximized(!win.is_maximized()),
         // The renderer follows: it exits when its stdin pipe closes.

@@ -84,6 +84,7 @@ impl Plan {
                     5 => "blur-x",
                     6 => "blur-y",
                     7 => "relight",
+                    8 => "stream",
                     _ => "unknown",
                 }
             };
@@ -492,7 +493,7 @@ impl Lower<'_> {
         } else {
             let count = match node.op.as_str() {
                 "add" | "mul" | "max" | "blur" => 2,
-                "mix" | "warp" | "relight" => 3,
+                "mix" | "warp" | "relight" | "stream" => 3,
                 _ => return Err(format!("image {name}: unknown image operation {}", node.op)),
             };
             if args.len() != count {
@@ -543,6 +544,15 @@ impl Lower<'_> {
                             return Err(bad());
                         }
                         self.step(4, inputs, a, support + 9)
+                    }
+                    "stream" => {
+                        if b != Kind::Vector || d != Kind::Scalar {
+                            return Err(bad());
+                        }
+                        // Six midpoint steps in each direction, max 24 px.
+                        // Curved paths can sample a different direction field at
+                        // every step; this is convolution, never persistent fluid state.
+                        self.step(8, inputs, a, support + 26)
                     }
                     "blur" => {
                         if b != Kind::Scalar {

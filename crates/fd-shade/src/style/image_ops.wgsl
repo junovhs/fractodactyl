@@ -45,6 +45,24 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){
    let light=normalize(vec3<f32>(fetch(2u,vec2<i32>(gid.xy)).xy,1.0));
    result=x*(0.15+0.85*max(dot(normal,light),0.0));
   }
+  case 8u:{
+   let radius=clamp(abs(fetch(2u,vec2<i32>(gid.xy)).x),0.0,24.0);
+   result=x;var total=1.0;
+   for(var side=0;side<2;side++){
+    let sign=select(-1.0,1.0,side==1);
+    var pos=xy;
+    for(var step=0;step<6;step++){
+     let v=sample_at(1u,pos).xy;
+     let dir=v/max(length(v),1.0);
+     let mid=pos+dir*(sign*radius/12.0);
+     let mv=sample_at(1u,mid).xy;
+     pos+=mv/max(length(mv),1.0)*(sign*radius/6.0);
+     let weight=exp(-pow(f32(step+1)/4.0,2.0));
+     result+=sample_at(0u,pos)*weight;total+=weight;
+    }
+   }
+   result/=total;
+  }
   default:{}
  }
  result_image[i]=select(vec4<f32>(0.0),clamp(result,vec4<f32>(-65504.0),vec4<f32>(65504.0)),abs(result)<vec4<f32>(1e30));

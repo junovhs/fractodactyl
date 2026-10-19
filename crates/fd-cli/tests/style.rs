@@ -3,6 +3,36 @@ use std::process::Command;
 // GPU fixtures own device lifecycles; keep their setup/teardown from overlapping.
 static GPU_FIXTURES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn curved_stream_has_direction_bounded_support_and_zero_radius_identity() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
+    use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
+    use fd_shade::style::{render::StyleRenderer, Graph};
+    let graph = "version 1\noutput final\npos = source position\ncenter = vector 32.5 32.5\noffset = sub pos center\nr = length offset\nwidth = scalar 0.03\nimpulse = boundary r width\nwhite = color #ffffff\ncolor = mul white impulse\ndirection = vector 1 0\nradius = param 0\na = image color\nb = image direction\nc = image radius\nfinal = stream a b c\n";
+    let compiled = Graph::parse(graph).unwrap().compile().unwrap();
+    assert!(compiled.report().contains("op stream"));
+    assert_eq!(compiled.support_pixels, 26);
+    assert!(Graph::parse(&graph.replace("stream a b c", "stream a a c")).unwrap().compile().is_err());
+    let columns = ColumnSet::of(&[Column::Class]);
+    let samples = Samples::alloc(64*64, columns);
+    let header = Header{minor:MINOR,columns,nx:64,ny:64,ss:1,max_iter:100,escape_radius:1e10,
+        view:View{center_re:"0".into(),center_im:"0".into(),width:"4".into(),rotation:0.},kernel:"stream impulse".into()};
+    let Some(mut renderer) = fd_shade::gpu::testkit::or_skip(StyleRenderer::new(compiled,&header,&samples),"stream") else {return};
+    let baseline = renderer.frame(0.,true).unwrap();
+    let direct = Graph::parse(&graph.replace("output final","output a")).unwrap().compile().unwrap();
+    let mut direct = StyleRenderer::new(direct,&header,&samples).unwrap();
+    assert_eq!(baseline.data,direct.frame(0.,true).unwrap().data);
+    renderer.set_parameter("radius",24.).unwrap();
+    let spread = renderer.frame(0.,true).unwrap();
+    assert!(spread.data[(32*64+40)*3]>0,"spreads along the vector field");
+    assert_eq!(spread.data[(40*64+32)*3],0,"does not spread across it");
+    for y in 0usize..64 {for x in 0usize..64 {
+        if x.abs_diff(32)>26 || y.abs_diff(32)>26 {assert_eq!(spread.data[(y*64+x)*3],0);}
+    }}
+    renderer.set_parameter("radius",100.).unwrap();
+    assert_eq!(spread.data,renderer.frame(0.,true).unwrap().data,"radius is bounded");
+}
+
 const IMAGE_GRAPH:&str="version 1\noutput final\npos = source position\nr = length pos\nfreq = param 0.7\nx = mul r freq\ntime = source time\nt = add x time\ny = sin t\nhalf = scalar 0.5\ny0 = mul y half\nwave = add y0 half\na = color #103050\nb = color #ef9540\ncolor = mix a b wave\nheight_scale = param 8\nheight = mul wave height_scale\ntangent = source tangent\nsx = scalar -1\nsy = scalar -0.4\nsun = compose sx sy\ndistance = param 6\nradius = param 2\nbase = image color\nheights = image height\nvectors = image tangent\nlight = image sun\namount = image distance\nwidth = image radius\nwarped = warp base vectors amount\nlit = relight warped heights light\nblurred = blur lit width\nalias = blur lit width\nfinal = add blurred alias\n";
 
 #[test]

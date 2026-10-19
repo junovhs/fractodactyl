@@ -244,6 +244,8 @@
   // banner moves it, and the 6px rim resizes it.
   if (window.ipc) {
     const send = m => window.ipc.postMessage(m);
+    // Minimal native-window glue: the styling UI itself is Rust/Dioxus.
+    menus[4].unshift(["Styling workspace…", () => send("style")]);
     [["Minimise", "minimize"], ["Maximise", "maximize"], ["Close", "close"]].forEach(([t, m], i) => {
       windowButtons[i].title = t;
       windowButtons[i].onclick = () => send(m);

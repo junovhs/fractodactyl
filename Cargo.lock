@@ -1381,21 +1381,21 @@ checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fd-addr"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fd-fixed",
 ]
 
 [[package]]
 name = "fd-atlas"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fd-addr",
 ]
 
 [[package]]
 name = "fd-cli"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fd-addr",
  "fd-atlas",
@@ -1410,14 +1410,14 @@ dependencies = [
 
 [[package]]
 name = "fd-fixed"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "astro-float",
 ]
 
 [[package]]
 name = "fd-kernel"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fd-fixed",
  "fd-samples",
@@ -1425,11 +1425,11 @@ dependencies = [
 
 [[package]]
 name = "fd-samples"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "fd-shade"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "fd-samples",
  "pollster",
@@ -1438,10 +1438,17 @@ dependencies = [
 
 [[package]]
 name = "fd-viewer"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
+ "base64",
  "dioxus",
+ "fd-samples",
+ "fd-shade",
+ "rfd",
+ "serde",
+ "serde_json",
  "tao",
+ "tokio",
  "wry",
 ]
 
