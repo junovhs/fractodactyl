@@ -1,6 +1,7 @@
 //! Opt-in style graph. Compilation is independent of devices and fractal iteration.
 //! Values are linear-light colors, scalars, or vectors; only reachable work is emitted.
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+pub mod render;
 
 /// Compatible scalar, spatial-vector and linear-color graph values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -197,6 +198,10 @@ impl Compiler<'_> {
                     "de" => (Scalar, "de".into()),
                     "nu" => (Scalar, "local_nu".into()),
                     "normal" => (Vector, "normal".into()),
+                    "gradient" => (
+                        Vector,
+                        "-normal * (2.0 / (max(de, 1e-20) * 0.69314718))".into(),
+                    ),
                     "tangent" => (Vector, "vec2<f32>(-normal.y, normal.x)".into()),
                     "position" => (Vector, "position".into()),
                     "time" => (Scalar, "p.clock.x".into()),
@@ -282,7 +287,7 @@ impl Compiler<'_> {
                         "add" => format!("{xx} + {yy}"),
                         "sub" => format!("{xx} - {yy}"),
                         "mul" => format!("{xx} * {yy}"),
-                        "div" => format!("{xx} / max(abs({yy}), {}(1e-8))", t.wgsl()),
+                        "div" => format!("{xx} / select(select({t}(-1e-8), {t}(1e-8), {yy} >= {t}(0.0)), {yy}, abs({yy}) > {t}(1e-8))", t=t.wgsl()),
                         "pow" => format!("pow(max({xx}, {}(0.0)), {yy})", t.wgsl()),
                         "min" | "max" => format!("{op}({xx}, {yy})"),
                         _ => return Err(bad()),

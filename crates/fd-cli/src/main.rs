@@ -48,6 +48,7 @@ usage:
   fd shade <umber|palette|relief> in.fds out.png
   fd info in.fds
   fd style inspect GRAPH [-o generated-body.wgsl]
+  fd style render GRAPH INPUT.fds -o OUTPUT.png [--time T --runs N --set name=value,...]
   fd addr locate --re X --im Y --level L
   fd addr show <key>
   fd addr sample <key> --grid K --at I,J

@@ -95,3 +95,20 @@ length/normalize/dot. `boundary DE WIDTH` gives an exponential exterior mask;
 `light NORMAL SLOPE DIRECTION` gives pseudo-relief. Types are scalar, vec2 and color.
 The generated body is a single pointwise kernel body, not a standalone WGSL module.
 Later spatial/image operators require explicit resource/pass lowering.
+
+## GPU renderer (STYL-02)
+
+`fd style render GRAPH INPUT.fds -o OUTPUT.png --runs 3` uses the existing adapter
+selection and normal lookup table. `--set name=value,...` updates scalar uniforms;
+`--time T` evaluates stateless animation. `source gradient` exposes the analytic
+iteration gradient from normal/DE for independent relief composition. Arbitrary
+height-field differentiation and new orbit channels are not implied. `phase` uses
+the existing soft-f64 helpers. `nu` is relative to the smallest finite escaped value.
+
+A single pointwise dispatch averages supersamples into separate linear HDR surface
+and emission layers; final tone mapping/encoding is a second dispatch. Static
+graphs keep their HDR result when only time changes. Buffer limits and unsupported
+tilings fail clearly. `with_device` allows sharing a caller-owned device/queue;
+direct adoption of GPU kernel sample buffers is a production integration, not yet
+part of this stored-sample CLI. Stats count renderer-created buffers/pipelines,
+not driver allocations, and warm time includes final readback.
