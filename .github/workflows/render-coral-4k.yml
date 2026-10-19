@@ -1,0 +1,90 @@
+name: Render coral 4K still
+on:
+  push:
+    paths:
+      - .github/workflows/render-coral-4k.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coral-still:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: "2"
+      FD_REQUIRE_GPU: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Install software Vulkan driver and stitching utility
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 python3-pil
+      - name: Build Fractodactyl
+        run: cargo build --release --locked --jobs 2 -p fd-cli
+      - name: Render and shade 4 precise Mandelbrot tiles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/coral-4k/tiles
+          python3 - <<'PY'
+          from decimal import Decimal, getcontext
+          from pathlib import Path
+          getcontext().prec = 160
+          real = Decimal("-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502")
+          imag = Decimal("0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922")
+          width = Decimal("1e-43")
+          pixel = width / Decimal(3840)
+          # Exact global-grid centers: each quadrant retains the same sample spacing.
+          with Path("out/coral-4k/tiles/centers.tsv").open("w") as f:
+              for y in range(2):
+                  for x in range(2):
+                      cr = real + Decimal((x * 1920 + 960) - 1920) * pixel
+                      ci = imag + Decimal(1080 - (y * 1080 + 540)) * pixel
+                      f.write(f"{x}{y}\t{cr}\t{ci}\n")
+          PY
+          while IFS=$'\t' read -r id re im; do
+            echo "Rendering Fractodactyl quadrant $id"
+            target/release/fd render --re "$re" --im "$im" --width 5e-44 \
+              --size 1920x1080 --ss 1 --iter 100000 --columns nu,de,normal \
+              --zone bench/zones/v0-core.zone --gpu-kernel f32only \
+              -o "out/coral-4k/tiles/$id.fds"
+            target/release/fd shade "out/coral-4k/tiles/$id.fds" \
+              --preset coral --aa on --unresolved interior --dither on \
+              -o out/coral-4k/tiles
+          done < out/coral-4k/tiles/centers.tsv
+      - name: Assemble and verify the 3840x2160 true fractal PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from PIL import Image
+          from pathlib import Path
+          folder = Path("out/coral-4k/tiles")
+          dst = Path("out/coral-4k/fractodactyl-coral-4k.png")
+          canvas = Image.new("RGB", (3840, 2160))
+          for y in range(2):
+              for x in range(2):
+                  src = folder / f"{x}{y}.studio.png"
+                  with Image.open(src) as tile:
+                      assert tile.size == (1920, 1080), (src, tile.size)
+                      canvas.paste(tile.convert("RGB"), (x * 1920, y * 1080))
+          canvas.save(dst, optimize=True)
+          with Image.open(dst) as actual:
+              assert actual.size == (3840, 2160)
+              actual.verify()
+          print(f"Verified Fractodactyl 4K PNG: {dst} ({dst.stat().st_size} bytes)")
+          PY
+          sha256sum out/coral-4k/fractodactyl-coral-4k.png | tee out/coral-4k/SHA256SUMS
+      - name: Upload verified PNG
+        uses: actions/upload-artifact@v4
+        with:
+          name: fractodactyl-coral-4k
+          path: |
+            out/coral-4k/fractodactyl-coral-4k.png
+            out/coral-4k/SHA256SUMS
+            out/coral-4k/tiles/centers.tsv
+          if-no-files-found: error
+          retention-days: 30
