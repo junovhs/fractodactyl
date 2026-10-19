@@ -1,0 +1,69 @@
+name: Render coral 4K still
+on:
+  push:
+    paths:
+      - .github/workflows/render-coral-4k.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coral-still:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: "2"
+      FD_REQUIRE_GPU: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Install software Vulkan driver
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1
+      - name: Build Fractodactyl
+        run: cargo build --release --locked --jobs 2 -p fd-cli
+      - name: Render real Mandelbrot samples at 4K
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/coral-4k
+          target/release/fd render \
+            --re -0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502 \
+            --im 0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922 \
+            --width 1e-43 --size 3840x2160 --ss 1 --iter 100000 \
+            --columns nu,de,normal \
+            --zone bench/zones/v0-core.zone --gpu-kernel f32only \
+            -o out/coral-4k/still.fds | tee out/coral-4k/render.log
+      - name: Apply the repository's coral preset
+        shell: bash
+        run: |
+          set -euo pipefail
+          target/release/fd shade out/coral-4k/still.fds \
+            --preset coral --aa on --unresolved interior --dither on \
+            -o out/coral-4k | tee out/coral-4k/shade.log
+          mv out/coral-4k/still.studio.png out/coral-4k/fractodactyl-coral-4k.png
+          python3 - <<'PY'
+          from pathlib import Path
+          import struct
+          p = Path("out/coral-4k/fractodactyl-coral-4k.png")
+          with p.open("rb") as f:
+              header = f.read(24)
+          assert header[:8] == b"\x89PNG\r\n\x1a\n", "Not PNG"
+          assert struct.unpack(">II", header[16:24]) == (3840, 2160), "Not 4K 3840x2160"
+          print(f"Verified Fractodactyl PNG: 3840x2160 ({p.stat().st_size} bytes)")
+          PY
+          sha256sum out/coral-4k/fractodactyl-coral-4k.png | tee out/coral-4k/SHA256SUMS
+      - name: Upload true rendered PNG and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fractodactyl-coral-4k
+          path: |
+            out/coral-4k/fractodactyl-coral-4k.png
+            out/coral-4k/render.log
+            out/coral-4k/shade.log
+            out/coral-4k/SHA256SUMS
+          if-no-files-found: warn
+          retention-days: 30
