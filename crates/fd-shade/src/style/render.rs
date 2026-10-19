@@ -1,5 +1,8 @@
 //! Persistent opt-in WGSL renderer. No kernel link and no CPU color evaluation.
-use super::Compiled;
+use super::{
+    finishing::{Bloom, Finishing},
+    Compiled,
+};
 use crate::{gpu, Rgb8};
 use fd_samples::{Column, ColumnSet, Header, Samples};
 use std::{sync::mpsc, time::Instant};
@@ -31,6 +34,7 @@ pub struct Stats {
     pub sample_uploads: u32,
     pub allocations: u32,
     pub frames: u64,
+    pub bloom_support_pixels: u32,
 }
 
 /// One graph and sample raster on a device; uniforms update without rebuilding
@@ -43,6 +47,8 @@ pub struct StyleRenderer {
     shade_group: wgpu::BindGroup,
     finish_group: wgpu::BindGroup,
     uniform: wgpu::Buffer,
+    hdr: wgpu::Buffer,
+    bloom: Option<Bloom>,
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     params: Vec<u32>,
@@ -53,7 +59,7 @@ pub struct StyleRenderer {
     pub stats: Stats,
 }
 
-fn buffer(
+pub(super) fn buffer(
     device: &wgpu::Device,
     label: &str,
     size: u64,
@@ -67,7 +73,7 @@ fn buffer(
     })
 }
 
-fn pipeline(
+pub(super) fn pipeline(
     device: &wgpu::Device,
     label: &str,
     source: &str,
@@ -208,12 +214,13 @@ impl StyleRenderer {
                 normal as u32 | ((s.class[i].0 as u32 & 3) << 16),
             ]);
         }
-        let mut params = vec![0u32; 12 + 64 * 4];
+        let mut params = vec![0u32; 12 + 64 * 4 + 12];
         params[..4].copy_from_slice(&[h.nx, h.ny, h.ss, 0]);
         params[8..10].copy_from_slice(&[origin as u32, (origin >> 32) as u32]);
         for (i, (_, v)) in graph.parameters.iter().enumerate() {
             params[12 + i * 4] = v.to_bits();
         }
+        params[270] = 1.0f32.to_bits();
         let u = gpu::testkit::bytes(&params);
         let normals = gpu::unit_table();
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
@@ -269,11 +276,15 @@ impl StyleRenderer {
         let finish = pipeline(
             &device,
             "style output",
-            include_str!("finish.wgsl"),
+            &format!(
+                "{}\n{}",
+                include_str!("../../shaders/tpdf.wgsl"),
+                include_str!("finish.wgsl")
+            ),
             "finish",
         );
         let shade_group = group(&device, &shade, &[&samples, &hdr, &uniform, &unit]);
-        let finish_group = group(&device, &finish, &[&hdr, &output, &uniform]);
+        let finish_group = group(&device, &finish, &[&hdr, &output, &uniform, &hdr]);
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("style GPU setup: {e}"));
         }
@@ -291,6 +302,7 @@ impl StyleRenderer {
             sample_uploads: 1,
             allocations: 6,
             frames: 0,
+            bloom_support_pixels: 0,
         };
         Ok(Self {
             device,
@@ -300,6 +312,8 @@ impl StyleRenderer {
             shade_group,
             finish_group,
             uniform,
+            hdr,
+            bloom: None,
             output,
             readback,
             params,
@@ -326,6 +340,67 @@ impl StyleRenderer {
         Ok(())
     }
 
+    /// Update optics/grain uniforms; allocate bounded bloom resources only on first
+    /// enable, then reuse them across radius/amount/exposure changes.
+    pub fn set_finishing(&mut self, options: &Finishing) -> Result<(), String> {
+        options.validate()?;
+        if options.bloom > 0.0 {
+            if self.bloom.is_none() {
+                let started = Instant::now();
+                let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+                let bloom = Bloom::new(
+                    &self.device,
+                    &self.queue,
+                    &self.hdr,
+                    self.width as u32,
+                    self.height as u32,
+                    options.bloom_radius,
+                );
+                self.finish_group = group(
+                    &self.device,
+                    &self.finish,
+                    &[&self.hdr, &self.output, &self.uniform, &bloom.a],
+                );
+                if let Some(e) = pollster::block_on(scope.pop()) {
+                    return Err(format!("style bloom setup: {e}"));
+                }
+                self.stats.working_bytes += bloom.bytes;
+                self.stats.pipelines += 2;
+                self.stats.allocations += 4;
+                self.stats.initialization_seconds += started.elapsed().as_secs_f64();
+                self.bloom = Some(bloom);
+            }
+            self.bloom
+                .as_mut()
+                .unwrap()
+                .update(&self.queue, options.bloom_radius);
+        }
+        self.params[268..272].copy_from_slice(&[
+            options.bloom.to_bits(),
+            options.grain.to_bits(),
+            options.grain_size.to_bits(),
+            options.grain_color.to_bits(),
+        ]);
+        self.params[272..276].copy_from_slice(&[
+            options.seed,
+            options.exposure,
+            options.bloom_radius,
+            u32::from(options.dither),
+        ]);
+        self.params[276..280].copy_from_slice(&[
+            options.grain_tonal[0].to_bits(),
+            options.grain_tonal[1].to_bits(),
+            options.grain_tonal[2].to_bits(),
+            0,
+        ]);
+        self.stats.bloom_support_pixels = if options.bloom > 0.0 {
+            2 * options.bloom_radius + 4
+        } else {
+            0
+        };
+        Ok(())
+    }
+
     /// Evaluate one timestamp. A time-independent graph reuses its HDR output until
     /// parameters or class policy change; final pixels are the only readback.
     pub fn frame(&mut self, time: f32, unresolved_interior: bool) -> Result<Rgb8, String> {
@@ -335,7 +410,7 @@ impl StyleRenderer {
         let started = Instant::now();
         self.params[3] = u32::from(unresolved_interior);
         self.params[4] = time.to_bits();
-        let mut key = self.params.clone();
+        let mut key = self.params[..268].to_vec();
         if !self.graph.sources.contains("time") {
             key[4] = 0;
         }
@@ -348,16 +423,30 @@ impl StyleRenderer {
             self.width.div_ceil(8) as u32,
             self.height.div_ceil(8) as u32,
         );
-        for (needed, pipeline, group) in [
-            (shade_needed, &self.shade, &self.shade_group),
-            (true, &self.finish, &self.finish_group),
-        ] {
-            if !needed {
-                continue;
-            }
+        if shade_needed {
             let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, group, &[]);
+            pass.set_pipeline(&self.shade);
+            pass.set_bind_group(0, &self.shade_group, &[]);
+            pass.dispatch_workgroups(groups.0, groups.1, 1);
+        }
+        let mut bloom_dispatches = 0;
+        if f32::from_bits(self.params[268]) > 0.0 {
+            if let Some(bloom) = &mut self.bloom {
+                if shade_needed || bloom.dirty {
+                    bloom.encode(&mut encoder);
+                    bloom.dirty = false;
+                    bloom_dispatches = 3;
+                }
+            }
+        } else if shade_needed {
+            if let Some(bloom) = &mut self.bloom {
+                bloom.dirty = true;
+            }
+        }
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.finish);
+            pass.set_bind_group(0, &self.finish_group, &[]);
             pass.dispatch_workgroups(groups.0, groups.1, 1);
         }
         encoder.copy_buffer_to_buffer(&self.output, 0, &self.readback, 0, self.readback.size());
@@ -388,7 +477,7 @@ impl StyleRenderer {
         }
         self.readback.unmap();
         self.last_shade = Some(key);
-        self.stats.dispatches = 1 + u32::from(shade_needed);
+        self.stats.dispatches = 1 + u32::from(shade_needed) + bloom_dispatches;
         self.stats.frames += 1;
         self.stats.frame_seconds = started.elapsed().as_secs_f64();
         Ok(Rgb8 {

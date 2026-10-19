@@ -24,6 +24,7 @@ pub const PREPARE: &str = concat!(
 /// The shade pass source: colour per sample (`main`, films) or per ss x ss block (`still`).
 pub const SHADE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
+    include_str!("../../shaders/tpdf.wgsl"),
     include_str!("../../shaders/film_shade.wgsl")
 );
 /// Repacks the zone kernel's device columns into studio samples (GPU-21).

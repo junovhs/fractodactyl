@@ -112,3 +112,25 @@ tilings fail clearly. `with_device` allows sharing a caller-owned device/queue;
 direct adoption of GPU kernel sample buffers is a production integration, not yet
 part of this stored-sample CLI. Stats count renderer-created buffers/pipelines,
 not driver allocations, and warm time includes final readback.
+
+## Bounded optics and grain (STYL-03)
+
+Bloom extracts the independent HDR emission at half resolution, then convolves a
+normalized mixture of three Gaussian scales in horizontal and vertical passes.
+Two half-resolution buffers and two kernel uniforms are allocated on first enable
+and reused. Radius changes update coefficients, not pipelines. Gain/grain changes
+reuse cached bloom if the HDR field and radius are unchanged. Disabled bloom does
+no spatial dispatches. A conservative full-output support bound is `2 * radius + 4`
+pixels per axis; no tiled implementation is claimed. Radius is bounded to 1..32.
+
+Grain uses a normalized interpolated triangular random field, with spatial scale,
+amount, channel correlation, shadow/mid/highlight response and seed/exposure index.
+It is an artistic approximation, not the Newson physical simulation. It runs after
+tone mapping and sRGB conversion, before final quantization; quantization dither
+is independently optional. Exactly black/white endpoints are protected. The legacy
+TPDF WGSL function is shared, extracted without changing its arithmetic.
+
+All disabled effects preserve the prior prototype's bytes. GPU impulse/flat-field
+and actual CLI fixtures check support, exposure replay, grain mean/variance/size,
+tonal suppression, unchanged resource counts, and repeated finishing. Named-adapter
+warm cost sweeps and encoded-motion visual judgment belong to STYL-04's POC report.

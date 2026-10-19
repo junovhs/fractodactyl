@@ -3,6 +3,9 @@ struct Params {
     clock: vec4<f32>,
     origin: vec4<u32>,
     knobs: array<vec4<f32>, 64>,
+    optics: vec4<f32>,
+    grain: vec4<u32>,
+    tonal: vec4<f32>,
 }
 struct Layer { surface: vec4<f32>, emission: vec4<f32> }
 @group(0) @binding(0) var<storage, read> samples: array<vec4<u32>>;

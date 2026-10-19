@@ -1,11 +1,31 @@
 //! CLI entry point for the opt-in style engine. Existing look routes are untouched.
 use crate::args::Args;
 use fd_shade::style::render::{columns, StyleRenderer};
-use fd_shade::style::Graph;
+use fd_shade::style::{finishing::Finishing, Graph};
 use std::time::Instant;
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
-    let a = Args::parse(argv, &["o", "time", "runs", "set", "unresolved"])?;
+    let a = Args::parse(
+        argv,
+        &[
+            "o",
+            "time",
+            "runs",
+            "set",
+            "unresolved",
+            "bloom",
+            "bloom-radius",
+            "grain",
+            "grain-size",
+            "grain-color",
+            "grain-seed",
+            "exposure",
+            "dither",
+            "grain-shadow",
+            "grain-mid",
+            "grain-highlight",
+        ],
+    )?;
     match a.positional.as_slice() {
         [command, path] if command == "inspect" => {
             let text = std::fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?;
@@ -36,17 +56,25 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                     renderer.set_parameter(name,value.parse().map_err(|_|"invalid --set number")?)?;
                 }
             }
+            let finishing=Finishing {
+                bloom:a.num("bloom",0.0)?,bloom_radius:a.num("bloom-radius",12)?,
+                grain:a.num("grain",0.0)?,grain_size:a.num("grain-size",1.0)?,grain_color:a.num("grain-color",0.0)?,
+                seed:a.num("grain-seed",1)?,exposure:a.num("exposure",0)?,
+                grain_tonal:[a.num("grain-shadow",0.25)?,a.num("grain-mid",1.0)?,a.num("grain-highlight",0.3)?],
+                dither:match a.str("dither").unwrap_or("off"){"on"=>true,"off"=>false,_=>return Err("--dither expects on or off".into())},
+            };
+            renderer.set_finishing(&finishing)?;
             let mut image=None;
             for run in 0..runs {
                 image=Some(renderer.frame(time,unresolved)?);
                 let s=&renderer.stats;
-                println!("style_frame {run} seconds {:.6} dispatches {} pipelines {} allocations {} sample_uploads {} working_bytes_estimate {} iterations 0",s.frame_seconds,s.dispatches,s.pipelines,s.allocations,s.sample_uploads,s.working_bytes);
+                println!("style_frame {run} seconds {:.6} dispatches {} pipelines {} allocations {} sample_uploads {} working_bytes_estimate {} bloom_support_px {} iterations 0",s.frame_seconds,s.dispatches,s.pipelines,s.allocations,s.sample_uploads,s.working_bytes,s.bloom_support_pixels);
             }
             let img=image.unwrap();
             std::fs::write(output,fd_shade::png(&img)).map_err(|e|e.to_string())?;
             println!("style_output {output} px {}x{} adapter {:?} load_seconds {load_seconds:.6} initialization_seconds {:.6}",img.w,img.h,renderer.stats.adapter,renderer.stats.initialization_seconds);
             Ok(())
         }
-        _ => Err("usage: fd style inspect GRAPH [-o BODY.wgsl] | fd style render GRAPH INPUT.fds -o OUTPUT.png [--time T --runs N --set name=value,... --unresolved mark|interior]".into()),
+        _ => Err("usage: fd style inspect GRAPH [-o BODY.wgsl] | fd style render GRAPH INPUT.fds -o OUTPUT.png [--time T --runs N --set name=value,... --unresolved mark|interior --bloom AMOUNT --bloom-radius R --grain AMOUNT --grain-size PX --grain-color MIX --grain-seed N --exposure N --dither on|off]".into()),
     }
 }

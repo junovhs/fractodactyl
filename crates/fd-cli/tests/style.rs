@@ -148,3 +148,201 @@ fn style_renderer_and_cli_reuse_samples_pipelines_and_hdr() {
     assert_ne!(a.data, b.data);
     assert_eq!(a.data, renderer.frame(0.0, true).unwrap().data);
 }
+
+#[test]
+fn style_finishing_has_bounded_bloom_and_reproducible_scaled_grain() {
+    use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
+    use fd_shade::style::{finishing::Finishing, render::StyleRenderer, Graph};
+    let n = 128;
+    let columns = ColumnSet::of(&[Column::Class, Column::De]);
+    let mut samples = Samples::alloc(n * n, columns);
+    samples.de.as_mut().unwrap().fill(1000.0);
+    samples.de.as_mut().unwrap()[64 * n + 64] = 0.0;
+    let h = Header {
+        minor: MINOR,
+        columns,
+        nx: n as u32,
+        ny: n as u32,
+        ss: 1,
+        max_iter: 100,
+        escape_radius: 1e10,
+        view: View {
+            center_re: "0".into(),
+            center_im: "0".into(),
+            width: "4".into(),
+            rotation: 0.0,
+        },
+        kernel: "synthetic finishing fixture".into(),
+    };
+    let impulse="version 1\nsurface black\nemission emission\nblack = color #000000\nwhite = color #ffffff\nd = source de\nw = scalar 0.1\nedge = boundary d w\nenergy = scalar 64\nhot = mul edge energy\nemission = mul white hot\n";
+    let Some(mut r) = fd_shade::gpu::testkit::or_skip(
+        StyleRenderer::new(
+            Graph::parse(impulse).unwrap().compile().unwrap(),
+            &h,
+            &samples,
+        ),
+        "style finishing",
+    ) else {
+        return;
+    };
+    let base = r.frame(0.0, false).unwrap();
+    let options = Finishing {
+        bloom: 8.0,
+        bloom_radius: 8,
+        ..Default::default()
+    };
+    r.set_finishing(&options).unwrap();
+    let bloom = r.frame(0.0, false).unwrap();
+    assert_eq!(
+        r.stats.dispatches, 4,
+        "cached HDR plus extraction/H/V/finish"
+    );
+    assert!(bloom.data[(64 * n + 68) * 3] > base.data[(64 * n + 68) * 3]);
+    let support = r.stats.bloom_support_pixels as usize;
+    for y in 0..n {
+        for x in 0..n {
+            if x.abs_diff(64) > support || y.abs_diff(64) > support {
+                assert_eq!(
+                    bloom.data[(y * n + x) * 3],
+                    0,
+                    "outside declared support ({x},{y})"
+                );
+            }
+        }
+    }
+    let resources = (
+        r.stats.pipelines,
+        r.stats.allocations,
+        r.stats.working_bytes,
+    );
+    r.frame(1.0, false).unwrap();
+    assert_eq!(r.stats.dispatches, 1);
+    r.set_finishing(&Finishing::default()).unwrap();
+    assert_eq!(
+        base.data,
+        r.frame(0.0, false).unwrap().data,
+        "disabled effects preserve bytes"
+    );
+    r.set_finishing(&options).unwrap();
+    r.frame(0.0, false).unwrap();
+    assert_eq!(
+        resources,
+        (
+            r.stats.pipelines,
+            r.stats.allocations,
+            r.stats.working_bytes
+        )
+    );
+
+    let flat =
+        "version 1\nsurface gray\nemission black\ngray = color #808080\nblack = color #000000\n";
+    let mut r =
+        StyleRenderer::new(Graph::parse(flat).unwrap().compile().unwrap(), &h, &samples).unwrap();
+    let plain = r.frame(0.0, false).unwrap();
+    let mut options = Finishing {
+        grain: 0.04,
+        grain_size: 1.0,
+        seed: 19,
+        ..Default::default()
+    };
+    r.set_finishing(&options).unwrap();
+    let a = r.frame(0.0, false).unwrap();
+    assert_ne!(plain.data, a.data);
+    assert_eq!(
+        a.data,
+        r.frame(3.0, false).unwrap().data,
+        "same exposure replays"
+    );
+    options.exposure = 1;
+    r.set_finishing(&options).unwrap();
+    let b = r.frame(0.0, false).unwrap();
+    assert_ne!(a.data, b.data);
+    let differences: Vec<_> = a
+        .data
+        .iter()
+        .zip(&plain.data)
+        .map(|(&a, &b)| a as f64 - b as f64)
+        .collect();
+    let mean = differences.iter().sum::<f64>() / differences.len() as f64;
+    let variance =
+        differences.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / differences.len() as f64;
+    assert!(mean.abs() < 0.7, "grain bias {mean}");
+    assert!(variance > 20.0, "grain variance {variance}");
+    let energy = |image: &fd_shade::Rgb8| -> u64 {
+        image
+            .data
+            .chunks_exact(3)
+            .enumerate()
+            .filter(|(i, _)| i % n > 0)
+            .map(|(i, p)| p[0].abs_diff(image.data[(i - 1) * 3]) as u64)
+            .sum()
+    };
+    options.grain_size = 3.0;
+    r.set_finishing(&options).unwrap();
+    let coarse = r.frame(0.0, false).unwrap();
+    assert!(
+        energy(&coarse) < energy(&b),
+        "larger grain must be more spatially correlated"
+    );
+    options.grain_tonal = [0.0; 3];
+    r.set_finishing(&options).unwrap();
+    assert_eq!(plain.data, r.frame(0.0, false).unwrap().data);
+    options.grain = f32::NAN;
+    assert!(r.set_finishing(&options).is_err());
+
+    // Drive the actual user command with synthetic fields, not only its Rust API.
+    let dir = std::env::temp_dir().join(format!("fd-style-finishing-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let input = dir.join("impulse.fds");
+    let graph = dir.join("impulse.style");
+    let output = dir.join("bloom.png");
+    fd_samples::write(std::fs::File::create(&input).unwrap(), &h, &samples).unwrap();
+    std::fs::write(&graph, impulse).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args([
+            "style",
+            "render",
+            graph.to_str().unwrap(),
+            input.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--bloom",
+            "8",
+            "--bloom-radius",
+            "8",
+            "--runs",
+            "2",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read(&output).unwrap(), fd_shade::png(&bloom));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("bloom_support_px 20"));
+    std::fs::write(&graph, flat).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args([
+            "style",
+            "render",
+            graph.to_str().unwrap(),
+            input.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--grain",
+            "0.04",
+            "--grain-seed",
+            "19",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(std::fs::read(&output).unwrap(), fd_shade::png(&a));
+    std::fs::remove_dir_all(dir).unwrap();
+}

@@ -53,15 +53,6 @@ fn edge_distance(lo: u32, hi: u32, phase_bits: u32, n: u32) -> f32 {
 
 // ---- encode, as fd-shade's resolve ----
 
-fn tpdf(key: u32) -> f32 {
-    var x = key + 0x9e3779b9u;
-    x ^= x >> 16u;
-    x *= 0x7feb352du;
-    x ^= x >> 15u;
-    x *= 0x846ca68bu;
-    x ^= x >> 16u;
-    return f32((x & 65535u) + (x >> 16u)) / 65535.0 - 1.0;
-}
 
 fn encode(rgb: vec3<f32>, x: u32, y: u32) -> u32 {
     var out = 0u;

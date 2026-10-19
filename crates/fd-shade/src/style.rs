@@ -1,6 +1,7 @@
 //! Opt-in style graph. Compilation is independent of devices and fractal iteration.
 //! Values are linear-light colors, scalars, or vectors; only reachable work is emitted.
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+pub mod finishing;
 pub mod render;
 
 /// Compatible scalar, spatial-vector and linear-color graph values.
