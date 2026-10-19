@@ -31,6 +31,23 @@ fn curved_stream_has_direction_bounded_support_and_zero_radius_identity() {
     }}
     renderer.set_parameter("radius",100.).unwrap();
     assert_eq!(spread.data,renderer.frame(0.,true).unwrap().data,"radius is bounded");
+    let zoom = graph.replace("stream a b c", "zoom a b c")
+        .replace("direction = vector 1 0", "direction = vector 0.5078125 0.5078125")
+        .replace("radius = param 0", "radius = param 1");
+    let compiled = Graph::parse(&zoom).unwrap().compile().unwrap();
+    assert_eq!(compiled.support_pixels,u32::MAX);
+    assert!(compiled.report().contains("output_support_px full-frame"));
+    let after_blur = zoom.replace("output final","output soft")+"soft = blur final c\n";
+    assert_eq!(Graph::parse(&after_blur).unwrap().compile().unwrap().support_pixels,u32::MAX);
+    assert!(Graph::parse(&zoom.replace("zoom a b c","zoom a a c")).unwrap().compile().is_err());
+    let mut zoomed = StyleRenderer::new(compiled,&header,&samples).unwrap();
+    assert_eq!(baseline.data,zoomed.frame(0.,true).unwrap().data,"1x zoom is identity");
+    zoomed.set_parameter("radius",2.).unwrap();
+    let magnified = zoomed.frame(0.,true).unwrap();
+    let neighbor = magnified.data[(32*64+33)*3];
+    assert!((150..=162).contains(&neighbor),"half-HDR intensity maps to ~156, not half an encoded highlight: {neighbor}");
+    zoomed.set_parameter("radius",100.).unwrap();
+    assert_eq!(magnified.data,zoomed.frame(0.,true).unwrap().data,"zoom is capped at 2x");
 }
 
 const IMAGE_GRAPH:&str="version 1\noutput final\npos = source position\nr = length pos\nfreq = param 0.7\nx = mul r freq\ntime = source time\nt = add x time\ny = sin t\nhalf = scalar 0.5\ny0 = mul y half\nwave = add y0 half\na = color #103050\nb = color #ef9540\ncolor = mix a b wave\nheight_scale = param 8\nheight = mul wave height_scale\ntangent = source tangent\nsx = scalar -1\nsy = scalar -0.4\nsun = compose sx sy\ndistance = param 6\nradius = param 2\nbase = image color\nheights = image height\nvectors = image tangent\nlight = image sun\namount = image distance\nwidth = image radius\nwarped = warp base vectors amount\nlit = relight warped heights light\nblurred = blur lit width\nalias = blur lit width\nfinal = add blurred alias\n";

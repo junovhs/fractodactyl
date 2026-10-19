@@ -65,7 +65,11 @@ impl Plan {
             self.sources.len(),
             self.steps.len(),
             self.slots,
-            self.images[self.output].support
+            if self.images[self.output].support == u32::MAX {
+                "full-frame".to_string()
+            } else {
+                self.images[self.output].support.to_string()
+            }
         );
         for (i, source) in self.sources.iter().enumerate() {
             s += &format!(
@@ -85,6 +89,7 @@ impl Plan {
                     6 => "blur-y",
                     7 => "relight",
                     8 => "stream",
+                    9 => "zoom",
                     _ => "unknown",
                 }
             };
@@ -493,7 +498,7 @@ impl Lower<'_> {
         } else {
             let count = match node.op.as_str() {
                 "add" | "mul" | "max" | "blur" => 2,
-                "mix" | "warp" | "relight" | "stream" => 3,
+                "mix" | "warp" | "relight" | "stream" | "zoom" => 3,
                 _ => return Err(format!("image {name}: unknown image operation {}", node.op)),
             };
             if args.len() != count {
@@ -543,7 +548,7 @@ impl Lower<'_> {
                         if b != Kind::Vector || d != Kind::Scalar {
                             return Err(bad());
                         }
-                        self.step(4, inputs, a, support + 9)
+                        self.step(4, inputs, a, support.saturating_add(9))
                     }
                     "stream" => {
                         if b != Kind::Vector || d != Kind::Scalar {
@@ -552,20 +557,33 @@ impl Lower<'_> {
                         // Six midpoint steps in each direction, max 24 px.
                         // Curved paths can sample a different direction field at
                         // every step; this is convolution, never persistent fluid state.
-                        self.step(8, inputs, a, support + 26)
+                        self.step(8, inputs, a, support.saturating_add(26))
+                    }
+                    "zoom" => {
+                        if b != Kind::Vector || d != Kind::Scalar {
+                            return Err(bad());
+                        }
+                        // Arbitrary pivot magnification reads the whole image;
+                        // u32::MAX is the explicit full-frame support marker.
+                        self.step(9, inputs, a, u32::MAX)
                     }
                     "blur" => {
                         if b != Kind::Scalar {
                             return Err(bad());
                         }
-                        let horizontal = self.step(5, inputs, a, support + 9);
-                        self.step(6, [horizontal, inputs[1], inputs[1]], a, support + 18)
+                        let horizontal = self.step(5, inputs, a, support.saturating_add(9));
+                        self.step(
+                            6,
+                            [horizontal, inputs[1], inputs[1]],
+                            a,
+                            support.saturating_add(18),
+                        )
                     }
                     "relight" => {
                         if a != Kind::Color || b != Kind::Scalar || d != Kind::Vector {
                             return Err(bad());
                         }
-                        self.step(7, inputs, Kind::Color, support + 1)
+                        self.step(7, inputs, Kind::Color, support.saturating_add(1))
                     }
                     _ => unreachable!(),
                 };

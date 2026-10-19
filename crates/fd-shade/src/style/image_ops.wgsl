@@ -63,6 +63,11 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){
    }
    result/=total;
   }
+  case 9u:{
+   let pivot=clamp(y.xy,vec2<f32>(0.0),vec2<f32>(1.0))*vec2<f32>(p.dims.xy)-0.5;
+   let magnification=clamp(fetch(2u,vec2<i32>(gid.xy)).x,1.0,2.0);
+   result=sample_at(0u,pivot+(xy-pivot)/magnification);
+  }
   default:{}
  }
  result_image[i]=select(vec4<f32>(0.0),clamp(result,vec4<f32>(-65504.0),vec4<f32>(65504.0)),abs(result)<vec4<f32>(1e30));
