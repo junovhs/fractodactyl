@@ -61,22 +61,11 @@ is optional for a higher GitHub API limit; no token is needed for public release
 releases) and checks desktop/mobile behavior when `PLAYWRIGHT_MODULE` is set.
 `./check-live.sh` also compares the live downloads and changelog to GitHub's release.
 
-The site currently uses the committed `vendor/dopedocs-0.5.1.tgz` archive from
-the tested dopedocs patch commit. `npm ci` installs it like a normal package;
-there is no sibling dependency. The native Astro integration emits the bundled
-stylesheet at `/docs/dopedocs.css`, then loads `/docs-theme.css` for the host
-palette. Static documentation search is enabled. The temporary `buildStatic`
-hook is gone.
-
-After dopedocs 0.5.1 reaches npm, switch from this directory with:
-
-```sh
-npm install --save-exact dopedocs@0.5.1
-```
-
-Commit both package files. The integration, theme and content stay the same.
-[Archive provenance and regeneration](./vendor/README.md) includes the exact
-source commit and checksum, plus the command to restore the local archive.
+The site uses the published npm package pinned to `dopedocs@0.5.1`. A clean
+`npm ci` installs it from the registry without a sibling checkout or vendored
+archive. The native Astro integration emits the bundled stylesheet at
+`/docs/dopedocs.css`, then loads `/docs-theme.css` for the host palette.
+Static documentation search is enabled.
 
 After building, `npm run check:docs` verifies the generated documentation and
 serves it locally for HTTP checks. It also runs keyboard search/navigation,
