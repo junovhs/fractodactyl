@@ -1,6 +1,7 @@
 //! Persistent opt-in WGSL renderer. No kernel link and no CPU color evaluation.
 use super::{
     finishing::{Bloom, Finishing},
+    image_gpu::ImagesGpu,
     Compiled,
 };
 use crate::{gpu, Rgb8};
@@ -35,6 +36,8 @@ pub struct Stats {
     pub allocations: u32,
     pub frames: u64,
     pub bloom_support_pixels: u32,
+    pub graph_support_pixels: u32,
+    pub evaluations_per_sample: u32,
 }
 
 /// One graph and sample raster on a device; uniforms update without rebuilding
@@ -49,6 +52,7 @@ pub struct StyleRenderer {
     uniform: wgpu::Buffer,
     hdr: wgpu::Buffer,
     bloom: Option<Bloom>,
+    images: Option<ImagesGpu>,
     output: wgpu::Buffer,
     readback: wgpu::Buffer,
     params: Vec<u32>,
@@ -174,7 +178,14 @@ impl StyleRenderer {
         let input_bytes = (n as u64)
             .checked_mul(16)
             .ok_or("style sample bytes overflow")?;
-        let hdr_bytes = pixels * 32;
+        let alignment = device.limits().min_storage_buffer_offset_alignment as u64;
+        let (image_layout, atlas_bytes) = graph
+            .images
+            .as_ref()
+            .map_or((Vec::new(), pixels * 32), |p| {
+                p.layout(alignment, width, height)
+            });
+        let hdr_bytes = atlas_bytes;
         let out_bytes = pixels * 4;
         let limits = device.limits();
         for bytes in [input_bytes, hdr_bytes, out_bytes] {
@@ -214,11 +225,14 @@ impl StyleRenderer {
                 normal as u32 | ((s.class[i].0 as u32 & 3) << 16),
             ]);
         }
-        let mut params = vec![0u32; 12 + 64 * 4 + 12];
+        let mut params = vec![0u32; 12 + 64 * 4 + 12 + 64];
         params[..4].copy_from_slice(&[h.nx, h.ny, h.ss, 0]);
         params[8..10].copy_from_slice(&[origin as u32, (origin >> 32) as u32]);
         for (i, (_, v)) in graph.parameters.iter().enumerate() {
             params[12 + i * 4] = v.to_bits();
+        }
+        for (i, (offset, _)) in image_layout.iter().enumerate() {
+            params[280 + 4 * i] = (*offset / 16) as u32;
         }
         params[270] = 1.0f32.to_bits();
         let u = gpu::testkit::bytes(&params);
@@ -254,21 +268,27 @@ impl StyleRenderer {
             out_bytes,
             wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         );
-        let generated = include_str!("shade.wgsl")
-            .replace("// GRAPH_BODY", &graph.body)
-            .replace(
-                "// GRAPH_RETURN",
-                &format!(
+        let generated = if let Some(plan) = &graph.images {
+            plan.shader(&graph)
+        } else {
+            include_str!("shade.wgsl")
+                .replace("// GRAPH_BODY", &graph.body)
+                .replace("// GRAPH_HELPERS", &graph.helpers)
+                .replace(
+                    "// GRAPH_RETURN",
+                    &format!(
                     "return Layer(vec4<f32>(clean_color({}),1.0), vec4<f32>(clean_color({}),0.0));",
                     graph.surface, graph.emission
                 ),
-            );
+                )
+        };
         let shade = pipeline(
             &device,
             "style fused pointwise",
             &format!(
-                "{}\n{}",
+                "{}\n{}\n{}",
                 include_str!("../../shaders/soft_f64.wgsl"),
+                include_str!("../../shaders/filtering.wgsl"),
                 generated
             ),
             "shade",
@@ -281,14 +301,26 @@ impl StyleRenderer {
                 include_str!("../../shaders/tpdf.wgsl"),
                 include_str!("finish.wgsl")
             ),
-            "finish",
+            if graph.images.is_some() {
+                "finish_image"
+            } else {
+                "finish"
+            },
         );
         let shade_group = group(&device, &shade, &[&samples, &hdr, &uniform, &unit]);
-        let finish_group = group(&device, &finish, &[&hdr, &output, &uniform, &hdr]);
+        let images = graph
+            .images
+            .clone()
+            .map(|plan| ImagesGpu::new(&device, &queue, &hdr, plan, width, height));
+        let finish_group = if let Some(images) = &images {
+            images.finish_group(&device, &finish, &hdr, &output, &uniform)
+        } else {
+            group(&device, &finish, &[&hdr, &output, &uniform, &hdr])
+        };
         if let Some(e) = pollster::block_on(scope.pop()) {
             return Err(format!("style GPU setup: {e}"));
         }
-        let stats = Stats {
+        let mut stats = Stats {
             adapter,
             initialization_seconds: started.elapsed().as_secs_f64(),
             frame_seconds: 0.0,
@@ -303,7 +335,14 @@ impl StyleRenderer {
             allocations: 6,
             frames: 0,
             bloom_support_pixels: 0,
+            graph_support_pixels: graph.support_pixels,
+            evaluations_per_sample: graph.evaluations_per_sample,
         };
+        if let Some(images) = &images {
+            stats.working_bytes += images.bytes;
+            stats.allocations += images.allocations;
+            stats.pipelines += images.pipelines;
+        }
         Ok(Self {
             device,
             queue,
@@ -314,6 +353,7 @@ impl StyleRenderer {
             uniform,
             hdr,
             bloom: None,
+            images,
             output,
             readback,
             params,
@@ -344,6 +384,9 @@ impl StyleRenderer {
     /// enable, then reuse them across radius/amount/exposure changes.
     pub fn set_finishing(&mut self, options: &Finishing) -> Result<(), String> {
         options.validate()?;
+        if self.images.is_some() && options.bloom > 0.0 {
+            return Err("image graphs connect blur/add nodes explicitly; --bloom is for surface/emission compatibility graphs".into());
+        }
         if options.bloom > 0.0 {
             if self.bloom.is_none() {
                 let started = Instant::now();
@@ -429,6 +472,13 @@ impl StyleRenderer {
             pass.set_bind_group(0, &self.shade_group, &[]);
             pass.dispatch_workgroups(groups.0, groups.1, 1);
         }
+        let image_dispatches = if shade_needed {
+            self.images.as_ref().map_or(0, |images| {
+                images.encode(&mut encoder, self.width as u32, self.height as u32)
+            })
+        } else {
+            0
+        };
         let mut bloom_dispatches = 0;
         if f32::from_bits(self.params[268]) > 0.0 {
             if let Some(bloom) = &mut self.bloom {
@@ -477,7 +527,7 @@ impl StyleRenderer {
         }
         self.readback.unmap();
         self.last_shade = Some(key);
-        self.stats.dispatches = 1 + u32::from(shade_needed) + bloom_dispatches;
+        self.stats.dispatches = 1 + u32::from(shade_needed) + image_dispatches + bloom_dispatches;
         self.stats.frames += 1;
         self.stats.frame_seconds = started.elapsed().as_secs_f64();
         Ok(Rgb8 {

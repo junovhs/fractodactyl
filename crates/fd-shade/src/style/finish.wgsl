@@ -6,12 +6,14 @@ struct Params {
     optics: vec4<f32>, // bloom, grain amount, grain size, color variation
     grain: vec4<u32>, // seed, exposure index, bloom radius, dither
     tonal: vec4<f32>, // shadow, midtone, highlight grain response
+    image_offsets: array<vec4<u32>,16>,
 }
 struct Layer { surface: vec4<f32>, emission: vec4<f32> }
 @group(0) @binding(0) var<storage, read> hdr: array<Layer>;
 @group(0) @binding(1) var<storage, read_write> pixels: array<u32>;
 @group(0) @binding(2) var<uniform> p: Params;
 @group(0) @binding(3) var<storage, read> glow: array<vec4<f32>>;
+@group(0) @binding(4) var<storage, read> composed: array<vec4<f32>>;
 
 fn bloom_at(xy: vec2<f32>, size: vec2<u32>) -> vec3<f32> {
     let half_size = (size + 1u) / 2u;
@@ -43,20 +45,15 @@ fn grain_field(xy: vec2<f32>, seed: u32) -> f32 {
     return mix(mix(a,b,f.x),mix(d,e,f.x),f.y)*2.44948974/max(norm,0.001);
 }
 
-@compute @workgroup_size(8, 8)
-fn finish(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let size = p.dims.xy / p.dims.z;
-    if (any(gid.xy >= size)) { return; }
-    let i = gid.y * size.x + gid.x;
-    var c = max(hdr[i].surface.rgb + hdr[i].emission.rgb, vec3<f32>(0.0));
-    if (p.optics.x > 0.0) { c += bloom_at(vec2<f32>(gid.xy),size)*p.optics.x; }
+fn encode_color(radiance:vec3<f32>, xy:vec2<u32>)->u32 {
+    let c=max(radiance,vec3<f32>(0.0));
     let mapped = c / (vec3<f32>(1.0) + c);
     var srgb = select(1.055 * pow(mapped, vec3<f32>(1.0/2.4)) - 0.055, 12.92 * mapped, mapped <= vec3<f32>(0.0031308));
     if (p.optics.y > 0.0) {
         let y=dot(srgb,vec3<f32>(0.2126,0.7152,0.0722));
         let tone=select(mix(p.tonal.x,p.tonal.y,smoothstep(0.0,0.5,y)),mix(p.tonal.y,p.tonal.z,smoothstep(0.5,1.0,y)),y>0.5);
         let seed=p.grain.x ^ (p.grain.y*0x27d4eb2du);
-        let xy=(vec2<f32>(gid.xy)+0.5)/p.optics.z;
+        let xy=(vec2<f32>(xy)+0.5)/p.optics.z;
         let mono=grain_field(xy,seed);
         var noise=vec3<f32>(mono);
         if (p.optics.w>0.0) {
@@ -68,9 +65,24 @@ fn finish(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     var dither=vec3<f32>(0.0);
     if (p.grain.w!=0u) {
-        let key=gid.y*0x9e3779b9u ^ gid.x*0x85ebca6bu;
+        let key=xy.y*0x9e3779b9u ^ xy.x*0x85ebca6bu;
         dither=vec3<f32>(tpdf(key),tpdf(key^0x68bc21ebu),tpdf(key^0x02e5be93u));
     }
     let b = vec3<u32>(clamp(srgb * 255.0 + 0.5 + dither, vec3<f32>(0.0), vec3<f32>(255.0)));
-    pixels[i] = b.x | (b.y << 8u) | (b.z << 16u);
+    return b.x | (b.y << 8u) | (b.z << 16u);
+}
+
+@compute @workgroup_size(8,8)
+fn finish(@builtin(global_invocation_id) gid:vec3<u32>){
+ let size=p.dims.xy/p.dims.z;if(any(gid.xy>=size)){return;}
+ let i=gid.y*size.x+gid.x;
+ var value=hdr[i].surface.rgb+hdr[i].emission.rgb;
+ if(p.optics.x>0.0){value+=bloom_at(vec2<f32>(gid.xy),size)*p.optics.x;}
+ pixels[i]=encode_color(value,gid.xy);
+}
+@compute @workgroup_size(8,8)
+fn finish_image(@builtin(global_invocation_id) gid:vec3<u32>){
+ let size=p.dims.xy/p.dims.z;if(any(gid.xy>=size)){return;}
+ let i=gid.y*size.x+gid.x;
+ pixels[i]=encode_color(composed[i].rgb,gid.xy);
 }

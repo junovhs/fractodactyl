@@ -29,16 +29,6 @@ struct Params {
 @group(0) @binding(3) var<storage, read> unit: array<vec2<f32>>;
 
 const LN_2: f32 = 0.6931471805599453;
-// -2 * (pi * sigma)^2 with sigma = 0.5
-const BAND_K: f32 = -4.9348022;
-
-// tanh for x >= 0 from exp alone. Backend tanh varies: DX12 WARP's returns NaN once
-// e^2x overflows and drifts ~1e-4 near x = 4 (FIX-59); 1 - 2/(e^2x + 1) is
-// well-conditioned for x >= 0, and every x >= 10 is 1 in f32.
-fn tanh_bounded(x: f32) -> f32 {
-    let y = clamp(x, 0.0, 10.0);
-    return 1.0 - 2.0 / (exp(2.0 * y) + 1.0);
-}
 
 // density * nu as f64 bits, as Rust evaluates it.
 fn base(lo: u32, hi: u32) -> vec2<u32> {
@@ -77,7 +67,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var band: f32 = 1.0;
     if (aa) {
         let per_sample = cycles / ss;
-        band = exp(BAND_K * per_sample * per_sample);
+        band = band_response(per_sample);
     }
     let steep = tanh_bounded(0.6 * log(1.0 + cycles / 0.02));
     var fade: f32 = 1.0;

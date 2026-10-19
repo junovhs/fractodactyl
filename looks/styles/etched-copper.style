@@ -1,0 +1,43 @@
+# Different wiring: terraced copper surface, sharp specular ridges, cool fine seams.
+version 1
+surface copper
+emission seams
+black = color #020810
+copper_dark = color #24100b
+copper_hot = color #d9853f
+teal = color #28b8d0
+pearl = color #ffe6b1
+normal = source normal
+de = source de
+time = source time
+one = scalar 1
+half = scalar 0.5
+tau = scalar 6.2831853
+band_frequency = param 0.42
+phase = band band_frequency travel
+speed = param 0.035
+travel = mul time speed
+moving = add phase travel
+band = fract phase
+terrace_depth = param 0.86
+terrace_drop = mul band terrace_depth
+terrace = sub one terrace_drop
+base = mix copper_dark copper_hot terrace
+slope = param 2.4
+sun = vector -0.9 0.35
+relief = light normal slope sun
+lit = mul base relief
+polish = param 22
+specular = pow relief polish
+specular_tint = mul pearl specular
+metal_gain = param 0.35
+metal = mul specular_tint metal_gain
+copper = add lit metal
+edge_width = param 0.07
+edge = boundary de edge_width
+seam_power = param 18
+ridge = pow terrace seam_power
+line_mask = max ridge edge
+emission_gain = param 0.25
+energy = mul line_mask emission_gain
+seams = mul teal energy

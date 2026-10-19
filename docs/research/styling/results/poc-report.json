@@ -1,0 +1,188 @@
+{
+  "images": [
+    {
+      "path": "/home/juno/.fdv/fractodactyl/styling-poc/valley-celestial-share.png",
+      "size": [
+        1024,
+        640
+      ],
+      "min": 0,
+      "max": 232,
+      "mean_channel": 84.97511088053385
+    },
+    {
+      "path": "/home/juno/.fdv/fractodactyl/styling-poc/valley-copper-share.png",
+      "size": [
+        1024,
+        640
+      ],
+      "min": 0,
+      "max": 174,
+      "mean_channel": 86.43343709309896
+    },
+    {
+      "path": "/home/juno/.fdv/fractodactyl/styling-poc/whole-celestial-share.png",
+      "size": [
+        1024,
+        768
+      ],
+      "min": 0,
+      "max": 228,
+      "mean_channel": 25.788688235812717
+    },
+    {
+      "path": "/home/juno/.fdv/fractodactyl/styling-poc/whole-copper-share.png",
+      "size": [
+        1024,
+        768
+      ],
+      "min": 0,
+      "max": 174,
+      "mean_channel": 56.66140111287435
+    },
+    {
+      "path": "/home/juno/.fdv/fractodactyl/styling-poc/valley-swapped-share.png",
+      "size": [
+        1024,
+        640
+      ],
+      "min": 0,
+      "max": 232,
+      "mean_channel": 85.00567372639973
+    }
+  ],
+  "ablations": [
+    {
+      "variant": "base",
+      "adapter": "\"AMD Radeon RX 5700 XT (RADV NAVI10)\"",
+      "first_seconds": 0.006235,
+      "warm_p50_seconds": 0.005383,
+      "warm_max_seconds": 0.005816,
+      "resources": {
+        "seconds": 0.005095,
+        "dispatches": 2.0,
+        "pipelines": 2.0,
+        "allocations": 6.0,
+        "sample_uploads": 1.0,
+        "working_bytes_estimate": 58197344.0,
+        "bloom_support_px": 0.0,
+        "graph_support_px": 0.0,
+        "evaluations_per_sample_max": 1.0
+      },
+      "summary": "style_summary frames 8 runs 1 first_frame_seconds 0.006235 warm_samples 7 warm_p50_seconds 0.005383 warm_max_seconds 0.005816 output_write_seconds 0.063120 total_seconds 0.346151"
+    },
+    {
+      "variant": "warp",
+      "adapter": "\"AMD Radeon RX 5700 XT (RADV NAVI10)\"",
+      "first_seconds": 0.006393,
+      "warm_p50_seconds": 0.005462,
+      "warm_max_seconds": 0.00604,
+      "resources": {
+        "seconds": 0.004945,
+        "dispatches": 3.0,
+        "pipelines": 3.0,
+        "allocations": 8.0,
+        "sample_uploads": 1.0,
+        "working_bytes_estimate": 89654656.0,
+        "bloom_support_px": 0.0,
+        "graph_support_px": 9.0,
+        "evaluations_per_sample_max": 1.0
+      },
+      "summary": "style_summary frames 8 runs 1 first_frame_seconds 0.006393 warm_samples 7 warm_p50_seconds 0.005462 warm_max_seconds 0.006040 output_write_seconds 0.060418 total_seconds 0.352899"
+    },
+    {
+      "variant": "relight",
+      "adapter": "\"AMD Radeon RX 5700 XT (RADV NAVI10)\"",
+      "first_seconds": 0.00758,
+      "warm_p50_seconds": 0.006104,
+      "warm_max_seconds": 0.007138,
+      "resources": {
+        "seconds": 0.005807,
+        "dispatches": 4.0,
+        "pipelines": 3.0,
+        "allocations": 10.0,
+        "sample_uploads": 1.0,
+        "working_bytes_estimate": 110626224.0,
+        "bloom_support_px": 0.0,
+        "graph_support_px": 10.0,
+        "evaluations_per_sample_max": 1.0
+      },
+      "summary": "style_summary frames 8 runs 1 first_frame_seconds 0.007580 warm_samples 7 warm_p50_seconds 0.006104 warm_max_seconds 0.007138 output_write_seconds 0.061932 total_seconds 0.393622"
+    },
+    {
+      "variant": "halo",
+      "adapter": "\"AMD Radeon RX 5700 XT (RADV NAVI10)\"",
+      "first_seconds": 0.007785,
+      "warm_p50_seconds": 0.006355,
+      "warm_max_seconds": 0.006576,
+      "resources": {
+        "seconds": 0.006355,
+        "dispatches": 4.0,
+        "pipelines": 3.0,
+        "allocations": 10.0,
+        "sample_uploads": 1.0,
+        "working_bytes_estimate": 89654688.0,
+        "bloom_support_px": 0.0,
+        "graph_support_px": 18.0,
+        "evaluations_per_sample_max": 1.0
+      },
+      "summary": "style_summary frames 8 runs 1 first_frame_seconds 0.007785 warm_samples 7 warm_p50_seconds 0.006355 warm_max_seconds 0.006576 output_write_seconds 0.060277 total_seconds 0.363788"
+    },
+    {
+      "variant": "all",
+      "adapter": "\"AMD Radeon RX 5700 XT (RADV NAVI10)\"",
+      "first_seconds": 0.009847,
+      "warm_p50_seconds": 0.00703,
+      "warm_max_seconds": 0.007458,
+      "resources": {
+        "seconds": 0.00638,
+        "dispatches": 7.0,
+        "pipelines": 4.0,
+        "allocations": 14.0,
+        "sample_uploads": 1.0,
+        "working_bytes_estimate": 131597872.0,
+        "bloom_support_px": 0.0,
+        "graph_support_px": 18.0,
+        "evaluations_per_sample_max": 1.0
+      },
+      "summary": "style_summary frames 8 runs 1 first_frame_seconds 0.009847 warm_samples 7 warm_p50_seconds 0.007030 warm_max_seconds 0.007458 output_write_seconds 0.062643 total_seconds 0.332853"
+    }
+  ],
+  "input_sha256": {
+    "valley": "923a3ec3c6aa663c76d34df1f41d75c8ad607533f9592fc14fbf5bddef6570d4",
+    "whole": "c134f68012a5df3f95529a86bd5f15faf8c2d616944411933dfe470030b5f2a3"
+  },
+  "order_difference": {
+    "mean_abs_channel_difference": 0.3472803751627604,
+    "changed_channels": 361581
+  },
+  "motion": {
+    "path": "/home/juno/.fdv/fractodactyl/styling-poc/celestial-motion.mp4",
+    "frames": 48,
+    "fps": 24,
+    "replay_equal": true,
+    "decoded": [
+      {
+        "frame": 0,
+        "decoded_png": "/home/juno/.fdv/fractodactyl/styling-poc/decoded-00.png",
+        "mean_abs_channel_error": 1.86632080078125
+      },
+      {
+        "frame": 24,
+        "decoded_png": "/home/juno/.fdv/fractodactyl/styling-poc/decoded-24.png",
+        "mean_abs_channel_error": 2.2766769409179686
+      },
+      {
+        "frame": 47,
+        "decoded_png": "/home/juno/.fdv/fractodactyl/styling-poc/decoded-47.png",
+        "mean_abs_channel_error": 3.4020970662434897
+      }
+    ]
+  },
+  "notes": [
+    "Warm wall times include readback; PNG encoding/writing and input math are separate.",
+    "Buffer bytes are explicit renderer estimates, not total driver VRAM.",
+    "Connected graph: rasterized fields, bounded image warp/blur/height relighting and fused composition; no global flow or fluid simulation.",
+    "Aesthetic reference matching remains a visual judgment; no exact-match claim."
+  ]
+}

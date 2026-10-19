@@ -1,5 +1,187 @@
 use std::process::Command;
 
+// GPU fixtures own device lifecycles; keep their setup/teardown from overlapping.
+static GPU_FIXTURES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+const IMAGE_GRAPH:&str="version 1\noutput final\npos = source position\nr = length pos\nfreq = param 0.7\nx = mul r freq\ntime = source time\nt = add x time\ny = sin t\nhalf = scalar 0.5\ny0 = mul y half\nwave = add y0 half\na = color #103050\nb = color #ef9540\ncolor = mix a b wave\nheight_scale = param 8\nheight = mul wave height_scale\ntangent = source tangent\nsx = scalar -1\nsy = scalar -0.4\nsun = compose sx sy\ndistance = param 6\nradius = param 2\nbase = image color\nheights = image height\nvectors = image tangent\nlight = image sun\namount = image distance\nwidth = image radius\nwarped = warp base vectors amount\nlit = relight warped heights light\nblurred = blur lit width\nalias = blur lit width\nfinal = add blurred alias\n";
+
+#[test]
+fn image_graph_connections_control_order_modulation_and_work_sharing() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
+    use fd_shade::style::{render::StyleRenderer, Graph};
+    let compiled = Graph::parse(IMAGE_GRAPH).unwrap().compile().unwrap();
+    let fused = IMAGE_GRAPH.replace(
+        "final = add blurred alias",
+        "scaled = mul blurred amount\ncombined = add scaled alias\nfinal = add combined base",
+    );
+    let fused = Graph::parse(&fused).unwrap().compile().unwrap();
+    let fused = fused.images.as_ref().unwrap();
+    assert_eq!(
+        fused.steps.len(),
+        5,
+        "three pointwise image operations fuse into one pass"
+    );
+    assert_eq!(
+        fused
+            .steps
+            .last()
+            .unwrap()
+            .fused
+            .as_ref()
+            .unwrap()
+            .inputs
+            .len(),
+        3
+    );
+    let mut wide = String::from("version 1\noutput sum8\n");
+    for i in 0..9 {
+        wide += &format!(
+            "color{i} = color #{:06x}\nimage{i} = image color{i}\n",
+            0x103050 + i * 0x050301
+        );
+    }
+    wide += "sum1 = add image0 image1\n";
+    for i in 2..9 {
+        wide += &format!("sum{i} = add sum{} image{i}\n", i - 1);
+    }
+    let wide = Graph::parse(&wide).unwrap().compile().unwrap();
+    assert_eq!(wide.images.as_ref().unwrap().steps.len(), 3);
+    assert!(
+        wide.images
+            .as_ref()
+            .unwrap()
+            .steps
+            .iter()
+            .all(|p| p.dependencies().len() <= 7),
+        "fusion respects portable storage binding limits"
+    );
+    let plan = compiled.images.as_ref().unwrap();
+    assert_eq!(
+        plan.steps.len(),
+        5,
+        "shared blur must execute once, as two passes"
+    );
+    assert_eq!(plan.slots, 2, "linear image chain uses two ping-pong slots");
+    assert_eq!(
+        plan.sources.iter().filter(|s| !s.spatial).count(),
+        3,
+        "sun/distance/radius are compact global images"
+    );
+    for step in &plan.steps {
+        for &input in step.dependencies() {
+            if plan.images[input].source.is_none() {
+                assert_ne!(
+                    plan.images[input].slot, plan.images[step.output].slot,
+                    "no in-place read/write aliases"
+                );
+            }
+        }
+    }
+    let reversed = IMAGE_GRAPH.lines().rev().collect::<Vec<_>>().join("\n");
+    assert_eq!(
+        compiled.report(),
+        Graph::parse(&reversed).unwrap().compile().unwrap().report(),
+        "source-line order is immaterial"
+    );
+    let broken = IMAGE_GRAPH.replace("warp base vectors amount", "warp base base amount");
+    assert!(Graph::parse(&broken)
+        .unwrap()
+        .compile()
+        .unwrap_err()
+        .contains("incompatible ports"));
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let path = root.join("crates/fd-shade/src/gpu/frozen/fixture.fds");
+    let mut reader = fd_samples::Reader::open(&path).unwrap();
+    let samples = reader.read(reader.header.columns).unwrap();
+    let Some(mut renderer) = fd_shade::gpu::testkit::or_skip(
+        StyleRenderer::new(compiled, &reader.header, &samples),
+        "image graph",
+    ) else {
+        return;
+    };
+    let first = renderer.frame(0.0, true).unwrap();
+    let classified="version 1\noutput image\nmask = source interior\ninside = color #ff0000\noutside = color #000080\ncolor = mix outside inside mask\nimage = image color\n";
+    let mut single = reader.header.clone();
+    single.ss = 1;
+    let mut classification = StyleRenderer::new(
+        Graph::parse(classified).unwrap().compile().unwrap(),
+        &single,
+        &samples,
+    )
+    .unwrap();
+    let classified = classification.frame(0.0, true).unwrap();
+    assert!(
+        classified.data[0] > classified.data[2],
+        "explicit interior mask can color the interior"
+    );
+    assert!(
+        classified.data[2 * 3 + 2] > classified.data[2 * 3],
+        "escaped region uses its separate color"
+    );
+    assert_eq!(renderer.stats.dispatches, 7);
+    let resources = (
+        renderer.stats.pipelines,
+        renderer.stats.allocations,
+        renderer.stats.working_bytes,
+    );
+    assert_eq!(first.data, renderer.frame(0.0, true).unwrap().data);
+    assert_eq!(
+        renderer.stats.dispatches, 1,
+        "unchanged graph reuses all computed images"
+    );
+    renderer.set_parameter("radius", 6.0).unwrap();
+    let changed = renderer.frame(0.0, true).unwrap();
+    assert_ne!(first.data, changed.data);
+    assert_eq!(
+        resources,
+        (
+            renderer.stats.pipelines,
+            renderer.stats.allocations,
+            renderer.stats.working_bytes
+        )
+    );
+    let other = IMAGE_GRAPH.replace(
+        "warped = warp base vectors amount\nlit = relight warped heights light",
+        "prelit = relight base heights light\nlit = warp prelit vectors amount",
+    );
+    let mut other = StyleRenderer::new(
+        Graph::parse(&other).unwrap().compile().unwrap(),
+        &reader.header,
+        &samples,
+    )
+    .unwrap();
+    assert_ne!(
+        first.data,
+        other.frame(0.0, true).unwrap().data,
+        "warp then light differs from light then warp"
+    );
+    let dir = std::env::temp_dir().join(format!("fd-image-graph-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let graph = dir.join("image.style");
+    let output = dir.join("image.png");
+    std::fs::write(&graph, IMAGE_GRAPH).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args([
+            "style",
+            "render",
+            graph.to_str().unwrap(),
+            path.to_str().unwrap(),
+            "-o",
+            output.to_str().unwrap(),
+            "--unresolved",
+            "interior",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(std::fs::read(output).unwrap(), fd_shade::png(&first));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn inspect(text: &str, name: &str) -> std::process::Output {
     let path = std::env::temp_dir().join(format!("fd-style-{}-{name}.style", std::process::id()));
     std::fs::write(&path, text).unwrap();
@@ -53,6 +235,7 @@ fn style_inspect_compiles_shared_reachable_work_and_rejects_invalid_graphs() {
 
 #[test]
 fn style_renderer_and_cli_reuse_samples_pipelines_and_hdr() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
     use fd_shade::style::{render::StyleRenderer, Graph};
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let input = root.join("crates/fd-shade/src/gpu/frozen/fixture.fds");
@@ -151,6 +334,7 @@ fn style_renderer_and_cli_reuse_samples_pipelines_and_hdr() {
 
 #[test]
 fn style_finishing_has_bounded_bloom_and_reproducible_scaled_grain() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
     use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
     use fd_shade::style::{finishing::Finishing, render::StyleRenderer, Graph};
     let n = 128;
@@ -344,5 +528,108 @@ fn style_finishing_has_bounded_bloom_and_reproducible_scaled_grain() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(std::fs::read(&output).unwrap(), fd_shade::png(&a));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn style_saved_graphs_and_sequence_are_composable_and_replayable() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
+    use fd_shade::style::{render::StyleRenderer, Graph};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let input = root.join("crates/fd-shade/src/gpu/frozen/fixture.fds");
+    let mut reader = fd_samples::Reader::open(&input).unwrap();
+    let samples = reader.read(reader.header.columns).unwrap();
+    let path = root.join("looks/styles/celestial.style");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let compiled = Graph::parse(&text).unwrap().compile().unwrap();
+    assert_eq!(
+        (compiled.support_pixels, compiled.evaluations_per_sample),
+        (9, 5)
+    );
+    let Some(mut renderer) = fd_shade::gpu::testkit::or_skip(
+        StyleRenderer::new(compiled, &reader.header, &samples),
+        "celestial style",
+    ) else {
+        return;
+    };
+    let celestial = renderer.frame(0.0, true).unwrap();
+    let copper = std::fs::read_to_string(root.join("looks/styles/etched-copper.style")).unwrap();
+    let mut other = StyleRenderer::new(
+        Graph::parse(&copper).unwrap().compile().unwrap(),
+        &reader.header,
+        &samples,
+    )
+    .unwrap();
+    assert_ne!(celestial.data, other.frame(0.0, true).unwrap().data);
+    renderer.set_parameter("flow_length", 0.0).unwrap();
+    let noflow = renderer.frame(0.0, true).unwrap();
+    assert_ne!(celestial.data, noflow.data);
+    assert!(
+        Graph::parse(&text.replace(
+            "ribbon_strength = param 1.2",
+            "ribbon_strength = flow peak tangent flow_length"
+        ))
+        .unwrap()
+        .compile()
+        .is_err(),
+        "nested/multiple flow must stay bounded"
+    );
+    let dir = std::env::temp_dir().join(format!("fd-style-sequence-{}", std::process::id()));
+    let replay = dir.join("replay.png");
+    let run = |args: &[&str]| {
+        let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out
+    };
+    let out = run(&[
+        "style",
+        "sequence",
+        path.to_str().unwrap(),
+        input.to_str().unwrap(),
+        "-o",
+        dir.to_str().unwrap(),
+        "--frames",
+        "3",
+        "--fps",
+        "2",
+        "--grain",
+        "0.03",
+        "--bloom",
+        "1",
+        "--unresolved",
+        "interior",
+    ]);
+    let report = String::from_utf8(out.stdout).unwrap();
+    assert!(report.contains("warm_samples 2"));
+    assert!(report.contains("sample_uploads 1"));
+    run(&[
+        "style",
+        "render",
+        path.to_str().unwrap(),
+        input.to_str().unwrap(),
+        "-o",
+        replay.to_str().unwrap(),
+        "--time",
+        "0.5",
+        "--exposure",
+        "1",
+        "--grain",
+        "0.03",
+        "--bloom",
+        "1",
+        "--unresolved",
+        "interior",
+    ]);
+    assert_eq!(
+        std::fs::read(dir.join("frame-00001.png")).unwrap(),
+        std::fs::read(replay).unwrap()
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

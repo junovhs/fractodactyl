@@ -19,6 +19,7 @@ const GROUP: u32 = 8;
 /// The prepare pass source: per-sample palette base, relief, band AA, haze and line terms.
 pub const PREPARE: &str = concat!(
     include_str!("../../shaders/soft_f64.wgsl"),
+    include_str!("../../shaders/filtering.wgsl"),
     include_str!("../../shaders/film_prepare.wgsl")
 );
 /// The shade pass source: colour per sample (`main`, films) or per ss x ss block (`still`).

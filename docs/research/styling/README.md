@@ -134,3 +134,7 @@ All disabled effects preserve the prior prototype's bytes. GPU impulse/flat-fiel
 and actual CLI fixtures check support, exposure replay, grain mean/variance/size,
 tonal suppression, unchanged resource counts, and repeated finishing. Named-adapter
 warm cost sweeps and encoded-motion visual judgment belong to STYL-04's POC report.
+
+## Connected image graph
+
+[Implemented architecture and usage](ENGINE.md) documents typed image ports, signal-valued controls, ordering, common work, fusion and liveness. [POC evidence](results/README.md) preserves images and measured costs. The connected graph supersedes the initial fixed finishing stack as the main demonstration. Grain remains parked/off in the demo.
