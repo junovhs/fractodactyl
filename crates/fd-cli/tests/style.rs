@@ -12,42 +12,240 @@ fn curved_stream_has_direction_bounded_support_and_zero_radius_identity() {
     let compiled = Graph::parse(graph).unwrap().compile().unwrap();
     assert!(compiled.report().contains("op stream"));
     assert_eq!(compiled.support_pixels, 26);
-    assert!(Graph::parse(&graph.replace("stream a b c", "stream a a c")).unwrap().compile().is_err());
+    assert!(Graph::parse(&graph.replace("stream a b c", "stream a a c"))
+        .unwrap()
+        .compile()
+        .is_err());
     let columns = ColumnSet::of(&[Column::Class]);
-    let samples = Samples::alloc(64*64, columns);
-    let header = Header{minor:MINOR,columns,nx:64,ny:64,ss:1,max_iter:100,escape_radius:1e10,
-        view:View{center_re:"0".into(),center_im:"0".into(),width:"4".into(),rotation:0.},kernel:"stream impulse".into()};
-    let Some(mut renderer) = fd_shade::gpu::testkit::or_skip(StyleRenderer::new(compiled,&header,&samples),"stream") else {return};
-    let baseline = renderer.frame(0.,true).unwrap();
-    let direct = Graph::parse(&graph.replace("output final","output a")).unwrap().compile().unwrap();
-    let mut direct = StyleRenderer::new(direct,&header,&samples).unwrap();
-    assert_eq!(baseline.data,direct.frame(0.,true).unwrap().data);
-    renderer.set_parameter("radius",24.).unwrap();
-    let spread = renderer.frame(0.,true).unwrap();
-    assert!(spread.data[(32*64+40)*3]>0,"spreads along the vector field");
-    assert_eq!(spread.data[(40*64+32)*3],0,"does not spread across it");
-    for y in 0usize..64 {for x in 0usize..64 {
-        if x.abs_diff(32)>26 || y.abs_diff(32)>26 {assert_eq!(spread.data[(y*64+x)*3],0);}
-    }}
-    renderer.set_parameter("radius",100.).unwrap();
-    assert_eq!(spread.data,renderer.frame(0.,true).unwrap().data,"radius is bounded");
-    let zoom = graph.replace("stream a b c", "zoom a b c")
-        .replace("direction = vector 1 0", "direction = vector 0.5078125 0.5078125")
+    let samples = Samples::alloc(64 * 64, columns);
+    let header = Header {
+        minor: MINOR,
+        columns,
+        nx: 64,
+        ny: 64,
+        ss: 1,
+        max_iter: 100,
+        escape_radius: 1e10,
+        view: View {
+            center_re: "0".into(),
+            center_im: "0".into(),
+            width: "4".into(),
+            rotation: 0.,
+        },
+        kernel: "stream impulse".into(),
+    };
+    let Some(mut renderer) =
+        fd_shade::gpu::testkit::or_skip(StyleRenderer::new(compiled, &header, &samples), "stream")
+    else {
+        return;
+    };
+    let baseline = renderer.frame(0., true).unwrap();
+    let direct = Graph::parse(&graph.replace("output final", "output a"))
+        .unwrap()
+        .compile()
+        .unwrap();
+    let mut direct = StyleRenderer::new(direct, &header, &samples).unwrap();
+    assert_eq!(baseline.data, direct.frame(0., true).unwrap().data);
+    renderer.set_parameter("radius", 24.).unwrap();
+    let spread = renderer.frame(0., true).unwrap();
+    assert!(
+        spread.data[(32 * 64 + 40) * 3] > 0,
+        "spreads along the vector field"
+    );
+    assert_eq!(
+        spread.data[(40 * 64 + 32) * 3],
+        0,
+        "does not spread across it"
+    );
+    for y in 0usize..64 {
+        for x in 0usize..64 {
+            if x.abs_diff(32) > 26 || y.abs_diff(32) > 26 {
+                assert_eq!(spread.data[(y * 64 + x) * 3], 0);
+            }
+        }
+    }
+    renderer.set_parameter("radius", 100.).unwrap();
+    assert_eq!(
+        spread.data,
+        renderer.frame(0., true).unwrap().data,
+        "radius is bounded"
+    );
+    let zoom = graph
+        .replace("stream a b c", "zoom a b c")
+        .replace(
+            "direction = vector 1 0",
+            "direction = vector 0.5078125 0.5078125",
+        )
         .replace("radius = param 0", "radius = param 1");
     let compiled = Graph::parse(&zoom).unwrap().compile().unwrap();
-    assert_eq!(compiled.support_pixels,u32::MAX);
+    assert_eq!(compiled.support_pixels, u32::MAX);
     assert!(compiled.report().contains("output_support_px full-frame"));
-    let after_blur = zoom.replace("output final","output soft")+"soft = blur final c\n";
-    assert_eq!(Graph::parse(&after_blur).unwrap().compile().unwrap().support_pixels,u32::MAX);
-    assert!(Graph::parse(&zoom.replace("zoom a b c","zoom a a c")).unwrap().compile().is_err());
-    let mut zoomed = StyleRenderer::new(compiled,&header,&samples).unwrap();
-    assert_eq!(baseline.data,zoomed.frame(0.,true).unwrap().data,"1x zoom is identity");
-    zoomed.set_parameter("radius",2.).unwrap();
-    let magnified = zoomed.frame(0.,true).unwrap();
-    let neighbor = magnified.data[(32*64+33)*3];
-    assert!((150..=162).contains(&neighbor),"half-HDR intensity maps to ~156, not half an encoded highlight: {neighbor}");
-    zoomed.set_parameter("radius",100.).unwrap();
-    assert_eq!(magnified.data,zoomed.frame(0.,true).unwrap().data,"zoom is capped at 2x");
+    let after_blur = zoom.replace("output final", "output soft") + "soft = blur final c\n";
+    assert_eq!(
+        Graph::parse(&after_blur)
+            .unwrap()
+            .compile()
+            .unwrap()
+            .support_pixels,
+        u32::MAX
+    );
+    assert!(Graph::parse(&zoom.replace("zoom a b c", "zoom a a c"))
+        .unwrap()
+        .compile()
+        .is_err());
+    let mut zoomed = StyleRenderer::new(compiled, &header, &samples).unwrap();
+    assert_eq!(
+        baseline.data,
+        zoomed.frame(0., true).unwrap().data,
+        "1x zoom is identity"
+    );
+    zoomed.set_parameter("radius", 2.).unwrap();
+    let magnified = zoomed.frame(0., true).unwrap();
+    let neighbor = magnified.data[(32 * 64 + 33) * 3];
+    assert!(
+        (150..=162).contains(&neighbor),
+        "half-HDR intensity maps to ~156, not half an encoded highlight: {neighbor}"
+    );
+    zoomed.set_parameter("radius", 100.).unwrap();
+    assert_eq!(
+        magnified.data,
+        zoomed.frame(0., true).unwrap().data,
+        "zoom is capped at 2x"
+    );
+}
+
+#[test]
+fn reconstruction_integrates_shaded_samples_before_resolve_and_reuses_resources() {
+    let _gpu_fixture = GPU_FIXTURES.lock().unwrap();
+    use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
+    use fd_shade::style::{render::StyleRenderer, Graph};
+    let columns = ColumnSet::of(&[Column::Class, Column::Normal]);
+    let mut samples = Samples::alloc(32 * 32, columns);
+    // Opposing unit normals. Average normals before the nonlinear highlight and
+    // this signal vanishes; shading each sample first gives nonzero energy.
+    for y in 0..32 {
+        for x in 0..32 {
+            samples.normal.as_mut().unwrap()[y * 32 + x] =
+                if (x + 3 * y) % 7 < 2 { 0 } else { 32768 };
+        }
+    }
+    let header = Header {
+        minor: MINOR,
+        columns,
+        nx: 32,
+        ny: 32,
+        ss: 4,
+        max_iter: 100,
+        escape_radius: 1e10,
+        view: View {
+            center_re: "0".into(),
+            center_im: "0".into(),
+            width: "4".into(),
+            rotation: 0.,
+        },
+        kernel: "highlight reconstruction".into(),
+    };
+    let base="version 1\noutput final\nn = source normal\nsun = vector 1 0\nx = dot n sun\nzero = scalar 0\none = scalar 1\nl = clamp x zero one\ngloss = scalar 37\nhighlight = pow l gloss\nwhite = color #ffffff\ncolor = mul white highlight\n";
+    let mut image_data = None;
+    for image in [true, false] {
+        let source = if image {
+            base.to_owned() + "final = image color\n"
+        } else {
+            base.replace("output final", "surface color\nemission black")
+                + "black = color #000000\n"
+        };
+        let graph = Graph::parse(&source).unwrap().compile().unwrap();
+        let Some(mut renderer) = fd_shade::gpu::testkit::or_skip(
+            StyleRenderer::new(graph, &header, &samples),
+            "reconstruction",
+        ) else {
+            return;
+        };
+        let legacy = renderer.frame(0., true).unwrap();
+        let resources = (
+            renderer.stats.pipelines,
+            renderer.stats.allocations,
+            renderer.stats.sample_uploads,
+        );
+        renderer.set_reconstruction(1.3, [0.5, 0.5]).unwrap();
+        let reconstructed = renderer.frame(0., true).unwrap();
+        for y in 0..8 {
+            for x in 0..8 {
+                let center = [
+                    16. + ((x as f64 + 0.5) * 4. - 16.) / 1.3,
+                    16. + ((y as f64 + 0.5) * 4. - 16.) / 1.3,
+                ];
+                let radius = 4. / 1.3;
+                let mut total = 0.;
+                let mut energy = 0.;
+                for sy in 0..32 {
+                    for sx in 0..32 {
+                        let weight = (1. - ((sx as f64 + 0.5 - center[0]) / radius).abs()).max(0.)
+                            * (1. - ((sy as f64 + 0.5 - center[1]) / radius).abs()).max(0.);
+                        total += weight;
+                        if (sx + 3 * sy) % 7 < 2 {
+                            energy += weight;
+                        }
+                    }
+                }
+                let mapped = (energy / total) / (1. + energy / total);
+                let expected = ((1.055 * mapped.powf(1. / 2.4) - 0.055) * 255.).round() as i32;
+                assert!(
+                    (reconstructed.data[(y * 8 + x) * 3] as i32 - expected).abs() <= 1,
+                    "shaded-sample footprint at {x},{y}"
+                );
+            }
+        }
+        assert_eq!(
+            resources,
+            (
+                renderer.stats.pipelines,
+                renderer.stats.allocations,
+                renderer.stats.sample_uploads
+            )
+        );
+        assert_eq!(reconstructed.data, renderer.frame(0., true).unwrap().data);
+        assert_eq!(
+            renderer.stats.dispatches, 1,
+            "unchanged reconstruction reuses HDR"
+        );
+        renderer.set_reconstruction(0., [0.5, 0.5]).unwrap();
+        assert_eq!(
+            legacy.data,
+            renderer.frame(0., true).unwrap().data,
+            "disable restores legacy box resolve"
+        );
+        for bad in [f32::NAN, 0.5, 2.1] {
+            assert!(renderer.set_reconstruction(bad, [0.5, 0.5]).is_err());
+        }
+        assert!(renderer.set_reconstruction(1., [-0.1, 0.5]).is_err());
+        if let Some(ref previous) = image_data {
+            assert_eq!(
+                previous, &reconstructed.data,
+                "image and pointwise paths share reconstruction"
+            );
+        }
+        image_data = Some(reconstructed.data);
+    }
+    // A one-sample source must not develop holes at 2x when the footprint
+    // centre falls between source samples, including the image boundary.
+    let mut single = header.clone();
+    single.ss = 1;
+    let constant =
+        Graph::parse("version 1\noutput final\nwhite = color #ffffff\nfinal = image white\n")
+            .unwrap()
+            .compile()
+            .unwrap();
+    let mut constant = StyleRenderer::new(constant, &single, &samples).unwrap();
+    let baseline = constant.frame(0., true).unwrap();
+    for pivot in [[0., 0.], [0.5, 0.5], [0.515625, 0.515625], [1., 1.]] {
+        constant.set_reconstruction(2., pivot).unwrap();
+        assert_eq!(
+            baseline.data,
+            constant.frame(0., true).unwrap().data,
+            "constant preservation at fractional/boundary pivot"
+        );
+    }
 }
 
 const IMAGE_GRAPH:&str="version 1\noutput final\npos = source position\nr = length pos\nfreq = param 0.7\nx = mul r freq\ntime = source time\nt = add x time\ny = sin t\nhalf = scalar 0.5\ny0 = mul y half\nwave = add y0 half\na = color #103050\nb = color #ef9540\ncolor = mix a b wave\nheight_scale = param 8\nheight = mul wave height_scale\ntangent = source tangent\nsx = scalar -1\nsy = scalar -0.4\nsun = compose sx sy\ndistance = param 6\nradius = param 2\nbase = image color\nheights = image height\nvectors = image tangent\nlight = image sun\namount = image distance\nwidth = image radius\nwarped = warp base vectors amount\nlit = relight warped heights light\nblurred = blur lit width\nalias = blur lit width\nfinal = add blurred alias\n";
@@ -646,6 +844,10 @@ fn style_saved_graphs_and_sequence_are_composable_and_replayable() {
         "3",
         "--fps",
         "2",
+        "--zoom",
+        "1",
+        "--zoom-end",
+        "1.21",
         "--grain",
         "0.03",
         "--bloom",
@@ -665,6 +867,8 @@ fn style_saved_graphs_and_sequence_are_composable_and_replayable() {
         replay.to_str().unwrap(),
         "--time",
         "0.5",
+        "--zoom",
+        "1.1",
         "--exposure",
         "1",
         "--grain",

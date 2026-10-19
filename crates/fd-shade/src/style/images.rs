@@ -334,12 +334,13 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){{
         let mut variables = String::new();
         for i in 0..self.sources.len() {
             variables += &format!("var f{i}=vec4<f32>(0.0);\n");
-            accum += &format!("f{i}+=v.f{i};\n");
+            accum += &format!("f{i}+=v.f{i}*weight;\n");
             if self.sources[i].spatial {
-                writes += &format!("atlas[p.image_offsets[{i}].x+index]=f{i}/f32(ss*ss);\n");
+                writes += &format!("atlas[p.image_offsets[{i}].x+index]=f{i}/max(total,1e-20);\n");
             } else {
-                writes +=
-                    &format!("if(index==0u){{atlas[p.image_offsets[{i}].x]=f{i}/f32(ss*ss);}}\n");
+                writes += &format!(
+                    "if(index==0u){{atlas[p.image_offsets[{i}].x]=f{i}/max(total,1e-20);}}\n"
+                );
             }
         }
         format!(
@@ -358,8 +359,14 @@ fn shade(@builtin(global_invocation_id) gid:vec3<u32>) {{
  let ss=p.dims.z;let size=p.dims.xy/ss;
  if (any(gid.xy>=size)) {{return;}}
  {variables}
- for(var y=0u;y<ss;y++) {{for(var x=0u;x<ss;x++) {{
-  let xy=gid.xy*ss+vec2<u32>(x,y);
+ let footprint=style_footprint(gid.xy);
+ let lo=vec2<u32>(floor(footprint.xy));let hi=vec2<u32>(ceil(footprint.zw));
+ var total=0.0;
+ for(var y=lo.y;y<hi.y;y++) {{for(var x=lo.x;x<hi.x;x++) {{
+  let xy=vec2<u32>(x,y);
+  let weight=style_weight(xy,gid.xy);
+  if(weight<=0.0) {{continue;}}
+  total+=weight;
   let v=evaluate(xy.y*p.dims.x+xy.x,(vec2<f32>(xy)+0.5)/f32(ss));
   {accum}
  }}}}

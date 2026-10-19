@@ -16,6 +16,7 @@ use std::{
 const GRAPH: &str = include_str!("../../../looks/styles/workbench.style");
 const PRESETS: &str = include_str!("../../../looks/styles/workbench-presets.json");
 static INITIAL: OnceLock<String> = OnceLock::new();
+static INITIAL_LOOK: OnceLock<(String, BTreeMap<String, f32>)> = OnceLock::new();
 
 #[derive(Clone, Deserialize)]
 struct Preset {
@@ -33,6 +34,15 @@ fn defaults() -> BTreeMap<String, f32> {
         .parameters
         .into_iter()
         .collect()
+}
+fn load_look(path: &std::path::Path) -> Result<(String, BTreeMap<String, f32>), String> {
+    let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let compiled = Graph::parse(&text)?.compile()?;
+    let imported = compiled.parameters.into_iter().collect::<BTreeMap<_, _>>();
+    if imported.keys().ne(defaults().keys()) {
+        return Err("Open a look saved by this styling workspace. Other graphs can render with fd style render.".into());
+    }
+    Ok((text, imported))
 }
 fn settings(p: &Preset) -> BTreeMap<String, f32> {
     let mut v = defaults();
@@ -287,6 +297,7 @@ impl Controller {
         for (name, value) in values {
             renderer.set_parameter(name, *value)?;
         }
+        renderer.set_reconstruction(1.0, [0.5, 0.5])?;
         let image = renderer.frame(0., true)?;
         let s = &renderer.stats;
         let text = format!(
@@ -336,9 +347,13 @@ impl Worker {
 /// Launch the native material workspace, or verify its shared renderer without a window.
 pub(crate) fn run(
     source: Option<PathBuf>,
+    look: Option<PathBuf>,
     check: bool,
     output: Option<PathBuf>,
 ) -> Result<(), String> {
+    if let Some(path) = look {
+        let _ = INITIAL_LOOK.set(load_look(&path)?);
+    }
     if check {
         return check_workspace(
             source.ok_or("--style --check needs --samples INPUT.fds")?,
@@ -371,8 +386,18 @@ pub(crate) fn run(
 fn Workspace() -> Element {
     let worker = use_hook(Worker::new);
     let mut source = use_signal(|| INITIAL.get().cloned().unwrap_or_default());
-    let mut values = use_signal(defaults);
-    let mut graph = use_signal(|| GRAPH.to_string());
+    let mut values = use_signal(|| {
+        INITIAL_LOOK
+            .get()
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(defaults)
+    });
+    let mut graph = use_signal(|| {
+        INITIAL_LOOK
+            .get()
+            .map(|(g, _)| g.clone())
+            .unwrap_or_else(|| GRAPH.to_string())
+    });
     let mut selected = use_signal(|| 0usize);
     let mut image = use_signal(String::new);
     let mut pinned = use_signal(String::new);
@@ -470,14 +495,7 @@ fn Workspace() -> Element {
                     }, "Save look…" }
                     button { onclick: move |_| async move {
                         if let Some(file) = rfd::AsyncFileDialog::new().add_filter("Workspace look", &["style"]).pick_file().await {
-                            let loaded = std::fs::read_to_string(file.path()).map_err(|e|e.to_string()).and_then(|text| {
-                                let compiled = Graph::parse(&text)?.compile()?;
-                                let imported = compiled.parameters.into_iter().collect::<BTreeMap<_,_>>();
-                                if imported.keys().ne(defaults().keys()) {
-                                    return Err("Open a look saved by this styling workspace. Other graphs can render with fd style render.".to_string());
-                                }
-                                Ok((text,imported))
-                            });
+                            let loaded = load_look(file.path());
                             match loaded { Ok((text,imported))=>{ graph.set(text);values.set(imported);note.set(format!("Opened {}",file.path().display())); }, Err(e)=>error.set(e) }
                         }
                     }, "Open look…" }
@@ -559,9 +577,13 @@ fn check_workspace(source: PathBuf, output: Option<PathBuf>) -> Result<(), Strin
         .filter(|&i| {
             let x = i % width;
             let y = i / width;
-            (0..ss).all(|dy| {
-                (0..ss).all(|dx| !classes.class[(y * ss + dy) * nx + x * ss + dx].escaped())
-            })
+            // Tent support reaches into neighbouring pixels. Only assert black
+            // when every covered source sample is non-escaping.
+            let min_x = (x * ss).saturating_sub(ss);
+            let max_x = ((x + 2) * ss).min(nx);
+            let min_y = (y * ss).saturating_sub(ss);
+            let max_y = ((y + 2) * ss).min(reader.header.ny as usize);
+            (min_y..max_y).all(|sy| (min_x..max_x).all(|sx| !classes.class[sy * nx + sx].escaped()))
         })
         .collect();
     let mut images = Vec::new();
@@ -595,6 +617,12 @@ fn check_workspace(source: PathBuf, output: Option<PathBuf>) -> Result<(), Strin
             p.name
         );
         images.push(png);
+    }
+    if let Some((graph, values)) = INITIAL_LOOK.get() {
+        let image = controller.frame(path, graph, values)?.0;
+        std::fs::write(out.join("opened-look.png"), fd_shade::png(&image))
+            .map_err(|e| e.to_string())?;
+        println!("style_initial_look rendered true");
     }
     let base = defaults();
     let reference = fd_shade::png(&controller.frame(path, GRAPH, &base)?.0);

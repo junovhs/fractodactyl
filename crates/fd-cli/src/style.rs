@@ -16,6 +16,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             "runs",
             "frames",
             "fps",
+            "zoom",
+            "zoom-end",
             "set",
             "unresolved",
             "bloom",
@@ -39,7 +41,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             Ok(())
         }
         [command,path,input] if command=="render" || command=="sequence"=>render(&a,command,path,input),
-        _=>Err("usage: fd style inspect GRAPH [-o BODY.wgsl] | fd style render GRAPH INPUT.fds -o IMAGE.png | fd style sequence GRAPH INPUT.fds -o DIR [--frames N --fps F] [--time T --runs N --set name=value,... --bloom AMOUNT --bloom-radius R --grain AMOUNT --grain-size PX --grain-color MIX --grain-seed N --exposure N --dither on|off --unresolved mark|interior]".into()),
+        _=>Err("usage: fd style inspect GRAPH [-o BODY.wgsl] | fd style render GRAPH INPUT.fds -o IMAGE.png | fd style sequence GRAPH INPUT.fds -o DIR [--frames N --fps F --zoom 1 --zoom-end 1.3] [--time T --runs N --set name=value,... --bloom AMOUNT --bloom-radius R --grain AMOUNT --grain-size PX --grain-color MIX --grain-seed N --exposure N --dither on|off --unresolved mark|interior]".into()),
     }
 }
 
@@ -62,6 +64,15 @@ fn render(a: &Args, command: &str, path: &str, input: &str) -> Result<(), String
     let fps: f32 = a.num("fps", 24.0)?;
     if !fps.is_finite() || fps <= 0.0 || fps > 240.0 {
         return Err("style fps must be in (0,240]".into());
+    }
+    let reconstruct = a.str("zoom").is_some() || a.str("zoom-end").is_some();
+    let zoom: f32 = a.num("zoom", 1.0)?;
+    let zoom_end: f32 = a.num("zoom-end", zoom)?;
+    if [zoom, zoom_end]
+        .iter()
+        .any(|x| !x.is_finite() || !(1.0..=2.0).contains(x))
+    {
+        return Err("style zoom must be in 1..2".into());
     }
     let unresolved = match a.str("unresolved").unwrap_or("mark") {
         "mark" => false,
@@ -118,6 +129,10 @@ fn render(a: &Args, command: &str, path: &str, input: &str) -> Result<(), String
     for frame in 0..frames {
         finishing.exposure = first_exposure + frame;
         renderer.set_finishing(&finishing)?;
+        if reconstruct {
+            let t = frame as f32 / (frames - 1).max(1) as f32;
+            renderer.set_reconstruction(zoom * (zoom_end / zoom).powf(t), [0.5, 0.5])?;
+        }
         let at = time + frame as f32 / fps;
         let mut image = None;
         for run in 0..runs {

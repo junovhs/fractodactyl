@@ -312,7 +312,7 @@ fn style_field(i: u32, position: vec2<f32>) -> {ty} {{
 fn style_flow(i: u32, direction: vec2<f32>, distance: f32, current: {ty}) -> {ty} {{
     let magnitude=length(direction);
     if (abs(distance)<0.001 || magnitude<0.001) {{return current;}}
-    let delta=direction/magnitude*clamp(distance,-8.0,8.0)*f32(p.dims.z);
+    let delta=direction/magnitude*clamp(distance,-8.0,8.0)*f32(p.dims.z)/max(p.clock.y,1.0);
     let origin=vec2<f32>(f32(i % p.dims.x),f32(i / p.dims.x));
     var value=current*6.0;
     for (var k=0; k<5; k++) {{

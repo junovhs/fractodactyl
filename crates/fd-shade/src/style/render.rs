@@ -365,6 +365,34 @@ impl StyleRenderer {
         })
     }
 
+    /// Reconstruct the original shaded sample grid at the camera's output
+    /// footprint, before mist/optics and encoding. Zero disables reconstruction
+    /// and preserves the legacy box resolve. This cannot create new math detail:
+    /// use enough input supersampling for the maximum magnification.
+    pub fn set_reconstruction(
+        &mut self,
+        magnification: f32,
+        pivot: [f32; 2],
+    ) -> Result<(), String> {
+        if !magnification.is_finite()
+            || (magnification != 0.0 && !(1.0..=2.0).contains(&magnification))
+            || pivot
+                .iter()
+                .any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
+        {
+            return Err(
+                "style reconstruction expects magnification 1..2 (0 disables) and pivot 0..1"
+                    .into(),
+            );
+        }
+        self.params[5..8].copy_from_slice(&[
+            magnification.to_bits(),
+            pivot[0].to_bits(),
+            pivot[1].to_bits(),
+        ]);
+        Ok(())
+    }
+
     /// Update a named uniform without recompiling or reallocating resources.
     pub fn set_parameter(&mut self, name: &str, value: f32) -> Result<(), String> {
         if !value.is_finite() {
