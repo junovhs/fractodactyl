@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       check:
-        description: 'route: GPU-12 probe rows; zone: zone fixture tests and GPU-02 film gate'
+        description: 'route: GPU-12 probes; zone: zone fixtures; film: film CLI regression tests'
         type: choice
-        options: [route, zone]
+        options: [route, zone, film]
         default: route
       film_gate:
         description: 'zone check: also run the GPU-02 film gate (4K keyframes, f64 reference film); off = fixture tests only'
@@ -27,11 +27,32 @@ concurrency:
   group: gpu-route-rx5700xt
   cancel-in-progress: false
 jobs:
+  film:
+    if: inputs.check == 'film'
+    runs-on: [self-hosted, Linux, gpu, rx5700xt]
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+      CMAKE_BUILD_PARALLEL_LEVEL: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - name: Film CLI regressions (one CPU, 4 GiB, no swap)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="$HOME/.cache/fractodactyl-gpu-zone-ci/build"
+          mkdir -p "$CARGO_TARGET_DIR"
+          systemd-run --user --scope --quiet true
+          LIMIT="systemd-run --user --scope --quiet -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=100% nice -n 19"
+          $LIMIT cargo test --locked --release -p fd-cli --test film film_keyframes_default -- --nocapture --test-threads=1
+          $LIMIT cargo test --locked --release -p fd-cli --test film film_spin_keyframes -- --nocapture --test-threads=1
   # GPU-12 follow-up: re-check the edited WGSL arm on the RX 5700 XT.
   # Same limits as the registered Linux checks: one worker, 4 GiB, no swap,
   # one CPU, build and capture files outside the checkout.
   rx5700xt:
-    if: inputs.check != 'zone'
+    if: inputs.check == 'route'
     runs-on: [self-hosted, Linux, gpu, rx5700xt]
     timeout-minutes: 60
     defaults:

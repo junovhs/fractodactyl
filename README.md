@@ -40,7 +40,10 @@ fd film -0.743291890852430202931624158508904039462544013087723088341335644672284
         --zone data/zones/v0.zone --mp4 landing.mp4
 ```
 
-`fd film` renders each frame with the cheapest valid kernel: the zone fast path where
+`fd film` defaults to `--keyframes 2`: it renders oversized keyframes per 2x zoom
+and resamples the intervening frames. Use `--keyframes off` to render every frame
+directly. Explicit `--ss`, `--jet-aa on`, or widths outside normal f64 range fall
+back to direct rendering with a note on stderr. Keyframes use the cheapest valid kernel: the zone fast path where
 `--zone` covers it (about 20x faster; it runs on the wgpu zone kernel, binary64 or f32-only,
 on a software adapter if there is no GPU), fd's per-frame BLA elsewhere. It shades on the
 GPU (the studio look exists once, as WGSL) and pipes the frames to ffmpeg; `fd filmcheck`

@@ -30,7 +30,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M (off; M x oversized keyframe per 2x zoom, see keyframe.rs)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
+[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
 [--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Which kernel rendered a frame.
@@ -298,29 +298,45 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "on" => true,
         v => return Err(format!("--jet-aa: expected on or off, got {v:?}")),
     };
-    if jet_aa && (ss != 2 || a.str("keyframes").is_some() || kernel_flag.is_some()) {
-        return Err("--jet-aa needs --ss 2, no --keyframes and no --gpu-kernel".into());
+    if jet_aa && (ss != 2 || kernel_flag.is_some()) {
+        return Err("--jet-aa needs --ss 2 and no --gpu-kernel".into());
     }
     let zone_kernel = zone
         .as_ref()
         .map(|z| crate::zone_gpu::choose(kernel_flag, z))
         .transpose()?;
-    // `--keyframes M` (FILM-04): frames are built from per-octave sample keyframes.
-    if speed_curve.is_some()
-        && a.str("keyframes").is_some()
-        && !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0)
-    {
-        return Err(
-            "--keyframes needs positive normal f64 widths; omit it for deeper --speed films".into(),
-        );
-    }
-    let mut keys = match a.str("keyframes") {
+    // FILM-18 / DEC-29: films use the validated M=2 keyframe route by default.
+    // Unsupported settings retain direct rendering rather than failing a film.
+    let requested_keys = match a.str("keyframes").unwrap_or("2") {
+        "off" => None,
+        value => {
+            let m = value
+                .parse::<u32>()
+                .ok()
+                .filter(|m| (1..=4).contains(m))
+                .ok_or("--keyframes takes M in 1..=4 or off")?;
+            Some(m)
+        }
+    };
+    let fallback = if a.str("ss").is_some() {
+        Some("explicit --ss")
+    } else if jet_aa {
+        Some("--jet-aa on")
+    } else if !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0) {
+        Some("widths outside the normal f64 range")
+    } else {
+        None
+    };
+    let keyframes = match (requested_keys, fallback) {
+        (Some(_), Some(why)) => {
+            eprintln!("fd film: keyframes off ({why}); rendering every frame directly");
+            None
+        }
+        (mode, _) => mode,
+    };
+    let mut keys = match keyframes {
         None => None,
-        Some(_) => {
-            let m: u32 = a.num("keyframes", 2)?;
-            if !(1..=4).contains(&m) || a.str("ss").is_some() {
-                return Err("--keyframes M takes M in 1..=4 and no --ss".into());
-            }
+        Some(m) => {
             // Render the diagonal footprint at the original per-pixel sample pitch.
             let rotating = views.iter().any(|v| v.rotation != 0.0);
             let footprint = if rotating {
@@ -371,7 +387,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let (Some(mode), Some(k)) = (zone_kernel, keys.as_mut()) {
         k.enable_zone_kernel(mode);
     }
-    // Frames rendered one by one (no --keyframes) share one zone renderer.
+    // Direct frames (--keyframes off or a fallback) share one zone renderer.
     let mut frame_gpu = zone_kernel
         .filter(|_| keys.is_none())
         .map(crate::zone_gpu::Renderer::new);
@@ -478,7 +494,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut pipe = enc.stdin.take().expect("piped");
 
     let wall = Instant::now();
-    let mut r = Report::default();
+    let mut r = Report {
+        keyframes,
+        ..Report::default()
+    };
     for (f, view) in views.iter().enumerate().take(to).skip(from) {
         if let Some(k) = keys.as_mut() {
             let t = Instant::now();
@@ -1099,6 +1118,8 @@ pub(crate) fn render_frame_jet(
 
 #[derive(Default)]
 struct Report {
+    /// Oversampling multiplier, or None for direct per-frame rendering.
+    keyframes: Option<u32>,
     frames: [usize; 3],
     seconds: [f64; 3],
     shade: f64,
@@ -1141,7 +1162,7 @@ impl Report {
         format!(
             "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
-             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"zone_readback_bytes\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
+             \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"zone_readback_bytes\":{},\"keyframes\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
             crate::bench::q(mp4),
             n as f64 / fps,
@@ -1155,6 +1176,7 @@ impl Report {
             self.shade / n as f64,
             self.gpu_device.as_deref().map(crate::bench::q).unwrap_or_else(|| "null".into()),
             self.zone_readback_bytes,
+            self.keyframes.map_or_else(|| "null".into(), |m| m.to_string()),
             self.keyframe_prepare,
             self.keyframe_sample_shade,
             self.keyframe_resample,

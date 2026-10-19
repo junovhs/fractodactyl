@@ -29,6 +29,65 @@ fn decoded_rgb(file: &Path) -> Vec<u8> {
 }
 
 #[test]
+fn film_keyframes_default() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("fd-film18-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    for (name, flags, mode, fallback) in [
+        ("default", vec![], "2", false),
+        ("off", vec!["--keyframes", "off"], "null", false),
+        ("explicit", vec!["--keyframes", "3"], "3", false),
+        ("ss", vec!["--ss", "1"], "null", true),
+        ("jet", vec!["--jet-aa", "on"], "null", true),
+    ] {
+        let movie = dir.join(format!("{name}.mp4"));
+        let output = checked(
+            Command::new(env!("CARGO_BIN_EXE_fd"))
+                .args([
+                    "film",
+                    "-0.75",
+                    "0.1",
+                    "--from",
+                    "4",
+                    "--to",
+                    "2",
+                    "--seconds",
+                    "1",
+                    "--fps",
+                    "2",
+                    "--size",
+                    "32x18",
+                    "--iter",
+                    "32",
+                    "--threads",
+                    "1",
+                    "--x264",
+                    "ultrafast",
+                ])
+                .args(flags)
+                .arg("--mp4")
+                .arg(&movie)
+                .output()
+                .unwrap(),
+            name,
+        );
+        let report = String::from_utf8(output.stdout).unwrap();
+        let log = String::from_utf8(output.stderr).unwrap();
+        assert!(report.contains("\"schema\":\"fd-film/1\""), "{report}");
+        assert!(
+            report.contains(&format!("\"keyframes\":{mode},")),
+            "{name}: {report}"
+        );
+        assert_eq!(log.contains("keyframes off ("), fallback, "{name}: {log}");
+        assert!(!decoded_rgb(&movie).is_empty(), "{name}: empty film");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn film_spin_keyframes() {
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -76,6 +135,8 @@ fn film_spin_keyframes() {
                 ]);
             if keyframes {
                 cmd.args(["--keyframes", "2"]);
+            } else {
+                cmd.args(["--keyframes", "off"]);
             }
             cmd.arg("--mp4").arg(&movie);
             checked(cmd.output().unwrap(), "film");

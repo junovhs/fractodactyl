@@ -148,7 +148,7 @@ export const docs = defineDocs({
                     id: "first-film",
                     title: "Render a high-resolution video",
                     question: "How do I make a zoom film with Fractodactyl?",
-                    answer: "Fractodactyl makes films with `fd film RE IM --to WIDTH --mp4 FILE`, which renders each frame with the cheapest valid kernel, shades it on the GPU and pipes it to FFmpeg. Adding `--zone FILE` uses a zone's fast path where it covers the frame.",
+                    answer: "Fractodactyl makes films with `fd film RE IM --to WIDTH --mp4 FILE`. It defaults to `--keyframes 2`: oversized keyframes per 2x zoom supply the intervening frames. Use `--keyframes off` to render every frame directly. Adding `--zone FILE` uses a zone's fast path where it covers the frame.",
                     blocks: [
                         { kind: "p", text: "This is an offline desktop workflow: the renderer computes the final frames and FFmpeg encodes an MP4. The target is high-resolution video that is visually indistinguishable from an exact render. Live navigation previews and final video exports have different quality requirements." },
                         { kind: "p", text: "**Control the camera:** `--from` and `--to` are frame widths in the complex plane; smaller means deeper. Use `--seconds` for a fixed duration or `--rate` for decades of zoom per second. `--ease on` softens the start and stop, `--twist` adds rotation, and `--flow`, `--breathe` and `--drift` animate the look." },
@@ -156,15 +156,16 @@ export const docs = defineDocs({
                         { kind: "steps", items: [
                             { title: "Choose the destination and style", text: "Explore in the viewer, save a spot and copy its exact real and imaginary coordinates. Pick a look from `looks/`. In the commands below, replace `<re>` and `<im>` with those coordinates; do not type the angle brackets." },
                             { title: "Make a short preview", text: "`fd film <re> <im> --from 0.0065 --to 0.003 --seconds 5 --size 640x360 --fps 30 --preset ice --mp4 preview.mp4` is a starter recipe for a Seahorse Valley destination. Choose widths that suit your own location, then inspect the framing, pace and colours." },
-                            { title: "Render the final", text: "Reuse the preview command with `--size 1920x1080 --fps 60 --ss 2 --mp4 final.mp4`. Set `--seconds` to the desired duration. Larger sizes and more samples increase render time; export a short segment before committing to a long film." },
+                            { title: "Render the final", text: "Reuse the preview command with `--size 1920x1080 --fps 60 --mp4 final.mp4`. Set `--seconds` to the desired duration. Larger sizes and more samples increase render time; export a short segment before committing to a long film." },
                             { title: "Inspect and validate", text: "Watch the encoded MP4 for framing, banding and flicker. When evaluating an accelerated route against a reference, run `fd filmcheck reference.mp4 candidate.mp4` with matching cameras, looks and encoding settings; it compares every frame. A visual review alone does not establish numerical accuracy." },
                         ] },
                         { kind: "table", head: ["Default", "Value"], rows: [
                             ["Look", "studio, ice preset"],
                             ["Speed", "0.15 decades per second"],
                             ["Frames", "60 fps, 1920x1080"],
-                            ["Sampling", "`--ss 2`, `--aa on`, unresolved drawn as interior"],
+                            ["Sampling", "`--keyframes 2`, `--aa on`, unresolved drawn as interior"],
                         ] },
+                        { kind: "p", text: "Explicit `--ss`, `--jet-aa on`, or widths outside the normal f64 range switch to direct per-frame rendering with a one-line stderr note. Direct rendering defaults to `--ss 2`. The `fd-film/1` report records `keyframes: 2` (or your chosen multiplier), or `keyframes: null` for direct rendering." },
                         { kind: "p", text: "`fd film` with no arguments lists every flag. Keep the exact coordinates, widths, command and `.look` file alongside the MP4 so you can reproduce the film." },
                     ],
                 },

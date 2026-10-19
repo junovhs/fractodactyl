@@ -12,6 +12,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `fd film` defaults to `--keyframes 2`. Use `--keyframes off` for direct per-frame
+  rendering. Explicit `--ss`, `--jet-aa on`, and widths outside normal f64 range
+  fall back to direct rendering with a short stderr note. The film report records
+  the active keyframe multiplier (`null` for direct rendering).
+
 ### Added
 
 - The website downloads page shows the latest Windows and Linux packages, checksums,
