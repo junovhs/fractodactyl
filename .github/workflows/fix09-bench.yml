@@ -1,0 +1,46 @@
+name: FIX-09 BLA speed band
+# Research-only CPU performance gate. The home self-hosted GPU runner must remain
+# manual-only; this independently times plain and LA on the same hosted CPU.
+on:
+  push:
+    branches:
+      - fix/FIX-09-la-profitable-blocks
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: fix09-bench-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  band:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+      # wgpu static-DXC's build fetch checks GitHub releases; avoid shared
+      # unauthenticated API rate limits as in the main ci.yml.
+      - name: Authenticate GitHub API curl
+        env:
+          TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" > "$HOME/.curlrc"
+      - name: Build release CLI
+        run: cargo build --locked --release -p fd-cli
+      - name: Benchmark all 24 whole frames (3x gate + fd compare)
+        env:
+          FD_FIX09_OUT: ${{ runner.temp }}/fix09
+          FD_FIX09_THREADS: 4
+        run: bash scripts/check/FIX-09.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fix09-band-reports
+          path: |
+            ${{ runner.temp }}/fix09/*.jsonl
+            ${{ runner.temp }}/fix09/24-frames.txt
+          retention-days: 14
