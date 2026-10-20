@@ -222,6 +222,109 @@ impl Bla {
 mod tests {
     use super::*;
 
+    /// FIX-09 seconds-scale experiment. Deliberately test-only: relaxed radii do not
+    /// satisfy the production periodicity contract and must earn whole-frame gates.
+    #[test]
+    #[ignore]
+    fn la_tolerance_probe() {
+        use crate::grid::{bla_dc_max, reference, render_bla, render_with, Params};
+        use fd_samples::{Column, ColumnSet, View};
+        use std::time::Instant;
+        let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
+        let size: u32 = std::env::var("FD_PROBE_WIDTH")
+            .unwrap_or("64".into())
+            .parse()
+            .unwrap();
+        let mut p = Params {
+            nx: size,
+            ny: size * 9 / 16,
+            ss: 1,
+            max_iter: 100_000,
+            escape_radius: 1e10,
+            columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
+            threads: 8,
+            tier: None,
+        };
+        p.threads = std::env::var("FD_PROBE_THREADS")
+            .unwrap_or("8".into())
+            .parse()
+            .unwrap();
+        for (index, line) in frames
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .enumerate()
+        {
+            if size < 480 && index % 5 != 0 {
+                continue;
+            }
+            let v: Vec<_> = line.split_whitespace().collect();
+            let view = View {
+                center_re: v[0].into(),
+                center_im: v[1].into(),
+                width: v[2].into(),
+                rotation: 0.0,
+            };
+            let t = Instant::now();
+            let orbit = reference(&view, &p).unwrap();
+            let reference_s = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
+            let plain_s = t.elapsed().as_secs_f64() + reference_s;
+            let dc = bla_dc_max(&view, &p).unwrap();
+            for eps in [EPS_MAX, 1e-10, 1e-8, 1e-6] {
+                let t = Instant::now();
+                let singles: Vec<_> = (1..orbit.0.len() - 1)
+                    .map(|k| Block::single(orbit.0.re[k], orbit.0.im[k], eps))
+                    .collect();
+                let merge = |l: &[Block]| -> Vec<Block> {
+                    l.chunks_exact(2)
+                        .map(|b| Block::merge(&b[0], &b[1], dc))
+                        .collect()
+                };
+                let mut next = merge(&singles);
+                let mut levels = Vec::new();
+                while next.iter().any(|b| b.r > 0.0) {
+                    let up = merge(&next);
+                    levels.push(std::mem::replace(&mut next, up));
+                }
+                let table = Bla {
+                    eps,
+                    dc_max: dc,
+                    points: orbit.0.len() as u64,
+                    r2: levels
+                        .iter()
+                        .map(|l| l.iter().map(|b| b.r * b.r).collect())
+                        .collect(),
+                    levels,
+                };
+                let (_, accelerated, stats, bla) =
+                    render_bla(&view, &p, orbit.clone(), &table).unwrap();
+                let la_s = t.elapsed().as_secs_f64() + reference_s;
+                let mismatches = plain
+                    .class
+                    .iter()
+                    .zip(&accelerated.class)
+                    .filter(|(a, b)| a != b)
+                    .count();
+                let mut nu_max = 0.0f64;
+                let mut de_max = 0.0f64;
+                for i in 0..plain.class.len() {
+                    let a = plain.nu.as_ref().unwrap()[i];
+                    let b = accelerated.nu.as_ref().unwrap()[i];
+                    if a.is_finite() && b.is_finite() {
+                        nu_max = nu_max.max((a - b).abs());
+                    }
+                    let a = plain.de.as_ref().unwrap()[i] as f64;
+                    let b = accelerated.de.as_ref().unwrap()[i] as f64;
+                    if a > 1e-3 && a.is_finite() && b.is_finite() {
+                        de_max = de_max.max((a - b).abs() / a);
+                    }
+                }
+                println!("frame={index} width={} eps={eps:e} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, plain_s/la_s, bla.blocks, stats.iterations);
+            }
+        }
+    }
+
     /// Plain perturbation steps from `m`, in f64 (rounding is far below the bounds).
     fn steps(r: &Reference, m: usize, l: usize, d: (f64, f64), dc: (f64, f64)) -> (f64, f64) {
         let (mut x, mut y) = d;

@@ -1,0 +1,15 @@
+name: FIX-09 CPU LA probe
+on:
+  push:
+    branches: [ishoo/FIX-09]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: [self-hosted, Linux, X64, rx5700xt]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Seconds-scale tolerance probe
+        run: cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture
