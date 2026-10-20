@@ -184,8 +184,8 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 dr = t;
                 // Conservative first-order pixel-shift estimate: |v| <= |v.re|+|v.im|
                 // and |d| >= max(|d.re|, |d.im|). Avoid two square roots per block.
-                skip.shift += (b.alpha * (xr.abs() + xi.abs()) + b.beta * adc_bound)
-                    / dr.abs().max(di.abs());
+                skip.shift +=
+                    (b.alpha * (xr.abs() + xi.abs()) + b.beta * adc_bound) / dr.abs().max(di.abs());
             }
             let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
             xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
