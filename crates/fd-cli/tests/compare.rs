@@ -393,7 +393,6 @@ fn de_and_normal_are_scored() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-
 #[test]
 fn la_speed_band_correctness_smoke() {
     // FIX-09: exercise the entire troublesome 1e-14 .. 1e-29 band with the
@@ -428,14 +427,14 @@ fn la_speed_band_correctness_smoke() {
     ].concat()));
     assert_eq!(output.lines().count(), 7, "{output}");
     for frame in output.lines().take(6) {
-        assert!(frame.contains("\\"mode\\":\\"per-frame\\""), "{frame}");
-        assert!(frame.contains("\\"ok\\":true}"), "{frame}");
+        assert!(frame.contains(r#""mode":"per-frame""#), "{frame}");
+        assert!(frame.contains(r#""ok":true}"#), "{frame}");
     }
     let comparison = ok(&fd(&[
         "compare", plain.to_str().unwrap(), la.to_str().unwrap(),
     ]));
     let totals = comparison.lines().last().unwrap();
     assert_eq!(num(totals, "class_mismatches"), 0.0, "{comparison}");
-    assert!(totals.ends_with("\\"ok\\":true}"), "{comparison}");
+    assert!(totals.ends_with(r#""ok":true}"#), "{comparison}");
     let _ = std::fs::remove_dir_all(&dir);
 }
