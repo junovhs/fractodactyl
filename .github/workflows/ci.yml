@@ -18,6 +18,13 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  # DEC-32: a workspace version that is not yet tagged must have CHANGELOG.md notes, or
+  # release.yml would refuse it after landing (FIX-69).
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/release-plan.sh
   check:
     runs-on: ubuntu-latest
     steps:

@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-20
+
 ### Changed
 
 - `fd film` defaults to `--keyframes 2`. Use `--keyframes off` for direct per-frame
