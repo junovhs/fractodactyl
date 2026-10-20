@@ -127,6 +127,64 @@ pub struct Bla {
     /// cache while the coefficients are read only for the chosen block).
     r2: Vec<Vec<f64>>,
     min_level: usize,
+    #[cfg(test)]
+    pub(crate) quadratic: Vec<Vec<Quadratic>>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Quadratic {
+    c: (f64, f64),
+    d: (f64, f64),
+    e: (f64, f64),
+}
+
+#[cfg(test)]
+impl Quadratic {
+    fn mul(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
+        (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0)
+    }
+    fn sum(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> (f64, f64) {
+        (a.0 + b.0 + c.0, a.1 + b.1 + c.1)
+    }
+    fn twice(a: (f64, f64)) -> (f64, f64) {
+        (2.0 * a.0, 2.0 * a.1)
+    }
+    fn merge(x: &Block, y: &Block, p: Self, q: Self) -> Self {
+        Self {
+            c: Self::sum(
+                Self::mul(y.a, p.c),
+                Self::mul(q.c, Self::mul(x.a, x.a)),
+                (0.0, 0.0),
+            ),
+            d: Self::sum(
+                Self::mul(y.a, p.d),
+                Self::twice(Self::mul(q.c, Self::mul(x.a, x.b))),
+                Self::mul(q.d, x.a),
+            ),
+            e: Self::sum(
+                Self::mul(y.a, p.e),
+                Self::mul(q.c, Self::mul(x.b, x.b)),
+                Self::sum(Self::mul(q.d, x.b), q.e, (0.0, 0.0)),
+            ),
+        }
+    }
+    pub(crate) fn eval(
+        self,
+        x: (f64, f64),
+        dc: (f64, f64),
+    ) -> ((f64, f64), (f64, f64), (f64, f64)) {
+        let (u, v, w) = (
+            Self::mul(self.c, x),
+            Self::mul(self.d, dc),
+            Self::mul(self.e, dc),
+        );
+        (
+            Self::sum(Self::mul(u, x), Self::mul(v, x), Self::mul(w, dc)),
+            Self::sum(Self::twice(u), v, (0.0, 0.0)),
+            Self::sum(Self::mul(self.d, x), Self::twice(w), (0.0, 0.0)),
+        )
+    }
 }
 
 impl Bla {
@@ -183,6 +241,8 @@ impl Bla {
             levels,
             r2,
             min_level: 0,
+            #[cfg(test)]
+            quadratic: Vec::new(),
         })
     }
 
@@ -274,13 +334,12 @@ mod tests {
             let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
             let plain_s = t.elapsed().as_secs_f64() + reference_s;
             let dc = bla_dc_max(&view, &p).unwrap();
-            for (eps, minimum) in [
-                (EPS_MAX, 0),
-                (EPS_MAX, 3),
-                (1e-10, 3),
-                (1e-8, 3),
-                (1e-6, 3),
-                (1e-6, 5),
+            for (eps, minimum, quadratic) in [
+                (EPS_MAX, 0, false),
+                (1e-8, 0, false),
+                (1e-6, 0, true),
+                (1e-4, 0, true),
+                (1e-3, 2, true),
             ] {
                 let t = Instant::now();
                 let singles: Vec<_> = (1..orbit.0.len() - 1)
@@ -293,12 +352,35 @@ mod tests {
                 };
                 let mut next = merge(&singles);
                 let mut levels = Vec::new();
+                let mut q_levels = Vec::new();
+                let mut prev = singles;
+                let mut q_prev = vec![
+                    Quadratic {
+                        c: (1.0, 0.0),
+                        ..Quadratic::default()
+                    };
+                    prev.len()
+                ];
                 while next.iter().any(|b| b.r > 0.0) {
+                    let q: Vec<_> = (0..prev.len() / 2)
+                        .map(|i| {
+                            Quadratic::merge(
+                                &prev[2 * i],
+                                &prev[2 * i + 1],
+                                q_prev[2 * i],
+                                q_prev[2 * i + 1],
+                            )
+                        })
+                        .collect();
+                    q_prev = q.clone();
+                    q_levels.push(q);
                     let up = merge(&next);
+                    prev = next.clone();
                     levels.push(std::mem::replace(&mut next, up));
                 }
                 let table = Bla {
                     min_level: minimum,
+                    quadratic: if quadratic { q_levels } else { Vec::new() },
                     eps,
                     dc_max: dc,
                     points: orbit.0.len() as u64,
@@ -326,7 +408,12 @@ mod tests {
                     let a = plain.nu.as_ref().unwrap()[i];
                     let b = accelerated.nu.as_ref().unwrap()[i];
                     if a.is_finite() && b.is_finite() {
-                        nu_max = nu_max.max((a - b).abs());
+                        nu_max = nu_max.max(
+                            (a - b).abs()
+                                * f64::from(plain.de.as_ref().unwrap()[i])
+                                * std::f64::consts::LN_2
+                                / 2.0,
+                        );
                     }
                     let a = plain.de.as_ref().unwrap()[i] as f64;
                     let b = accelerated.de.as_ref().unwrap()[i] as f64;
@@ -334,7 +421,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} min={} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} quadratic={quadratic} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }

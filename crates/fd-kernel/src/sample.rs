@@ -232,6 +232,15 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         if let Some((b, len)) = block {
             // delta' = A delta + B dc, (dz/dc)' = A dz/dc + B.
             let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
+            let ((mut a_r, mut a_i), (mut b_r, mut b_i)) = ((a_r, a_i), (b_r, b_i));
+            #[cfg(test)]
+            let correction = bla
+                .and_then(|t| t.quadratic.get(len.trailing_zeros() as usize - 1))
+                .map(|l| l[(m - 1) / len].eval((xr, xi), (ar, ai)));
+            #[cfg(test)]
+            if let Some((_, a, b)) = correction {
+                (a_r, a_i, b_r, b_i) = (a_r + a.0, a_i + a.1, b_r + b.0, b_i + b.1);
+            }
             if nucleus.is_some() && n >= 1 {
                 contraction.multiply(a_r, a_i, 0);
             }
@@ -242,8 +251,16 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc)
                     / (dr * dr + di * di).sqrt();
             }
-            let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
-            xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
+            // The derivative uses the differentiated quadratic, the state its value.
+            let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
+            let mut t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
+            let mut next_i = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
+            #[cfg(test)]
+            if let Some((q, _, _)) = correction {
+                t += q.0;
+                next_i += q.1;
+            }
+            xi = next_i;
             xr = t;
             m += len;
             n += len as u64;
