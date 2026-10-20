@@ -1,0 +1,9 @@
+{
+  "truth_sha256": "e1ec4294493e7a7c699a2a3510eb06aae32ddc55595ffa6112c3ea77f1ca00c4",
+  "limit": 100000,
+  "repeats": 3,
+  "elapsed_s": 15.418019370000138,
+  "python": "3.10.12 (main, Aug 31 2026, 10:18:17) [GCC 11.4.0]",
+  "mpmath": "1.4.1",
+  "note": "Python sparse probe; projected frame timings are extrapolations, not renders"
+}

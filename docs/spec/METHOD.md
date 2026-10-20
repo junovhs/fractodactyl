@@ -3416,3 +3416,18 @@ In a browser V2 behaves as before.
 through the child renderer and exits. Linux CI now installs WebKitGTK and friends
 (libwebkit2gtk-4.1-dev, libgtk-3-dev, libsoup-3.0-dev, libxdo-dev) to build the
 workspace. Not yet checked on Windows (WebView2).
+
+### PROB-38: normalized parameter-series boundary probe (2026-10-20)
+
+`python docs/2026-10-20/series_probe.py`: 15.42 s frozen-truth Python probe,
+21 pixels (19 escaping), 100,000 cap, orders 2/4/8 and two state tolerances.
+Order 4/8 skips 322/356 iterations at v0 width 1e-14 and 813/911 at 1e-29,
+but only 2,726/8,935 near the cusp where escaping orbits need 35k–50k steps.
+17 of 126 method/pixel records fail the state/derivative/smooth/escape gate,
+including plain-perturbation negative controls. Tightening the prefix state
+budget does not clear valley endpoint errors. Setup, reference, amortization,
+truncation/derivative transport and 100-vs-150-digit truth audit are documented
+in `docs/2026-10-20/README.md`; CSVs preserve failures. **No promotion:** sparse
+Python comparisons, no optimized native BLA opponent, no actual FIX-09 frames,
+no certified arithmetic or demonstrated renderer 3x. Next: condition-aware
+error allocation and segmented continuation, after resolving endpoint accuracy.
