@@ -58,6 +58,12 @@ impl Default for SeriesConfig {
 /// An admitted prefix: every sample with `|dc| <= rho` starts at iterate `n`.
 #[derive(Clone, Debug)]
 pub struct Series {
+    #[cfg(test)]
+    pub(crate) centre: (f64, f64),
+    #[cfg(test)]
+    constant: (f64, f64),
+    #[cfg(test)]
+    pub(crate) tiles: Vec<Series>,
     /// Iterates every sample skips (0: the guard admitted none; the plain kernel runs).
     pub n: u64,
     /// Normalising radius (the frame's largest `|dc|`).
@@ -84,6 +90,23 @@ impl Series {
     /// Build over `r` for samples with `|dc| <= rho`, output pixel size `pixel` (in `c`),
     /// at most `max_iter` iterates.
     pub fn build(r: &Reference, rho: f64, pixel: f64, max_iter: u64, cfg: SeriesConfig) -> Series {
+        Self::build_at(r, rho, pixel, max_iter, cfg, (0.0, 0.0))
+    }
+
+    // Local-domain research prototype. The zero-centre production specialization
+    // retains the original polynomial and guards. A shifted parameter disk carries
+    // its constant delta against the same high-precision reference; it does not
+    // round or rebuild an absolute deep centre.
+    fn build_at(
+        r: &Reference,
+        rho: f64,
+        pixel: f64,
+        max_iter: u64,
+        cfg: SeriesConfig,
+        centre: (f64, f64),
+    ) -> Series {
+        #[cfg(not(test))]
+        let _ = centre;
         let k_max = cfg.max_order.max(1);
         let mut active = cfg.start_order.clamp(1, k_max);
         // Index 0 unused: b[k] for k = 1..=k_max.
@@ -91,6 +114,12 @@ impl Series {
         let (mut sr, mut si) = (vec![0.0f64; 2 * k_max + 1], vec![0.0f64; 2 * k_max + 1]);
         let (mut e, mut f) = (0.0f64, 0.0f64);
         let mut out = Series {
+            #[cfg(test)]
+            centre,
+            #[cfg(test)]
+            constant: (0.0, 0.0),
+            #[cfg(test)]
+            tiles: Vec::new(),
             n: 0,
             rho,
             points: r.len() as u64,
@@ -107,7 +136,7 @@ impl Series {
             .saturating_sub(2)
             .min(max_iter.saturating_sub(1));
         // (n, b, E, F, state budget, derivative budget, Dmin) at the last admitted step.
-        type Admitted = (u64, Vec<(f64, f64)>, f64, f64, f64, f64, f64);
+        type Admitted = (u64, Vec<(f64, f64)>, f64, f64, f64, f64, f64, (f64, f64));
         let mut best: Option<Admitted> = None;
         if !(rho > 0.0 && rho.is_finite() && pixel > 0.0) {
             out.stop = "radius";
@@ -116,6 +145,8 @@ impl Series {
         let (cap_e, cap_f) = (cfg.shift_px * pixel * 2.0 / rho, cfg.derivative_rel * 2.0);
         for n in 0..limit {
             let (zr, zi) = (r.re[n as usize], r.im[n as usize]);
+            #[cfg(test)]
+            let (zr, zi) = (zr + br[0], zi + bi[0]);
             let az = zr.hypot(zi);
             // Square of the active polynomial, with the omitted (degree > active) part.
             sr[..=2 * active].fill(0.0);
@@ -154,10 +185,20 @@ impl Series {
                 bi[k] = 2.0 * (zr * xi + zi * xr) + si[k];
             }
             br[1] += rho;
+            // The shifted reference is itself advanced by ordinary perturbation.
+            #[cfg(test)]
+            {
+                let (zr, zi) = (r.re[n as usize], r.im[n as usize]);
+                let (cr, ci) = (br[0], bi[0]);
+                br[0] = 2.0 * (zr * cr - zi * ci) + cr * cr - ci * ci + centre.0;
+                bi[0] = 2.0 * (zr * ci + zi * cr + cr * ci) + centre.1;
+            }
             // State after step n + 1.
             let step = n + 1;
             out.built_steps = step;
             let (zr, zi) = (r.re[step as usize], r.im[step as usize]);
+            #[cfg(test)]
+            let (zr, zi) = (zr + br[0], zi + bi[0]);
             let (mut m, mut tail_d) = (0.0f64, 0.0f64);
             for k in 1..=active {
                 let a = br[k].hypot(bi[k]);
@@ -190,6 +231,7 @@ impl Series {
                     budget,
                     cfg.derivative_rel * dmin,
                     dmin,
+                    (br[0], bi[0]),
                 ));
             } else if e > cap_e || f > cap_f {
                 // |b1| <= M < 2 caps every later budget: nothing past here can pass.
@@ -201,7 +243,13 @@ impl Series {
                 out.growth.push(step);
             }
         }
-        if let Some((n, mut b, e, f, budget_e, budget_f, dmin)) = best {
+        if let Some((n, mut b, e, f, budget_e, budget_f, dmin, constant)) = best {
+            #[cfg(test)]
+            {
+                out.constant = constant;
+            }
+            #[cfg(not(test))]
+            let _ = constant;
             // Trim high orders whose norms fit in half the remaining slack of each bound.
             let (slack_e, slack_f) = (budget_e - e, budget_f - f);
             let (mut te, mut tf) = (0.0f64, 0.0f64);
@@ -228,6 +276,8 @@ impl Series {
     /// and `dz/dc` (zero when `D` is off).
     #[inline]
     pub(crate) fn eval<const D: bool>(&self, ar: f64, ai: f64) -> (f64, f64, f64, f64) {
+        #[cfg(test)]
+        let (ar, ai) = (ar - self.centre.0, ai - self.centre.1);
         let s = 1.0 / self.rho;
         let (xr, xi) = (ar * s, ai * s);
         let (mut pr, mut pi, mut qr, mut qi) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
@@ -240,11 +290,76 @@ impl Series {
         }
         // S = x p, S' = p + x q; dz/dc = S' / rho.
         let (delta_r, delta_i) = (pr * xr - pi * xi, pr * xi + pi * xr);
+        #[cfg(test)]
+        let (delta_r, delta_i) = (delta_r + self.constant.0, delta_i + self.constant.1);
         if !D {
             return (delta_r, delta_i, 0.0, 0.0);
         }
         let (dr, di) = (pr + qr * xr - qi * xi, pi + qr * xi + qi * xr);
         (delta_r, delta_i, dr * s, di * s)
+    }
+
+    #[cfg(test)]
+    #[inline]
+    pub(crate) fn at(&self, _ar: f64, _ai: f64) -> &Self {
+        #[cfg(test)]
+        if !self.tiles.is_empty() {
+            return self
+                .tiles
+                .iter()
+                .min_by(|a, b| {
+                    let da = (_ar - a.centre.0).hypot(_ai - a.centre.1);
+                    let db = (_ar - b.centre.0).hypot(_ai - b.centre.1);
+                    da.total_cmp(&db)
+                })
+                .unwrap();
+        }
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tiled(
+        r: &Reference,
+        width: f64,
+        nx: u32,
+        ny: u32,
+        max_iter: u64,
+        side: u32,
+    ) -> Self {
+        let h = width / f64::from(nx);
+        let height = h * f64::from(ny);
+        let rho = (width / 2.0).hypot(height / 2.0);
+        let tiles = std::thread::scope(|scope| {
+            let rows: Vec<_> = (0..side)
+                .map(|j| {
+                    scope.spawn(move || {
+                        (0..side)
+                            .map(|i| {
+                                let centre = (
+                                    width * ((f64::from(i) + 0.5) / f64::from(side) - 0.5),
+                                    height * ((f64::from(j) + 0.5) / f64::from(side) - 0.5),
+                                );
+                                Self::build_at(
+                                    r,
+                                    rho / f64::from(side),
+                                    h,
+                                    max_iter,
+                                    SeriesConfig::default(),
+                                    centre,
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            rows.into_iter()
+                .flat_map(|row| row.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let mut out = Self::build(r, rho, h, 1, SeriesConfig::default());
+        out.n = 1;
+        out.tiles = tiles;
+        out
     }
 }
 

@@ -498,12 +498,18 @@ mod tests {
             .unwrap_or("8".into())
             .parse()
             .unwrap();
+        let report = std::env::var_os("FD_PROBE_REPORT_DIR").map(std::path::PathBuf::from);
+        if let Some(dir) = &report {
+            for arm in ["plain", "global", "tiled4"] {
+                std::fs::create_dir_all(dir.join(arm)).unwrap();
+            }
+        }
         for (index, line) in frames
             .lines()
             .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
             .enumerate()
         {
-            if size < 480 && index % 5 != 0 {
+            if (size < 480 || std::env::var_os("FD_PROBE_SAMPLED").is_some()) && index % 5 != 0 {
                 continue;
             }
             let v: Vec<_> = line.split_whitespace().collect();
@@ -517,31 +523,60 @@ mod tests {
             let orbit = reference(&view, &p).unwrap();
             let reference_s = t.elapsed().as_secs_f64();
             let t = Instant::now();
-            let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
+            let (plain_header, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
             let plain_s = t.elapsed().as_secs_f64() + reference_s;
+            if let Some(dir) = &report {
+                fd_samples::write(
+                    std::fs::File::create(dir.join("plain").join(format!("frame-{index:05}.fds")))
+                        .unwrap(),
+                    &plain_header,
+                    &plain,
+                )
+                .unwrap();
+            }
             let dc = bla_dc_max(&view, &p).unwrap();
-            for (eps, minimum, order, prefix, series_order) in [
-                (EPS_MAX, 0, 0, false, 64),
-                (EPS_MAX, 0, 0, true, 64),
-                (EPS_MAX, 0, 0, true, 128),
-                (EPS_MAX, 0, 0, true, 256),
-                (1e-10, 3, 4, false, 64),
-                (1e-10, 3, 4, true, 64),
+            // Increasing only max_order cannot recover coefficients discarded
+            // before growth. Compare early/fixed orders against the shipped
+            // growing-order initializer, charging all setup to each candidate.
+            for (eps, minimum, order, prefix, series_order, start_order) in [
+                (EPS_MAX, 0, 0, false, 64, 8),
+                (EPS_MAX, 0, 0, true, 64, 8),
+                (EPS_MAX, 0, 0, true, 2, 8),
+                (EPS_MAX, 0, 0, true, 4, 8),
+                (EPS_MAX, 1, 0, true, 4, 8),
+                (EPS_MAX, 1, 0, true, 8, 8),
             ] {
+                if std::env::var_os("FD_PROBE_PROMOTE").is_some()
+                    && !(prefix && minimum == 0 && (series_order == 64 || series_order == 4))
+                {
+                    continue;
+                }
                 let t = Instant::now();
                 let series = prefix.then(|| {
-                    Series::build(
+                    if series_order <= 8 {
+                        return Series::tiled(
+                            &orbit.0,
+                            view.width.parse().unwrap(),
+                            p.nx,
+                            p.ny,
+                            p.max_iter,
+                            series_order as u32,
+                        );
+                    }
+                    let s = Series::build(
                         &orbit.0,
                         dc,
                         view.width.parse::<f64>().unwrap() / f64::from(p.nx),
                         p.max_iter,
                         SeriesConfig {
-                            max_order: series_order,
+                            start_order,
+                            max_order: 64,
                             ..SeriesConfig::default()
                         },
-                    )
+                    );
+                    s
                 });
-                let no_table = prefix && order == 0;
+                let no_table = prefix && minimum == 0;
                 let singles: Vec<_> = (1..if no_table { 1 } else { orbit.0.len() - 1 })
                     .map(|k| {
                         if order == 0 {
@@ -611,7 +646,7 @@ mod tests {
                     levels,
                 };
                 let prepared_s = t.elapsed().as_secs_f64();
-                let (_, accelerated, stats, bla) = match series {
+                let (header, accelerated, stats, bla) = match series {
                     Some(ref s) => render_series(
                         &view,
                         &p,
@@ -624,6 +659,24 @@ mod tests {
                 .unwrap();
                 let la_s = t.elapsed().as_secs_f64() + reference_s;
                 let render_s = la_s - reference_s - prepared_s;
+                if let Some(dir) = &report {
+                    let arm = match (prefix, minimum, series_order) {
+                        (true, 0, 64) => Some("global"),
+                        (true, 0, 4) => Some("tiled4"),
+                        _ => None,
+                    };
+                    if let Some(arm) = arm {
+                        fd_samples::write(
+                            std::fs::File::create(
+                                dir.join(arm).join(format!("frame-{index:05}.fds")),
+                            )
+                            .unwrap(),
+                            &header,
+                            &accelerated,
+                        )
+                        .unwrap();
+                    }
+                }
                 let mismatches = plain
                     .class
                     .iter()
@@ -659,7 +712,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} series_order={series_order} series_n={} plain={plain_s:.6} la={la_s:.6} prepare={prepared_s:.6} render={render_s:.6} speed={:.3} class={mismatches} nonfinite={non_finite} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, series.as_ref().map_or(0,|s| s.n), plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} series_order={series_order} start_order={start_order} series_n={} plain={plain_s:.6} la={la_s:.6} prepare={prepared_s:.6} render={render_s:.6} speed={:.3} class={mismatches} nonfinite={non_finite} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, series.as_ref().map_or(0,|s| s.n), plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }

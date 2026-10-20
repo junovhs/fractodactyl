@@ -14,4 +14,25 @@ jobs:
       - name: Existing kernel regression suite
         run: cargo test -p fd-kernel --release
       - name: Seconds-scale tolerance probe
-        run: cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture
+        run: |
+          mkdir -p out/fix09
+          set -o pipefail
+          cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture | tee out/fix09/probe.log
+      - name: Build the actual comparison surface
+        run: cargo build -p fd-cli --release --bin fd
+      - name: Five-frame local-domain promotion
+        env:
+          FD_PROBE_WIDTH: '480'
+          FD_PROBE_SAMPLED: '1'
+          FD_PROBE_PROMOTE: '1'
+          FD_PROBE_REPORT_DIR: out/fix09/frames
+        run: |
+          set -o pipefail
+          cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture | tee out/fix09/promotion.log
+          target/release/fd compare out/fix09/frames/plain out/fix09/frames/global > out/fix09/compare-global.jsonl
+          target/release/fd compare out/fix09/frames/plain out/fix09/frames/tiled4 > out/fix09/compare-tiled4.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fix09-local-domain-results
+          path: out/fix09

@@ -547,7 +547,14 @@ impl<'a> Job<'a> {
         let prefix = self
             .series
             .filter(|_| !B && first != Outcome::Interior { n: 0 })
-            .map_or(0, |s| s.n);
+            .map_or(0, |s| {
+                #[cfg(test)]
+                let s = {
+                    let (ux, uy) = self.plane.unit_offset(i, j);
+                    s.at(ux * self.plane.h(), uy * self.plane.h())
+                };
+                s.n
+            });
         let mut spent = first.iterations(self.max_iter) - prefix;
         let result = if prefix > 0 && first == Outcome::Unresolved {
             let ordinary = self.one_from::<D, B, L>(i, j, skip, false);
@@ -575,6 +582,8 @@ impl<'a> Job<'a> {
         let (ux, uy) = pl.unit_offset(i, j);
         let start = |ar: f64, ai: f64| match self.series {
             Some(s) if !B && use_series => {
+                #[cfg(test)]
+                let s = s.at(ar, ai);
                 let (xr, xi, dr, di) = s.eval::<D>(ar, ai);
                 Start {
                     n: s.n,
