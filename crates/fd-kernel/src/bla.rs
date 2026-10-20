@@ -201,7 +201,9 @@ impl Bla {
     /// A frame with only shorter levels can use the plain path without any BLA lookups.
     pub fn has_profitable_blocks(&self) -> bool {
         let first = MIN_PROFITABLE_STEPS.trailing_zeros() as usize - 1;
-        self.levels.get(first).is_some_and(|level| level.iter().any(|b| b.r > 0.0))
+        self.levels
+            .get(first)
+            .is_some_and(|level| level.iter().any(|b| b.r > 0.0))
     }
 
     /// The longest valid block starting at reference index `m`, with length at least
