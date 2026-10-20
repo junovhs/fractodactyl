@@ -2,7 +2,7 @@
 //! confirmed by Newton, and the derivative only when a column needs it. With `B`, also a
 //! rigorous running error radius on `z` and `dz/dc` (Bounded evidence, docs/spec/LOD.md).
 //! With a BLA table, valid blocks replace runs of steps (ACC-01, not with `B`).
-use crate::bla::Bla;
+use crate::bla::{Bla, MIN_PROFITABLE_STEPS};
 use crate::interior::{attracting, contracting, in_main_components};
 pub(crate) use crate::number::Binary64Exponent;
 use crate::number::{Arithmetic, Binary64};
@@ -148,7 +148,8 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     // ed on dz/dc. rc: the f64 offset's distance from the exact sample position.
     let (mut e, mut ed) = (0.0f64, 0.0f64);
     let rc = 16.0 * U * (ar.abs() + ai.abs()) + 1e-300;
-    let adc = if L { (ar * ar + ai * ai).sqrt() } else { 0.0 };
+    // The L1 norm bounds the Euclidean offset and avoids a square root per sample.
+    let adc_bound = if L && D { ar.abs() + ai.abs() } else { 0.0 };
     let mut nucleus = if B { None } else { nucleus };
     let mut contraction = Contraction::default();
     while n < max_iter {
@@ -167,6 +168,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                         p as u64 + 1
                     }
                 })) - n,
+                MIN_PROFITABLE_STEPS,
             ),
             _ => None,
         };
@@ -180,8 +182,10 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 let t = a_r * dr - a_i * di + b_r;
                 di = a_r * di + a_i * dr + b_i;
                 dr = t;
-                skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc)
-                    / (dr * dr + di * di).sqrt();
+                // Conservative first-order pixel-shift estimate: |v| <= |v.re|+|v.im|
+                // and |d| >= max(|d.re|, |d.im|). Avoid two square roots per block.
+                skip.shift += (b.alpha * (xr.abs() + xi.abs()) + b.beta * adc_bound)
+                    / dr.abs().max(di.abs());
             }
             let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
             xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
