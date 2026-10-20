@@ -27,6 +27,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Release packages no longer include two personal, unverified saved places
+  (`journey_various_places`, `my_discovery`); `places/` ships only curated places.
 - The website hero has a clearer headline and mascot placement, without a slogan
   or decorative window controls.
 

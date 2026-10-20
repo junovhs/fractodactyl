@@ -82,7 +82,8 @@ jobs:
           mkdir -p "dist/$name"
           ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
           cp "target/release/fd$ext" "target/release/fd-viewer$ext" "dist/$name/"
-          cp -r looks places "dist/$name/"
+          cp -r looks "dist/$name/"
+          bash scripts/package-places.sh "dist/$name"
           cp CHANGELOG.md LICENSE-MIT LICENSE-APACHE "dist/$name/"
           sed "s/@VERSION@/$v/g" scripts/release-readme.txt > "dist/$name/README.txt"
           "dist/$name/fd$ext" --version

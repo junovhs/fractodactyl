@@ -10,3 +10,5 @@ cache/
 __pycache__/
 *.pyc
 .DS_Store
+# Personal saves are never tracked (DEC-35); curated places get a !places/NAME.place line.
+places/*.place
