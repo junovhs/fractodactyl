@@ -520,10 +520,13 @@ mod tests {
             let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
             let plain_s = t.elapsed().as_secs_f64() + reference_s;
             let dc = bla_dc_max(&view, &p).unwrap();
-            for (eps, minimum, order, prefix) in [
-                (EPS_MAX, 0, 0, false),
-                (1e-10, 3, 4, false),
-                (1e-10, 3, 4, true),
+            for (eps, minimum, order, prefix, series_order) in [
+                (EPS_MAX, 0, 0, false, 64),
+                (EPS_MAX, 0, 0, true, 64),
+                (EPS_MAX, 0, 0, true, 128),
+                (EPS_MAX, 0, 0, true, 256),
+                (1e-10, 3, 4, false, 64),
+                (1e-10, 3, 4, true, 64),
             ] {
                 let t = Instant::now();
                 let series = prefix.then(|| {
@@ -532,10 +535,14 @@ mod tests {
                         dc,
                         view.width.parse::<f64>().unwrap() / f64::from(p.nx),
                         p.max_iter,
-                        SeriesConfig::default(),
+                        SeriesConfig {
+                            max_order: series_order,
+                            ..SeriesConfig::default()
+                        },
                     )
                 });
-                let singles: Vec<_> = (1..orbit.0.len() - 1)
+                let no_table = prefix && order == 0;
+                let singles: Vec<_> = (1..if no_table { 1 } else { orbit.0.len() - 1 })
                     .map(|k| {
                         if order == 0 {
                             Block::single(orbit.0.re[k], orbit.0.im[k], eps)
@@ -603,12 +610,20 @@ mod tests {
                         .collect(),
                     levels,
                 };
+                let prepared_s = t.elapsed().as_secs_f64();
                 let (_, accelerated, stats, bla) = match series {
-                    Some(ref s) => render_series(&view, &p, orbit.clone(), s, Some(&table)),
+                    Some(ref s) => render_series(
+                        &view,
+                        &p,
+                        orbit.clone(),
+                        s,
+                        if no_table { None } else { Some(&table) },
+                    ),
                     None => render_bla(&view, &p, orbit.clone(), &table),
                 }
                 .unwrap();
                 let la_s = t.elapsed().as_secs_f64() + reference_s;
+                let render_s = la_s - reference_s - prepared_s;
                 let mismatches = plain
                     .class
                     .iter()
@@ -644,7 +659,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nonfinite={non_finite} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} series_order={series_order} series_n={} plain={plain_s:.6} la={la_s:.6} prepare={prepared_s:.6} render={render_s:.6} speed={:.3} class={mismatches} nonfinite={non_finite} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, series.as_ref().map_or(0,|s| s.n), plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }

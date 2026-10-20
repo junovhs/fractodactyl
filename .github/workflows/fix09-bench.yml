@@ -11,5 +11,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Existing kernel regression suite
+        run: cargo test -p fd-kernel --release
       - name: Seconds-scale tolerance probe
         run: cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture
