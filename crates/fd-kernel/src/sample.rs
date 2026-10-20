@@ -75,7 +75,18 @@ pub(crate) fn sample<const D: bool, const B: bool>(
     max_iter: u64,
     r2: f64,
 ) -> Outcome {
-    perturb::<D, B, false>(r, q, None, &mut Skip::default(), c, ar, ai, max_iter, r2)
+    perturb::<D, B, false>(
+        r,
+        q,
+        None,
+        &mut Skip::default(),
+        c,
+        ar,
+        ai,
+        max_iter,
+        r2,
+        r.nucleus_period(),
+    )
 }
 
 /// Iterate sample `C + (ar, ai)`. `D` selects whether `dz/dc` is tracked. `c` is the
@@ -96,8 +107,9 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
     ai: f64,
     max_iter: u64,
     r2: f64,
+    nucleus: Option<usize>,
 ) -> Outcome {
-    iterate::<Binary64, D, B, L>(r, q, bla, skip, c, ar, ai, 0, max_iter, r2)
+    iterate::<Binary64, D, B, L>(r, q, bla, skip, c, ar, ai, 0, max_iter, r2, nucleus)
 }
 
 // DEC-24: one perturbation loop, instantiated for each arithmetic representation.
@@ -114,6 +126,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     offset_exp: i64,
     max_iter: u64,
     r2: f64,
+    nucleus: Option<usize>,
 ) -> Outcome {
     debug_assert!(!A::EXTENDED || (!B && !L && c.is_none()));
     if c.is_some_and(|c| in_main_components(c.0, c.1)) {
@@ -136,16 +149,33 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     let (mut e, mut ed) = (0.0f64, 0.0f64);
     let rc = 16.0 * U * (ar.abs() + ai.abs()) + 1e-300;
     let adc = if L { (ar * ar + ai * ai).sqrt() } else { 0.0 };
+    let mut nucleus = if B { None } else { nucleus };
+    let mut contraction = Contraction::default();
     while n < max_iter {
         // A block ends at the next Brent save point at the latest, so BLA saves (and so
         // judges periodicity against) exactly the iterates the plain kernel does.
         let block = match bla {
-            Some(t) if L && !B => t.find(m, xr * xr + xi * xi, max_iter.min(chk) - n),
+            // At phase zero A=0; use the actual pixel's 2z rather than that
+            // reference-only derivative when measuring a nucleus return.
+            Some(t) if L && !B && (nucleus.is_none() || m != 0) => t.find(
+                m,
+                xr * xr + xi * xi,
+                max_iter.min(chk).min(nucleus.map_or(u64::MAX, |p| {
+                    if n == 0 {
+                        1
+                    } else {
+                        p as u64 + 1
+                    }
+                })) - n,
+            ),
             _ => None,
         };
         if let Some((b, len)) = block {
             // delta' = A delta + B dc, (dz/dc)' = A dz/dc + B.
             let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
+            if nucleus.is_some() && n >= 1 {
+                contraction.multiply(a_r, a_i, 0);
+            }
             if D {
                 let t = a_r * dr - a_i * di + b_r;
                 di = a_r * di + a_i * dr + b_i;
@@ -162,6 +192,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             skip.skipped += len as u64;
         } else {
             let (fr, fi) = (zr[m] + scale * xr, zi[m] + scale * xi);
+            if nucleus.is_some() && n >= 1 {
+                contraction.multiply(2.0 * fr, 2.0 * fi, 0);
+            }
             if B {
                 let af = (fr * fr + fi * fi).sqrt() * (1.0 + 4.0 * U) + 1e-150; // >= |f|, f = z as computed
                 let ef = e + q[m] + 2.0 * U * af; // >= |z_exact - f|
@@ -210,6 +243,12 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 ed,
             };
         }
+        if nucleus.is_some_and(|p| n == p as u64 + 1) {
+            if contraction.small() {
+                return Outcome::Interior { n };
+            }
+            nucleus = None; // no contraction: keep the ordinary escape/periodicity path
+        }
         let delta2 = physical_r * physical_r + physical_i * physical_i;
         let rebase = if A::EXTENDED {
             f2 <= delta2
@@ -229,6 +268,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 scale = exp2i(delta_exp);
                 m = 0;
                 if scale < TINY {
+                    // This exact-range step bypasses the ordinary product update;
+                    // decline the heuristic rather than omit a derivative factor.
+                    nucleus = None;
                     // The step from Z_0 needs exponent arithmetic when its square
                     // and dc cannot be represented as f64 (FIX-40).
                     if D {
@@ -310,6 +352,52 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         }
     }
     Outcome::Unresolved
+}
+
+/// Derivative of one nucleus return with respect to its initial state (not c).
+/// DEC-10: heuristic |dF^P/dz| < 1e-3, only after the reference's nucleus gate;
+/// otherwise ordinary iteration continues. Bounded-evidence renders decline it.
+#[derive(Default)]
+struct Contraction {
+    re: f64,
+    im: f64,
+    exp: i64,
+    started: bool,
+}
+impl Contraction {
+    #[inline]
+    fn multiply(&mut self, mut re: f64, mut im: f64, mut exp: i64) {
+        if !self.started {
+            self.re = 1.0;
+            self.started = true;
+        }
+        let a = re.abs().max(im.abs());
+        if a != 0.0 && (a > HI || a < LO) {
+            let e = a.log2().floor() as i64;
+            let scale = exp2i(-e);
+            re *= scale;
+            im *= scale;
+            exp += e;
+        }
+        (self.re, self.im) = (self.re * re - self.im * im, self.re * im + self.im * re);
+        self.exp += exp;
+        let a = self.re.abs().max(self.im.abs());
+        if a != 0.0 && (a > HI || a < LO) {
+            let e = a.log2().floor() as i64;
+            let scale = exp2i(-e);
+            self.re *= scale;
+            self.im *= scale;
+            self.exp += e;
+        }
+    }
+    fn small(&self) -> bool {
+        self.started
+            && self.re.is_finite()
+            && self.im.is_finite()
+            && (self.exp < -64
+                || (self.exp <= 64
+                    && (self.re * self.re + self.im * self.im) * exp2i(2 * self.exp) < 1e-6))
+    }
 }
 
 /// Periodicity is judged only once `|delta| > RESOLVABLE |z|` ([`resolvable`]); BLA's
@@ -438,6 +526,7 @@ mod tests {
                 ai,
                 100_000,
                 1e20,
+                r.nucleus_period(),
             );
             match (plain, fast) {
                 (
@@ -528,6 +617,7 @@ mod tests {
                     ai,
                     100_000,
                     1e20,
+                    r.nucleus_period(),
                 );
                 assert_eq!(plain, fast, "{e} {k}");
                 assert!(skip.skipped > 10_000, "{e} {k}: {skip:?}");
@@ -549,6 +639,7 @@ mod tests {
             ai,
             20_000,
             1e20,
+            r.nucleus_period(),
         ) {
             Outcome::Escaped { n, .. } => assert_eq!(n, 7412),
             o => panic!("{o:?}"),
@@ -674,6 +765,7 @@ mod exponent_tests {
             exponent,
             max_iter,
             r2,
+            r.nucleus_period(),
         )
     }
 

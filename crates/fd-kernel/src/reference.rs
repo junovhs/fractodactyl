@@ -55,6 +55,30 @@ impl Reference {
         Reference { re, im }
     }
 
+    /// FIX-04 / DEC-10: admit only a deep, near-superattracting record return.
+    /// A finite residual and its second return must be visible in this reference;
+    /// zeros/subnormal returns decline rather than inventing a nucleus. This is a
+    /// heuristic gate, not a certified interior test or reference re-placement.
+    pub(crate) fn nucleus_period(&self) -> Option<usize> {
+        let mut record = self.re.get(1)?.hypot(*self.im.get(1)?);
+        let mut log_beta = 0.0;
+        for p in 2..self.len() / 2 {
+            let previous = self.re[p - 1].hypot(self.im[p - 1]);
+            log_beta += 1.0 + previous.log2();
+            let radius = self.re[p].hypot(self.im[p]);
+            if radius > 1e-140
+                && radius < 1e-24
+                && radius < record * 1e-12
+                && 1.0 + log_beta + radius.log2() < -40.0
+                && self.re[2 * p].hypot(self.im[2 * p]) <= 2.0 * radius
+            {
+                return Some(p);
+            }
+            record = record.min(radius);
+        }
+        None
+    }
+
     /// Upper bounds `q[m] >= |A_m - Z_m|` on each stored point's distance from the
     /// exact orbit `A` of the exact view centre. `bits`: the fixed-point fraction bits
     /// the orbit was computed with, or `None` for an f64 orbit from `(c_re, c_im)`, the
@@ -93,5 +117,48 @@ impl Reference {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.re.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn existing_locations_decline_the_nucleus_heuristic() {
+        use crate::grid::{reference, Params};
+        use crate::view::Tier;
+        use fd_samples::{Column, ColumnSet, View};
+        for line in include_str!("../../../bench/locations.txt")
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
+            let f: Vec<_> = line.split_whitespace().collect();
+            let view = View {
+                center_re: f[1].into(),
+                center_im: f[2].into(),
+                width: f[3].into(),
+                rotation: f[6].parse().unwrap(),
+            };
+            let p = Params {
+                nx: 16,
+                ny: 9,
+                ss: 1,
+                max_iter: f[4].parse().unwrap(),
+                escape_radius: 1e10,
+                columns: ColumnSet::of(&[Column::Nu]),
+                threads: 1,
+                tier: match f[7] {
+                    "fx" => Some(Tier::Fixed),
+                    "scaled" => Some(Tier::Scaled),
+                    _ => None,
+                },
+            };
+            let (r, _) = reference(&view, &p).unwrap();
+            assert_eq!(
+                r.nucleus_period(),
+                None,
+                "{} must retain the old path",
+                f[0]
+            );
+        }
     }
 }

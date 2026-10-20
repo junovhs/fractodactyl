@@ -305,6 +305,7 @@ pub(crate) struct Job<'a> {
     pub(crate) store: Store,
     pub(crate) max_iter: u64,
     r2: f64,
+    nucleus: Option<usize>,
     /// Reference error radii; empty unless bounds are tracked.
     q: Vec<f64>,
     /// Whether `dz/dc` is tracked.
@@ -339,6 +340,7 @@ impl<'a> Job<'a> {
             store,
             max_iter: p.max_iter,
             r2,
+            nucleus: r.nucleus_period(),
             q,
             deriv,
             bla: None,
@@ -381,6 +383,7 @@ impl<'a> Job<'a> {
                     ai,
                     self.max_iter,
                     self.r2,
+                    self.nucleus,
                 )
             }
             Tier::Fixed => perturb::<D, B, L>(
@@ -393,6 +396,7 @@ impl<'a> Job<'a> {
                 uy * h,
                 self.max_iter,
                 self.r2,
+                self.nucleus,
             ),
             Tier::Scaled => iterate::<Binary64Exponent, D, false, false>(
                 self.r,
@@ -405,6 +409,7 @@ impl<'a> Job<'a> {
                 pl.h_e,
                 self.max_iter,
                 self.r2,
+                self.nucleus,
             ),
         }
     }
