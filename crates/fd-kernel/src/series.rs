@@ -1,7 +1,8 @@
-//! PROB-41 research arm: PROB-40's growing-order parameter series initializer over a
-//! general complex reference, admitted frame-wide before rendering (DEC-19). Not used by
-//! any fd command; `render_series` exists so a probe can time it on whole frames against
-//! the plain and per-frame BLA kernels it continues with.
+//! Growing-order parameter series initializer over a general complex reference,
+//! admitted frame-wide before rendering (DEC-19). CPU films use `Series::prepare`
+//! to choose a net win over their BLA/plain route; unresolved samples retry through
+//! that ordinary kernel. The independent `render_series` surface remains available
+//! for whole-frame comparisons.
 //!
 //! Normalised series (docs/2026-10-20/README.md): with `dc = rho x`, `|x| <= 1` over the
 //! frame, the delta after `n` steps is `S_n(x) = sum b[k] x^k`, where
@@ -253,6 +254,242 @@ mod tests {
     use crate::grid::{reference, render_series, render_with, Params};
     use fd_samples::{Column, ColumnSet, View};
 
+    /// Whole-frame promotion gate plus the actual fd film/compare surfaces. The
+    /// workflow supplies its built CLI; nothing is silently skipped without it.
+    #[test]
+    #[ignore]
+    fn series_auto_keeps_frames() {
+        // DEC-14: promote the existing initializer after its seconds-scale PROB-41
+        // wins; count cold setup and compare against the current BLA/plain rival.
+        use crate::bla::Bla;
+        use crate::grid::{bla_dc_max, render_bla};
+        use std::{fs, path::PathBuf, process::Command, time::Instant};
+        let fd = std::env::var_os("FD_TEST_BIN")
+            .expect("build fd and set FD_TEST_BIN to its absolute path");
+        let dir = std::env::var_os("FD_SERIES_REPORT_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("fd-perf05-{}", std::process::id()))
+            });
+        for name in ["plain", "baseline", "auto", "expected"] {
+            fs::create_dir_all(dir.join(name)).unwrap();
+        }
+        let p = Params {
+            nx: 480,
+            ny: 270,
+            ss: 1,
+            max_iter: 100_000,
+            escape_radius: 1e10,
+            columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
+            threads: 8,
+            tier: None,
+        };
+        let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
+        let mut report = String::from("frame,width,selected,bla_tail,baseline_s,auto_s,speed\n");
+        let (mut selected, mut declined, mut base_total, mut auto_total) = (0, 0, 0.0, 0.0);
+        for (i, line) in frames
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .enumerate()
+        {
+            let v: Vec<_> = line.split_whitespace().collect();
+            let view = View {
+                center_re: v[0].into(),
+                center_im: v[1].into(),
+                width: v[2].into(),
+                rotation: 0.0,
+            };
+            let plain = render_with(&view, &p, None).unwrap();
+            let t = Instant::now();
+            let orbit = reference(&view, &p).unwrap();
+            let table = Bla::build(
+                &orbit.0,
+                1.0 / 1125899906842624.0,
+                bla_dc_max(&view, &p).unwrap(),
+            )
+            .unwrap();
+            let baseline = if table.levels.is_empty() {
+                let (h, s, st) = render_with(&view, &p, Some(orbit)).unwrap();
+                (h, s, st)
+            } else {
+                let (h, s, st, _) = render_bla(&view, &p, orbit, &table).unwrap();
+                (h, s, st)
+            };
+            let base_s = t.elapsed().as_secs_f64();
+            let t = Instant::now();
+            let orbit = reference(&view, &p).unwrap();
+            let table = Bla::build(
+                &orbit.0,
+                1.0 / 1125899906842624.0,
+                bla_dc_max(&view, &p).unwrap(),
+            )
+            .unwrap();
+            let table = (!table.levels.is_empty()).then_some(&table);
+            let series = Series::prepare(&view, &p, &orbit, table, None).unwrap();
+            let picked = series.is_some();
+            let with_bla = series.as_ref().is_some_and(|(_, b)| *b);
+            let automatic = match series {
+                Some((s, b)) => {
+                    let (h, s, st, _) = s
+                        .render_masked(&view, &p, orbit, if b { table } else { None }, None)
+                        .unwrap();
+                    (h, s, st)
+                }
+                None => match table {
+                    Some(b) => {
+                        let (h, s, st, _) = render_bla(&view, &p, orbit, b).unwrap();
+                        (h, s, st)
+                    }
+                    None => render_with(&view, &p, Some(orbit)).unwrap(),
+                },
+            };
+            let auto_s = t.elapsed().as_secs_f64();
+            let name = format!("frame-{i:05}.fds");
+            for (sub, output) in [
+                ("plain", &plain),
+                ("baseline", &baseline),
+                ("auto", &automatic),
+                ("expected", if picked { &plain } else { &baseline }),
+            ] {
+                fd_samples::write(
+                    fs::File::create(dir.join(sub).join(&name)).unwrap(),
+                    &output.0,
+                    &output.1,
+                )
+                .unwrap();
+            }
+            if !picked {
+                assert_eq!(
+                    fs::read(dir.join("baseline").join(&name)).unwrap(),
+                    fs::read(dir.join("auto").join(&name)).unwrap(),
+                    "declined frame {i} changed"
+                );
+                declined += 1;
+            } else {
+                selected += 1;
+            }
+            base_total += base_s;
+            auto_total += auto_s;
+            let row = format!(
+                "{i},{},{picked},{with_bla},{base_s:.6},{auto_s:.6},{:.3}\n",
+                view.width,
+                base_s / auto_s
+            );
+            print!("{row}");
+            report.push_str(&row);
+        }
+        fs::write(dir.join("timings.csv"), report).unwrap();
+        for (a, label, required) in [
+            ("expected", "compare-auto", true),
+            ("plain", "compare-current-baseline", false),
+        ] {
+            let b = if required { "auto" } else { "baseline" };
+            let output = Command::new(&fd)
+                .arg("compare")
+                .arg(dir.join(a))
+                .arg(dir.join(b))
+                .output()
+                .unwrap();
+            fs::write(dir.join(format!("{label}.jsonl")), &output.stdout).unwrap();
+            if required {
+                assert!(
+                    output.status.success(),
+                    "fd compare: {} {}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+        }
+        println!("PERF-05 selected={selected} declined={declined} baseline={base_total:.3}s auto={auto_total:.3}s speed={:.3}",base_total/auto_total);
+        assert!(
+            selected > 0 && declined > 0,
+            "exercise admission and decline"
+        );
+        assert!(
+            auto_total < base_total,
+            "partial speedup must be a measured net win"
+        );
+
+        // Both CLI films use the exact same two views/look. The diagnostic off arm
+        // is the pre-change route; raw RGB avoids codec noise hiding differences.
+        let first: Vec<_> = frames
+            .lines()
+            .find(|l| !l.starts_with('#') && !l.is_empty())
+            .unwrap()
+            .split_whitespace()
+            .collect();
+        let mut raw_frames = Vec::new();
+        for mode in ["off", "auto"] {
+            let raw = dir.join(format!("film-{mode}"));
+            fs::create_dir_all(&raw).unwrap();
+            let output = Command::new(&fd)
+                .env("FD_CPU_SERIES", mode)
+                .args([
+                    "film",
+                    first[0],
+                    first[1],
+                    "--from",
+                    "1e-18",
+                    "--to",
+                    "5e-19",
+                    "--seconds",
+                    "1",
+                    "--fps",
+                    "2",
+                    "--size",
+                    "480x270",
+                    "--ss",
+                    "1",
+                    "--keyframes",
+                    "off",
+                    "--iter",
+                    "100000",
+                    "--threads",
+                    "8",
+                    "--preset",
+                    "master-ice",
+                    "--dither",
+                    "off",
+                    "--x264",
+                    "ultrafast",
+                ])
+                .arg("--raw-dir")
+                .arg(&raw)
+                .arg("--mp4")
+                .arg(dir.join(format!("film-{mode}.mp4")))
+                .output()
+                .unwrap();
+            fs::write(dir.join(format!("film-{mode}.json")), &output.stdout).unwrap();
+            assert!(
+                output.status.success(),
+                "fd film {mode}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let mut paths: Vec<_> = fs::read_dir(raw)
+                .unwrap()
+                .map(|p| p.unwrap().path())
+                .filter(|p| p.extension().is_some_and(|e| e == "rgb"))
+                .collect();
+            paths.sort();
+            raw_frames.push(
+                paths
+                    .iter()
+                    .flat_map(|p| fs::read(p).unwrap())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        assert!(!raw_frames[0].is_empty());
+        assert_eq!(raw_frames[0].len(), raw_frames[1].len());
+        let wrong = raw_frames[0]
+            .chunks_exact(3)
+            .zip(raw_frames[1].chunks_exact(3))
+            .filter(|(a, b)| a.iter().zip(*b).any(|(&a, &b)| a.abs_diff(b) > 1))
+            .count();
+        let pixels = raw_frames[0].len() / 3;
+        println!("fd film shaded pixels over one level: {wrong}/{pixels}");
+        assert!(wrong * 1000 <= pixels, "film-equivalence failed");
+    }
+
     /// The evaluated start stays within its carried bounds of direct f64 perturbation.
     #[test]
     fn start_is_within_its_bounds_of_direct_iteration() {
@@ -289,6 +526,54 @@ mod tests {
                 "dz/dc at {ar:e},{ai:e}"
             );
         }
+    }
+
+    #[test]
+    fn unresolved_series_start_preserves_nucleus_interior() {
+        let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
+        let v: Vec<_> = frames
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.is_empty())
+            .last()
+            .unwrap()
+            .split_whitespace()
+            .collect();
+        let view = View {
+            center_re: v[0].into(),
+            center_im: v[1].into(),
+            width: v[2].into(),
+            rotation: 0.0,
+        };
+        // An odd grid includes the exact centre: its zero perturbation cannot pass
+        // the resolvability guard, so retaining nucleus contraction is essential.
+        let p = Params {
+            nx: 33,
+            ny: 19,
+            ss: 1,
+            max_iter: 10_000,
+            escape_radius: 1e10,
+            columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De]),
+            threads: 2,
+            tier: None,
+        };
+        let orbit = reference(&view, &p).unwrap();
+        assert!(orbit.0.nucleus_period().is_some());
+        let plain = render_with(&view, &p, Some(orbit.clone())).unwrap();
+        let centre = (p.ny / 2 * p.nx + p.nx / 2) as usize;
+        assert_eq!(
+            plain.1.class[centre].kind(),
+            Some(fd_samples::Kind::Interior)
+        );
+        let series = Series::build(
+            &orbit.0,
+            crate::grid::bla_dc_max(&view, &p).unwrap(),
+            view.width.parse::<f64>().unwrap() / f64::from(p.nx),
+            p.max_iter,
+            SeriesConfig::default(),
+        );
+        assert!(series.n > 0);
+        let accelerated = render_series(&view, &p, orbit, &series, None).unwrap();
+        assert_eq!(plain.1.class, accelerated.1.class);
     }
 
     /// A whole frame started from the series keeps every class and moves nu within fd
@@ -334,6 +619,17 @@ mod tests {
             .fold(0.0, f64::max);
         assert!(worst < 1e-3, "nu moved {worst} px");
         assert!(st.iterations < 48 * 27 * 20_000);
+        // Two masked passes reuse the exact initializer and match the full render.
+        let mask: Vec<_> = (0..48 * 27).map(|i| i % 2 == 0).collect();
+        let (_, part, _, _) = s
+            .render_masked(&view, &p, orbit.clone(), None, Some(&mask))
+            .unwrap();
+        for (i, &active) in mask.iter().enumerate() {
+            if active {
+                assert_eq!(part.class[i], ss.class[i]);
+                assert_eq!(part.nu.as_ref().unwrap()[i], b[i]);
+            }
+        }
         let none = Series { n: 0, ..s };
         let (_, sn, _, _) = render_series(&view, &p, orbit, &none, None).unwrap();
         assert_eq!(sn.class, sp.class);

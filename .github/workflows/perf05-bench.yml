@@ -1,0 +1,34 @@
+name: PERF-05 retain partial CPU wins
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: [self-hosted, Linux, X64, rx5700xt]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure external build and report directories
+        run: |
+          echo "CARGO_TARGET_DIR=$HOME/.cache/fractodactyl-perf05-target" >> "$GITHUB_ENV"
+          echo "FD_TEST_BIN=$HOME/.cache/fractodactyl-perf05-target/release/fd" >> "$GITHUB_ENV"
+          echo "FD_SERIES_REPORT_DIR=$RUNNER_TEMP/perf05-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+      - name: Kernel regression suite
+        run: cargo test -p fd-kernel --release
+      - name: Formatting
+        run: |
+          rustup component add rustfmt
+          cargo fmt --all -- --check
+      - name: Build CLI
+        run: cargo build -p fd-cli --release
+      - name: Whole-frame and film promotion gate
+        run: cargo test -p fd-kernel --release series_auto_keeps_frames -- --ignored --nocapture
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf05-reports
+          path: |
+            ${{ env.FD_SERIES_REPORT_DIR }}/*.csv
+            ${{ env.FD_SERIES_REPORT_DIR }}/*.jsonl
+            ${{ env.FD_SERIES_REPORT_DIR }}/film-*.json

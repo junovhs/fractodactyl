@@ -1,7 +1,9 @@
 name: ci
 on:
   push:
-    branches: ["**"]
+    # These experimental branches run focused checks on the owner's home runner.
+    # Full integration CI still runs when a verified change lands on main.
+    branches: ["**", "!ishoo/FIX-09", "!ishoo/PERF-05"]
     # Pushes touching only research probes, docs, web-mode done files or the manual bench
     # workflows skip CI: none of these paths is built or read by the checks below
     # (tools/oracle.py is). No pull_request trigger: work lands by push, and a PR would

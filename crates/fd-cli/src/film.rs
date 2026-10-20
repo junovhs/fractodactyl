@@ -18,7 +18,7 @@ use crate::render::{columns, size};
 use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
 use fd_kernel::{
     bla_dc_max, render_bla, render_bla_masked, render_with, render_with_masked, zone_covers, Bla,
-    Params, Zone,
+    Params, Series, Zone,
 };
 use fd_samples::{Header, Samples, View};
 use fd_shade::Appearance;
@@ -39,6 +39,22 @@ pub(crate) enum Used {
     Zone,
     Bla,
     Plain,
+}
+
+// Reproducible before/after measurements and an explicit diagnostic fallback.
+// The normal film path always chooses before rendering; it never renders truth
+// as part of production authorization.
+fn prepare_cpu_series(
+    view: &View,
+    p: &Params,
+    orbit: &(fd_kernel::Reference, u32),
+    bla: Option<&Bla>,
+    mask: Option<&[bool]>,
+) -> Result<Option<(Series, bool)>, String> {
+    if std::env::var_os("FD_CPU_SERIES").is_some_and(|v| v == "off") {
+        return Ok(None);
+    }
+    Series::prepare(view, p, orbit, bla, mask)
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
@@ -1041,13 +1057,26 @@ pub(crate) fn render_frame_kernel(
             }
         }
     }
-    let (orbit, bits) = fd_kernel::reference(view, p)?;
-    if let Ok(dc) = bla_dc_max(view, p) {
-        let table = Bla::build(&orbit, EPS, dc)?;
-        if !table.levels.is_empty() {
-            let (h, s, _, _) = render_bla(view, p, (orbit, bits), &table)?;
-            return Ok((h, s, Used::Bla));
-        }
+    let orbit = fd_kernel::reference(view, p)?;
+    let (r, bits) = (&orbit.0, orbit.1);
+    let table = match bla_dc_max(view, p) {
+        Ok(dc) => Some(Bla::build(r, EPS, dc)?).filter(|t| !t.levels.is_empty()),
+        Err(_) => None,
+    };
+    if let Some((series, use_bla)) = prepare_cpu_series(view, p, &orbit, table.as_ref(), None)? {
+        let (h, s, _, _) = series.render_masked(
+            view,
+            p,
+            orbit,
+            if use_bla { table.as_ref() } else { None },
+            None,
+        )?;
+        return Ok((h, s, if use_bla { Used::Bla } else { Used::Plain }));
+    }
+    let (orbit, _) = orbit;
+    if let Some(table) = table {
+        let (h, s, _, _) = render_bla(view, p, (orbit, bits), &table)?;
+        return Ok((h, s, Used::Bla));
     }
     let (h, s, _) = render_with(view, p, Some((orbit, bits)))?;
     Ok((h, s, Used::Plain))
@@ -1088,14 +1117,27 @@ pub(crate) fn render_frame_jet(
         Ok(dc) => Some(Bla::build(&o, EPS, dc)?).filter(|t| !t.levels.is_empty()),
         Err(_) => None,
     };
+    let orbit = (o, bits);
+    // DEC-26: prepare once, then reuse the same initializer for both sample masks.
+    let series = prepare_cpu_series(view, p, &orbit, table.as_ref(), Some(&first))?;
     let pass = |mask: &[bool]| -> Result<(Header, Samples, Used), String> {
+        if let Some((series, use_bla)) = &series {
+            let (hd, s, _, _) = series.render_masked(
+                view,
+                p,
+                orbit.clone(),
+                if *use_bla { table.as_ref() } else { None },
+                Some(mask),
+            )?;
+            return Ok((hd, s, if *use_bla { Used::Bla } else { Used::Plain }));
+        }
         match &table {
             Some(t) => {
-                let (hd, s, _, _) = render_bla_masked(view, p, (o.clone(), bits), t, Some(mask))?;
+                let (hd, s, _, _) = render_bla_masked(view, p, orbit.clone(), t, Some(mask))?;
                 Ok((hd, s, Used::Bla))
             }
             None => {
-                let (hd, s, _) = render_with_masked(view, p, Some((o.clone(), bits)), mask)?;
+                let (hd, s, _) = render_with_masked(view, p, Some(orbit.clone()), mask)?;
                 Ok((hd, s, Used::Plain))
             }
         }
