@@ -25,7 +25,7 @@ jobs:
           FD_PROBE_WIDTH: '480'
           FD_PROBE_SAMPLED: '1'
           FD_PROBE_PROMOTE: '1'
-          FD_PROBE_REPORT_DIR: out/fix09/frames
+          FD_PROBE_REPORT_DIR: ${{ github.workspace }}/out/fix09/frames
         run: |
           set -o pipefail
           cargo test -p fd-kernel --release la_tolerance_probe -- --ignored --nocapture | tee out/fix09/promotion.log
