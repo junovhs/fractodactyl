@@ -1,0 +1,8 @@
+{
+  "points": 8,
+  "original_dps": 100,
+  "audit_dps": 150,
+  "relative_digits": 30,
+  "original_sha256": "b2a03ef19a2aaac51a79b861929c24dc65977255bf3f06d0a700eb43f0911c54",
+  "audit_sha256": "71f383fce1fadd291409579532d289522dfc232855da8567b3df676b9917ade7"
+}

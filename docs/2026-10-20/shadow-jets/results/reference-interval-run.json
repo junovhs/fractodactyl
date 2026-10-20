@@ -1,0 +1,5 @@
+{
+  "elapsed_s": 0.5713305019999098,
+  "checks": 36000,
+  "scope": "Real centered reference only; excludes coefficients, parameter regions and per-pixel rounding"
+}

@@ -1,0 +1,17 @@
+{
+  "cpu": "AMD Ryzen 9 3900X",
+  "python": "3.10.12",
+  "numpy": "2.2.6",
+  "mpmath": "1.4.1",
+  "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "rust_flags": [
+    "-O"
+  ],
+  "threads": 1,
+  "native_rounds": 5,
+  "native_repeats": 8,
+  "cold_rounds": 3,
+  "cusp_maxn": 36000,
+  "global_iteration_cap": 100000,
+  "scope": "Research only; no production integration"
+}

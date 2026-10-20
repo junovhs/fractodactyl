@@ -3446,3 +3446,18 @@ state tolerance 1e-15 restores accuracy at a shorter prefix. Valley diagnostics
 separately show a reference-conversion floor. **Research lead, no promotion or
 production 3x claim.** Reproduction, exact-arithmetic residual/derivative derivation,
 setup costs, failed variants and raw data: `docs/2026-10-20/rational-charts/README.md`.
+
+### PROB-40: shadow jets and growing-order cold-cost probe (2026-10-20)
+
+90 fast policy/order comparisons plus native setup/evaluation, actual cold batches,
+order-growth schedules, cross-family checks and eight fresh direct-truth samples.
+A higher-order shadow can bound a small rational chart, but evaluating that shadow
+polynomial directly wins here. Growing 8→16→32→64 with carried remainder keeps the
+34,720-step cusp prefix while cutting coefficient pairs 74.88M→32.85M. Measured native
+cold batches (fresh build each run, repeated sampled points): best 3.40x at 4096
+escaping samples; 1.97x at 2048 mixed holdouts. All selected native charts pass
+9 training +12 reused holdout +8 fresh points; fresh truth agrees at100/150 digits.
+v0 order64 leaves16/32 ordinary steps at1e-14/1e-29 on three sampled pixels each;
+valley still fails. Reference-phase low-order budgets also fail. **No promotion:**
+no actual FIX-09 path/full-frame/best-kernel timing or complete rounding certificate.
+Report, derivations, negative controls and reproduction: `docs/2026-10-20/shadow-jets/README.md`.

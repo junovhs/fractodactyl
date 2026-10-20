@@ -1,0 +1,12 @@
+{
+  "K": 32,
+  "radius": 0.21,
+  "maxn": 36000,
+  "phase_tolerance": 1e-06,
+  "stride": 32,
+  "reference_s": 1.0174235230001614,
+  "shadow_build_s": 2.414152432999799,
+  "total_s": 3.431576896000024,
+  "stop": "limit",
+  "last_iteration": 36000
+}
