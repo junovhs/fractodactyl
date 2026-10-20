@@ -1,0 +1,19 @@
+[package]
+name = "series-probe"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# PROB-41 research probe: whole-frame cold timing of the series initializer arm against
+# plain perturbation and per-frame BLA. Not part of the workspace.
+[workspace]
+
+[dependencies]
+fd-kernel = { path = "../../../../crates/fd-kernel" }
+fd-samples = { path = "../../../../crates/fd-samples" }
+
+# Same release profile as the fd workspace, so every arm compiles as fd ships.
+[profile.release]
+codegen-units = 1
+lto = "thin"
+panic = "abort"

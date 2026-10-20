@@ -3461,3 +3461,29 @@ v0 order64 leaves16/32 ordinary steps at1e-14/1e-29 on three sampled pixels each
 valley still fails. Reference-phase low-order budgets also fail. **No promotion:**
 no actual FIX-09 path/full-frame/best-kernel timing or complete rounding certificate.
 Report, derivations, negative controls and reproduction: `docs/2026-10-20/shadow-jets/README.md`.
+
+### PROB-41: growing-order series initializer on real PROB-22 frames (2026-10-20)
+
+The PROB-22 planner rerun (decades.py MODE=target defaults) reproduced its period-2535
+target, and FIX-09's 24 views (480x270, five 3-decade bins, 1e-14..1e-29) were frozen
+from it. `fd-kernel` gained a start state for its existing perturbation loop; with no
+start it is byte-identical. A research-only `series.rs` holds PROB-40's growing-order
+series over a general complex reference, with a frame-wide guard (|Z|+M+E<2, Dmin>0,
+equivalent shift ≤ shift_px). No fd command uses it.
+
+Cold timing, setup in the clock, median of 3 runs at 8 threads: the series alone is
+**3.33x / 2.43x / 1.73x** faster than plain in the three shallow bins, with zero
+`fd compare` failures on all 15 frames, while today's per-frame BLA is 0.64–0.83x there.
+The deep bins give only 1.31x / 2.03x, or 1.39x / 4.76x with BLA after the series. Five
+deep frames fail on class: 78 interior→unresolved samples, because a series start must
+decline the nucleus-contraction heuristic.
+
+Every frame's prefix stops near iterate 845, a third of the period, where the reference
+passes near 0 and the series map folds. **Recorded loss:** PROB-40's looser 1e-4 px
+guard failed 13/24 frames (nu up to 7e-3 px, de up to 5%), because the fold amplifies
+start-state error about 10^4x. That is the valley endpoint failure on real frames. A
+1e-8 px guard cures it at the same speed.
+
+**Go/no-go:** no-go for the initializer as FIX-09's 3x answer; go for it as FIX-09's
+first stage, followed by staged LA past each fold and a carried nucleus contraction.
+Report, per-bin CSVs, compare logs and reproduction: `docs/2026-10-20/series-frames/README.md`.

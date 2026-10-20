@@ -64,6 +64,19 @@ pub(crate) struct Skip {
     pub(crate) shift: f64,
 }
 
+/// A sample's state after `n` iterates, from which [`perturb_from`] continues: the
+/// delta `(xr, xi)` against reference point `n` and, when tracked, `dz/dc = (dr, di)`.
+/// The default (`n = 0`, all zero) is the ordinary start at `Z_0`. PROB-41: a parameter
+/// series initializer supplies `n > 0`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Start {
+    pub(crate) n: u64,
+    pub(crate) xr: f64,
+    pub(crate) xi: f64,
+    pub(crate) dr: f64,
+    pub(crate) di: f64,
+}
+
 /// [`perturb`] without BLA.
 #[cfg(test)]
 pub(crate) fn sample<const D: bool, const B: bool>(
@@ -95,6 +108,7 @@ pub(crate) fn sample<const D: bool, const B: bool>(
 /// [`Reference::error_radius`]; `q` is unused otherwise. With `L` and `bla` (built over
 /// `r` for `|(ar, ai)| <= dc_max`; never with `B`), valid blocks replace runs of steps,
 /// counted in `skip`. `L` is a constant so the plain kernel carries no BLA test.
+#[cfg(test)]
 #[inline]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
@@ -109,7 +123,39 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
     r2: f64,
     nucleus: Option<usize>,
 ) -> Outcome {
-    iterate::<Binary64, D, B, L>(r, q, bla, skip, c, ar, ai, 0, max_iter, r2, nucleus)
+    perturb_from::<D, B, L>(
+        r,
+        q,
+        bla,
+        skip,
+        c,
+        ar,
+        ai,
+        max_iter,
+        r2,
+        nucleus,
+        Start::default(),
+    )
+}
+
+/// [`perturb`] continuing from `start` (`start.n` below the reference's last point, and
+/// never with `B`: a supplied state carries no error radius).
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn perturb_from<const D: bool, const B: bool, const L: bool>(
+    r: &Reference,
+    q: &[f64],
+    bla: Option<&Bla>,
+    skip: &mut Skip,
+    c: Option<(f64, f64)>,
+    ar: f64,
+    ai: f64,
+    max_iter: u64,
+    r2: f64,
+    nucleus: Option<usize>,
+    start: Start,
+) -> Outcome {
+    iterate::<Binary64, D, B, L>(r, q, bla, skip, c, ar, ai, 0, max_iter, r2, nucleus, start)
 }
 
 // DEC-24: one perturbation loop, instantiated for each arithmetic representation.
@@ -127,29 +173,42 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     max_iter: u64,
     r2: f64,
     nucleus: Option<usize>,
+    start: Start,
 ) -> Outcome {
     debug_assert!(!A::EXTENDED || (!B && !L && c.is_none()));
+    debug_assert!(start.n == 0 || (!A::EXTENDED && !B && (start.n as usize) < r.len() - 1));
     if c.is_some_and(|c| in_main_components(c.0, c.1)) {
         return Outcome::Interior { n: 0 };
     }
     let (zr, zi, last) = (&r.re, &r.im, r.len() - 1);
-    let (mut xr, mut xi) = (0.0f64, 0.0f64); // delta z / 2^delta_exp
+    let (mut xr, mut xi) = (start.xr, start.xi); // delta z / 2^delta_exp
     let mut delta_exp = if A::EXTENDED { offset_exp } else { 0 };
     let mut scale = if A::EXTENDED { exp2i(delta_exp) } else { 1.0 };
     let (mut dc_r, mut dc_i) = (ar, ai);
-    let (mut dr, mut di) = (0.0f64, 0.0f64); // dz/dc
+    let (mut dr, mut di) = (start.dr, start.di); // dz/dc
     let (mut derivative_exp, mut inverse) = (0i64, 1.0f64);
-    let (mut m, mut n) = (0usize, 0u64);
+    let (mut m, mut n) = (start.n as usize, start.n);
     // Brent: compare against the point saved (at iterate `sn`) at the last power of two.
     let (mut sr, mut si, mut chk, mut sn) =
         (0.0f64, 0.0f64, 16u64, if A::EXTENDED { 0u64 } else { 8u64 });
+    if n > 0 {
+        // A supplied state is the first save; saves resume at the next power of two.
+        (sr, si, sn, chk) = (
+            zr[m] + xr,
+            zi[m] + xi,
+            n,
+            (n + 1).next_power_of_two().max(16),
+        );
+    }
     let (mut newton_at, mut tries, mut returns) = (64u64, 0, 0);
     // Error radii (B): e >= |z_exact - (A_m + delta)| with A the exact reference orbit,
     // ed on dz/dc. rc: the f64 offset's distance from the exact sample position.
     let (mut e, mut ed) = (0.0f64, 0.0f64);
     let rc = 16.0 * U * (ar.abs() + ai.abs()) + 1e-300;
     let adc = if L { (ar * ar + ai * ai).sqrt() } else { 0.0 };
-    let mut nucleus = if B { None } else { nucleus };
+    // The nucleus contraction multiplies every step's 2z from n = 1; a supplied state
+    // skipped them, so it declines the heuristic (DEC-10).
+    let mut nucleus = if B || n > 0 { None } else { nucleus };
     let mut contraction = Contraction::default();
     while n < max_iter {
         // A block ends at the next Brent save point at the latest, so BLA saves (and so
@@ -766,6 +825,7 @@ mod exponent_tests {
             max_iter,
             r2,
             r.nucleus_period(),
+            Start::default(),
         )
     }
 

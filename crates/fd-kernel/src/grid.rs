@@ -3,7 +3,8 @@
 //! column slices in place: no merge copy. Output is independent of the thread count.
 use crate::bla::Bla;
 use crate::reference::Reference;
-use crate::sample::{iterate, perturb, Binary64Exponent, Outcome, Skip};
+use crate::sample::{iterate, perturb_from, Binary64Exponent, Outcome, Skip, Start};
+use crate::series::Series;
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
 use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
@@ -100,7 +101,7 @@ pub fn render_with(
     p: &Params,
     supplied: Option<(Reference, u32)>,
 ) -> Result<(Header, Samples, Stats), String> {
-    run(view, p, supplied, None, None).map(|(h, s, st, _)| (h, s, st))
+    run(view, p, supplied, None, None, None).map(|(h, s, st, _)| (h, s, st))
 }
 
 /// [`render_with`] computing only the samples whose `mask` entry (row-major over the
@@ -111,7 +112,7 @@ pub fn render_with_masked(
     supplied: Option<(Reference, u32)>,
     mask: &[bool],
 ) -> Result<(Header, Samples, Stats), String> {
-    run(view, p, supplied, None, Some(mask)).map(|(h, s, st, _)| (h, s, st))
+    run(view, p, supplied, None, Some(mask), None).map(|(h, s, st, _)| (h, s, st))
 }
 
 /// [`render_with`] a supplied orbit and a BLA table built over it (ACC-01): valid blocks
@@ -138,6 +139,48 @@ pub fn render_bla_masked(
     bla: &Bla,
     mask: Option<&[bool]>,
 ) -> Result<(Header, Samples, Stats, BlaStats), String> {
+    bla_checks(view, p, &orbit, bla)?;
+    run(view, p, Some(orbit), Some(bla), mask, None)
+}
+
+/// PROB-41 research arm (not used by any fd command): [`render_with`] a supplied orbit,
+/// starting every sample at the series' admitted iterate (`series.rs`), then continuing
+/// with the plain kernel, or with BLA blocks when `bla` is given (as [`render_bla`]).
+/// Refused on the scaled tier, with the `Bound` column, for a series built over another
+/// orbit or for a smaller `|dc|` than the view reaches. The header's kernel id gains
+/// ` series/0` (and ` bla/1`).
+pub fn render_series(
+    view: &View,
+    p: &Params,
+    orbit: (Reference, u32),
+    series: &Series,
+    bla: Option<&Bla>,
+) -> Result<(Header, Samples, Stats, BlaStats), String> {
+    let (plane, tier) = setup(view, p)?;
+    if tier == Tier::Scaled || p.columns.has(Column::Bound) {
+        return Err("a series start needs f64 deltas and no Bound column".into());
+    }
+    if series.points != orbit.0.len() as u64 {
+        return Err("series built over another orbit".into());
+    }
+    let dc = dc_max(&plane, p);
+    if dc.is_nan() || dc > series.rho {
+        return Err(format!(
+            "view reaches |dc| = {dc:e}, beyond the series radius {:e}",
+            series.rho
+        ));
+    }
+    if let Some(bla) = bla {
+        bla_checks(view, p, &orbit, bla)?;
+    }
+    let (h, s, st, b) = run(view, p, Some(orbit), bla, None, Some(series))?;
+    let mut h = h;
+    h.kernel.push_str(" series/0");
+    Ok((h, s, st, b))
+}
+
+/// [`render_bla`]'s refusals.
+fn bla_checks(view: &View, p: &Params, orbit: &(Reference, u32), bla: &Bla) -> Result<(), String> {
     let (plane, tier) = setup(view, p)?;
     if tier == Tier::Scaled {
         return Err("BLA tables need f64 deltas: not available on the scaled tier".into());
@@ -168,7 +211,7 @@ pub fn render_bla_masked(
             bla.dc_max
         ));
     }
-    run(view, p, Some(orbit), Some(bla), mask)
+    Ok(())
 }
 
 /// Upper bound on `|dc|` over the samples of a view; refused on the scaled tier, which
@@ -191,6 +234,7 @@ fn run(
     supplied: Option<(Reference, u32)>,
     bla: Option<&Bla>,
     mask: Option<&[bool]>,
+    series: Option<&Series>,
 ) -> Result<(Header, Samples, Stats, BlaStats), String> {
     if mask.is_some_and(|m| m.len() != p.nx as usize * p.ny as usize) {
         return Err("sample mask must cover the sample grid".into());
@@ -229,6 +273,7 @@ fn run(
         let mut job = Job::new(&reference, &plane, tier, p, cols);
         job.bla = bla;
         job.mask = mask;
+        job.series = series.filter(|s| s.n > 0);
         let (deriv, bounded, blas) = (job.deriv, !job.q.is_empty(), job.bla.is_some());
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
@@ -314,6 +359,8 @@ pub(crate) struct Job<'a> {
     bla: Option<&'a Bla>,
     /// Samples to compute (row-major over the grid of width `nx`); `None` computes all.
     mask: Option<&'a [bool]>,
+    /// Series start for every sample (PROB-41 research arm; never with bounds).
+    series: Option<&'a Series>,
     nx: usize,
 }
 
@@ -345,6 +392,7 @@ impl<'a> Job<'a> {
             deriv,
             bla: None,
             mask: None,
+            series: None,
             nx: p.nx as usize,
         }
     }
@@ -369,11 +417,24 @@ impl<'a> Job<'a> {
         let pl = self.plane;
         let h = pl.h();
         let (ux, uy) = pl.unit_offset(i, j);
+        let start = |ar: f64, ai: f64| match self.series {
+            Some(s) if !B => {
+                let (xr, xi, dr, di) = s.eval::<D>(ar, ai);
+                Start {
+                    n: s.n,
+                    xr,
+                    xi,
+                    dr,
+                    di,
+                }
+            }
+            _ => Start::default(),
+        };
         match self.tier {
             Tier::F64 => {
                 let (ar, ai) = (ux * h, uy * h);
                 let c = Some((pl.c_re + ar, pl.c_im + ai));
-                perturb::<D, B, L>(
+                perturb_from::<D, B, L>(
                     self.r,
                     &self.q,
                     self.bla,
@@ -384,9 +445,10 @@ impl<'a> Job<'a> {
                     self.max_iter,
                     self.r2,
                     self.nucleus,
+                    start(ar, ai),
                 )
             }
-            Tier::Fixed => perturb::<D, B, L>(
+            Tier::Fixed => perturb_from::<D, B, L>(
                 self.r,
                 &self.q,
                 self.bla,
@@ -397,6 +459,7 @@ impl<'a> Job<'a> {
                 self.max_iter,
                 self.r2,
                 self.nucleus,
+                start(ux * h, uy * h),
             ),
             Tier::Scaled => iterate::<Binary64Exponent, D, false, false>(
                 self.r,
@@ -410,6 +473,7 @@ impl<'a> Job<'a> {
                 self.max_iter,
                 self.r2,
                 self.nucleus,
+                Start::default(),
             ),
         }
     }
@@ -431,6 +495,9 @@ impl<'a> Job<'a> {
             let mut skip = Skip::default();
             let o = self.one::<D, B, L>(i, row.j, &mut skip);
             its += o.iterations(self.max_iter);
+            if let Some(s) = self.series.filter(|_| o != Outcome::Interior { n: 0 }) {
+                its -= s.n; // iterates the series start replaced
+            }
             if L {
                 its = its - skip.skipped + skip.blocks;
                 b.blocks += skip.blocks;
