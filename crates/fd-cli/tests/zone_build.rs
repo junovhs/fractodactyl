@@ -692,3 +692,119 @@ fn zone_other_relation() {
     assert_eq!((d.0, d.1, d.2, d.3), (0, 0, 0, 0));
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn zone_suggest_three_pass() {
+    // M(24,2), independently Newton-refined with mpmath at 190 digits.
+    let re = "-0.7432918908524302029316243259725107571763485581207765818323304541609283472574785977186532571331974372312015364725883055839296440736897644315554785878367182908611270251456349093";
+    let im = "0.1312405523087976047708459065814781430771141511585840067313339426441224485804463828704809547062528759706770520637320224159702666378411381293727697380576634323825795329443433122";
+    let output = |cmd: &mut Command| {
+        let o = cmd.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8(o.stdout).unwrap()
+    };
+    let text = output(Command::new(env!("CARGO_BIN_EXE_fd")).args([
+        "zone",
+        "--suggest",
+        re,
+        im,
+        "--count",
+        "3",
+    ]));
+    let rows: Vec<_> = text.lines().collect();
+    assert_eq!(rows.len(), 3, "{text}");
+    let dir = std::env::temp_dir().join(format!("fd-prob27-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut periods = std::collections::BTreeSet::new();
+    for (i, row) in rows.iter().enumerate() {
+        let period = field(row, "period");
+        assert!(periods.insert(period.to_string()), "duplicate target");
+        assert!(field(row, "laps").parse::<usize>().unwrap() >= 100);
+        let start = row.find("\"c_exact\":[\"").unwrap() + "\"c_exact\":[\"".len();
+        let coords: Vec<_> = row[start..].split('"').collect();
+        let (re, im) = (coords[0], coords[2]);
+        let (mant, exponent) = field(row, "end_width").split_once('e').unwrap();
+        // The end width is five minibrot sizes. Compare a centered deep frame
+        // 5000 sizes wide, whose sample spacing exceeds the minibrot's size.
+        let width = format!("{}e{exponent}", mant.parse::<f64>().unwrap() * 1000.0);
+        let zone = dir.join(format!("{i}.zone"));
+        output(
+            Command::new(env!("CARGO_BIN_EXE_fd"))
+                .args([
+                    "zone",
+                    re,
+                    im,
+                    "--period",
+                    period,
+                    "--patch-depth",
+                    "2",
+                    "-o",
+                ])
+                .arg(&zone),
+        );
+        let iter = (period.parse::<usize>().unwrap() * 100).to_string();
+        let view = [
+            "--re",
+            re,
+            "--im",
+            im,
+            "--width",
+            &width,
+            "--size",
+            "480x270",
+            "--iter",
+            &iter,
+            "--columns",
+            "nu,de,normal",
+            "--threads",
+            "4",
+        ];
+        let store = dir.join(format!("store-{i}"));
+        let mut orbit = String::new();
+        let mut bla = String::new();
+        for (sub, key) in [("put", "orbit"), ("bla", "bla")] {
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+            cmd.args(["orbit", sub, "--store"]).arg(&store).args(view);
+            if sub == "bla" {
+                cmd.args(["--orbit", &orbit]);
+            }
+            let report = output(&mut cmd);
+            let id = report
+                .lines()
+                .find_map(|l| l.strip_prefix(&format!("{key} ")))
+                .unwrap()
+                .to_string();
+            if sub == "put" {
+                orbit = id;
+            } else {
+                bla = id;
+            }
+        }
+        for fast in [false, true] {
+            let out = dir.join(format!("{i}-{fast}.fds"));
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+            cmd.arg("render").args(view);
+            if fast {
+                cmd.arg("--zone")
+                    .arg(&zone)
+                    .args(["--gpu-kernel", "f32only"]);
+            } else {
+                cmd.arg("--store").arg(&store).args(["--bla", &bla]);
+            }
+            output(cmd.arg("-o").arg(&out));
+            if fast {
+                let r = fd_samples::Reader::open(&out).unwrap();
+                assert!(r.header.kernel.contains("wgpu"), "{}", r.header.kernel);
+            }
+        }
+        let truth = read_fds(&dir.join(format!("{i}-false.fds")));
+        assert!(truth.class.iter().any(|c| c.escaped()));
+        let d = strict_diff(&truth, &read_fds(&dir.join(format!("{i}-true.fds"))));
+        eprintln!(
+            "PROB-27 period {period}, laps {}, width {width}: {d:?}",
+            field(row, "laps")
+        );
+        assert_eq!((d.0, d.1, d.2, d.3), (0, 0, 0, 0));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

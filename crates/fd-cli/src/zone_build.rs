@@ -11,9 +11,12 @@ use crate::args::Args;
 use fd_fixed::{bits_for_digits, Complex, Float};
 use std::time::Instant;
 
+#[path = "zone_suggest.rs"]
+mod suggest;
+
 const USAGE: &str =
     "usage: fd zone RE IM [--period P | --max-iter N (3000)] [--patch-depth N (6)] \
-                     [-o ZONE | --emit report|lines]";
+                     [-o ZONE | --emit report|lines]\n       fd zone --suggest RE IM [--count N (3)] [--max-iter N (3000)]";
 
 /// Koenigs chart radius (make_zone.sh R0).
 const R0: f64 = 0.03;
@@ -43,6 +46,14 @@ pub(crate) struct Seed {
 }
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
+    if argv.iter().any(|v| v == "--suggest") {
+        let rest: Vec<_> = argv
+            .iter()
+            .filter(|v| v.as_str() != "--suggest")
+            .cloned()
+            .collect();
+        return suggest::run(&rest);
+    }
     let a = Args::parse(argv, &["max-iter", "emit", "patch-depth", "period", "o"])?;
     let [re, im] = a.positional.as_slice() else {
         return Err(USAGE.into());
@@ -297,7 +308,8 @@ pub(crate) struct ReturnMap {
 
 /// The zone scale, 10^floor(log10(size) / 2) for the minibrot size 1/|b dz/dc|
 /// (koenigs_bench_consts.py): return-map states scale as the square root of the size.
-fn scale(s: &Seed, bits: usize) -> (Float, Float) {
+fn log10_size(s: &Seed) -> f64 {
+    let bits = s.c.re.precision();
     let one = Complex::from_i64(1, bits);
     let (mut z, mut dz) = (Complex::zero(bits), Complex::zero(bits));
     let mut log2_b = 0.0;
@@ -308,8 +320,11 @@ fn scale(s: &Seed, bits: usize) -> (Float, Float) {
             log2_b += 1.0 + log2_norm2(&z) / 2.0;
         }
     }
-    let log10_size = -(log2_b + log2_norm2(&dz) / 2.0) / std::f64::consts::LOG2_10;
-    let k = (log10_size / 2.0).floor() as i64;
+    -(log2_b + log2_norm2(&dz) / 2.0) / std::f64::consts::LOG2_10
+}
+
+fn scale(s: &Seed, bits: usize) -> (Float, Float) {
+    let k = (log10_size(s) / 2.0).floor() as i64;
     let ten = |e: i64| Float::parse(&format!("1e{e}"), bits).expect("power of ten parses");
     (ten(k), ten(k - 3))
 }

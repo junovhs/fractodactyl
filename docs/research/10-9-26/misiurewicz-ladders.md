@@ -34,6 +34,15 @@ per-pixel cost stay flat down the ladder?
 - **Not done:** building a zone for a new rung and rendering it with the fast path. That
   is the real test of flat cost.
 
+## Production follow-through (PROB-27)
+
+`fd zone --suggest RE IM [--count N]` computes the inverse-branch limit V at
+working precision, predicts rungs with (3), and Newton-refines the critical-return
+roots before reporting exact centres, periods, laps and recommended widths. An
+unrefined predictor is never reported as a validated target. The regression
+`zone_suggest_three_pass` drives three targets through zone construction and
+whole-frame comparisons against independent per-frame BLA (DEC-17).
+
 ## 1. The ladder
 
 References: Eckmann-Epstein, Comm. Math. Phys. 101 (1985) 283-289, Thm 1; Douady-Hubbard,
