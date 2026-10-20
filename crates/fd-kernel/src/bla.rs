@@ -126,6 +126,7 @@ pub struct Bla {
     /// Squared radii, per level, for the lookup (contiguous, so the radius tests stay in
     /// cache while the coefficients are read only for the chosen block).
     r2: Vec<Vec<f64>>,
+    min_level: usize,
 }
 
 impl Bla {
@@ -181,6 +182,7 @@ impl Bla {
             points,
             levels,
             r2,
+            min_level: 0,
         })
     }
 
@@ -207,10 +209,11 @@ impl Bla {
         let ok = |i: usize| {
             (2u64 << i) <= budget && self.r2[i].get(k >> (i + 1)).is_some_and(|&r2| d2 < r2)
         };
-        if top == 0 || !ok(0) {
+        let minimum = self.min_level;
+        if top <= minimum || !ok(minimum) {
             return None;
         }
-        let mut i = 0;
+        let mut i = minimum;
         while i + 1 < top && ok(i + 1) {
             i += 1;
         }
@@ -232,7 +235,7 @@ mod tests {
         use std::time::Instant;
         let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
         let size: u32 = std::env::var("FD_PROBE_WIDTH")
-            .unwrap_or("64".into())
+            .unwrap_or("128".into())
             .parse()
             .unwrap();
         let mut p = Params {
@@ -271,7 +274,14 @@ mod tests {
             let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
             let plain_s = t.elapsed().as_secs_f64() + reference_s;
             let dc = bla_dc_max(&view, &p).unwrap();
-            for eps in [EPS_MAX, 1e-10, 1e-8, 1e-6] {
+            for (eps, minimum) in [
+                (EPS_MAX, 0),
+                (EPS_MAX, 3),
+                (1e-10, 3),
+                (1e-8, 3),
+                (1e-6, 3),
+                (1e-6, 5),
+            ] {
                 let t = Instant::now();
                 let singles: Vec<_> = (1..orbit.0.len() - 1)
                     .map(|k| Block::single(orbit.0.re[k], orbit.0.im[k], eps))
@@ -288,6 +298,7 @@ mod tests {
                     levels.push(std::mem::replace(&mut next, up));
                 }
                 let table = Bla {
+                    min_level: minimum,
                     eps,
                     dc_max: dc,
                     points: orbit.0.len() as u64,
@@ -309,6 +320,9 @@ mod tests {
                 let mut nu_max = 0.0f64;
                 let mut de_max = 0.0f64;
                 for i in 0..plain.class.len() {
+                    if !plain.class[i].escaped() || !accelerated.class[i].escaped() {
+                        continue;
+                    }
                     let a = plain.nu.as_ref().unwrap()[i];
                     let b = accelerated.nu.as_ref().unwrap()[i];
                     if a.is_finite() && b.is_finite() {
@@ -320,7 +334,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }
