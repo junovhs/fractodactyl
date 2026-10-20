@@ -395,9 +395,9 @@ fn de_and_normal_are_scored() {
 
 #[test]
 fn la_speed_band_correctness_smoke() {
-    // FIX-09: exercise the entire troublesome 1e-14 .. 1e-29 band with the
-    // production per-frame BLA choice, including frames that choose plain.
-    // The 24-frame, 480x270 performance gate lives in scripts/check/FIX-09.sh.
+    // FIX-09: exercise the troublesome 1e-14 .. 1e-29 band with the
+    // per-frame BLA choice, including frames that choose plain.
+    // The 24-frame, 480x270 performance gate is scripts/check/FIX-09.sh.
     let dir = std::env::temp_dir().join(format!("fd-la-band-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -414,25 +414,38 @@ fn la_speed_band_correctness_smoke() {
     let (plain, la) = (dir.join("plain"), dir.join("la"));
     let path = path.to_str().unwrap();
     let grid = [
-        "--size", "32x18", "--ss", "1", "--iter", "20000",
-        "--columns", "nu,de", "--threads", "2", "--runs", "1",
+        "--size",
+        "32x18",
+        "--ss",
+        "1",
+        "--iter",
+        "20000",
+        "--columns",
+        "nu,de",
+        "--threads",
+        "2",
+        "--runs",
+        "1",
     ];
-    ok(&fd(&[
-        &["control", path, "-o", plain.to_str().unwrap()][..],
-        &grid,
-    ].concat()));
-    let output = ok(&fd(&[
-        &["control", path, "--bla", "per-frame", "-o", la.to_str().unwrap()][..],
-        &grid,
-    ].concat()));
+    let mut plain_args = vec!["control", path, "-o", plain.to_str().unwrap()];
+    plain_args.extend_from_slice(&grid);
+    ok(&fd(&plain_args));
+    let mut la_args = vec![
+        "control",
+        path,
+        "--bla",
+        "per-frame",
+        "-o",
+        la.to_str().unwrap(),
+    ];
+    la_args.extend_from_slice(&grid);
+    let output = ok(&fd(&la_args));
     assert_eq!(output.lines().count(), 7, "{output}");
     for frame in output.lines().take(6) {
         assert!(frame.contains(r#""mode":"per-frame""#), "{frame}");
         assert!(frame.contains(r#""ok":true}"#), "{frame}");
     }
-    let comparison = ok(&fd(&[
-        "compare", plain.to_str().unwrap(), la.to_str().unwrap(),
-    ]));
+    let comparison = ok(&fd(&["compare", plain.to_str().unwrap(), la.to_str().unwrap()]));
     let totals = comparison.lines().last().unwrap();
     assert_eq!(num(totals, "class_mismatches"), 0.0, "{comparison}");
     assert!(totals.ends_with(r#""ok":true}"#), "{comparison}");
