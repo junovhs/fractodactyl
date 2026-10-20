@@ -1,5 +1,7 @@
-name: PERF-05 retain partial CPU wins
+name: CPU series partial wins
 on:
+  push:
+    branches: [ishoo/PERF-06]
   workflow_dispatch:
 permissions:
   contents: read
@@ -22,8 +24,8 @@ jobs:
           cargo fmt --all -- --check
       - name: Build CLI
         run: cargo build -p fd-cli --release
-      - name: Whole-frame and film promotion gate
-        run: cargo test -p fd-kernel --release series_auto_keeps_frames -- --ignored --nocapture
+      - name: Whole-frame, setup and film promotion gate
+        run: cargo test -p fd-kernel --release series_stall_keeps_frames -- --ignored --nocapture
       - uses: actions/upload-artifact@v4
         if: always()
         with:

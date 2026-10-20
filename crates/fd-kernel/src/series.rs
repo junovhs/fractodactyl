@@ -84,6 +84,21 @@ impl Series {
     /// Build over `r` for samples with `|dc| <= rho`, output pixel size `pixel` (in `c`),
     /// at most `max_iter` iterates.
     pub fn build(r: &Reference, rho: f64, pixel: f64, max_iter: u64, cfg: SeriesConfig) -> Series {
+        Self::build_stalled(r, rho, pixel, max_iter, cfg, 32)
+    }
+
+    // A rejected step need not end construction: later iterates can pass again.
+    // Bound that search after 32 consecutive rejections, retaining the last
+    // admitted state and its original validity/error contract. Zero is the
+    // unbounded research control. This changes setup work, never an admission.
+    fn build_stalled(
+        r: &Reference,
+        rho: f64,
+        pixel: f64,
+        max_iter: u64,
+        cfg: SeriesConfig,
+        stalled_steps: u64,
+    ) -> Series {
         let k_max = cfg.max_order.max(1);
         let mut active = cfg.start_order.clamp(1, k_max);
         // Index 0 unused: b[k] for k = 1..=k_max.
@@ -200,6 +215,10 @@ impl Series {
                 active = (2 * active).min(k_max);
                 out.growth.push(step);
             }
+            if stalled_steps > 0 && best.as_ref().is_some_and(|b| step - b.0 >= stalled_steps) {
+                out.stop = "stall";
+                break;
+            }
         }
         if let Some((n, mut b, e, f, budget_e, budget_f, dmin)) = best {
             // Trim high orders whose norms fit in half the remaining slack of each bound.
@@ -253,6 +272,98 @@ mod tests {
     use super::*;
     use crate::grid::{reference, render_series, render_with, Params};
     use fd_samples::{Column, ColumnSet, View};
+
+    fn check_stall_budget() {
+        let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
+        let mut totals = [0.0; 2];
+        let mut report = String::from("frame,control_s,bounded_s,n,control_steps,bounded_steps\n");
+        for (i, line) in frames
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .enumerate()
+        {
+            let v: Vec<_> = line.split_whitespace().collect();
+            let view = View {
+                center_re: v[0].into(),
+                center_im: v[1].into(),
+                width: v[2].into(),
+                rotation: 0.0,
+            };
+            let p = Params {
+                nx: 480,
+                ny: 270,
+                ss: 1,
+                max_iter: 100_000,
+                escape_radius: 1e10,
+                columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
+                threads: 8,
+                tier: None,
+            };
+            let orbit = reference(&view, &p).unwrap();
+            let rho = crate::grid::bla_dc_max(&view, &p).unwrap();
+            let pixel = v[2].parse::<f64>().unwrap() / 480.0;
+            let mut states = [None, None];
+            let mut times = [0.0; 2];
+            for arm in if i % 2 == 0 { [0, 1] } else { [1, 0] } {
+                let t = std::time::Instant::now();
+                states[arm] = Some(Series::build_stalled(
+                    &orbit.0,
+                    rho,
+                    pixel,
+                    8192,
+                    SeriesConfig::default(),
+                    if arm == 0 { 0 } else { 32 },
+                ));
+                times[arm] = t.elapsed().as_secs_f64();
+                totals[arm] += times[arm];
+            }
+            let (a, b) = (states[0].as_ref().unwrap(), states[1].as_ref().unwrap());
+            assert_eq!((a.n, a.rho, a.points), (b.n, b.rho, b.points), "frame {i}");
+            assert_eq!(a.b, b.b, "frame {i} coefficients");
+            assert_eq!(
+                (a.state_bound, a.derivative_bound, a.shift_px),
+                (b.state_bound, b.derivative_bound, b.shift_px),
+                "frame {i} bounds"
+            );
+            assert!(b.built_steps <= a.built_steps);
+            report.push_str(&format!(
+                "{i},{:.6},{:.6},{},{},{}\n",
+                times[0], times[1], b.n, a.built_steps, b.built_steps
+            ));
+        }
+        print!("{report}");
+        println!(
+            "PERF-06 control={:.6}s bounded={:.6}s speed={:.3}",
+            totals[0],
+            totals[1],
+            totals[0] / totals[1]
+        );
+        assert!(
+            totals[1] < 0.8 * totals[0],
+            "bounded setup must win including all construction costs"
+        );
+        if let Some(dir) = std::env::var_os("FD_SERIES_REPORT_DIR") {
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                std::path::PathBuf::from(dir).join("stall-timings.csv"),
+                report,
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn series_stall_probe() {
+        check_stall_budget();
+    }
+
+    #[test]
+    #[ignore]
+    fn series_stall_keeps_frames() {
+        check_stall_budget();
+        series_auto_keeps_frames();
+    }
 
     /// Whole-frame promotion gate plus the actual fd film/compare surfaces. The
     /// workflow supplies its built CLI; nothing is silently skipped without it.
