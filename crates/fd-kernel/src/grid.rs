@@ -4,7 +4,7 @@
 use crate::bla::Bla;
 use crate::reference::Reference;
 use crate::sample::{iterate, perturb_from, Binary64Exponent, Outcome, Skip, Start};
-use crate::series::Series;
+use crate::series::{Series, SeriesConfig};
 use crate::store::{Row, Store};
 use crate::view::{Plane, Tier};
 use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
@@ -156,27 +156,156 @@ pub fn render_series(
     series: &Series,
     bla: Option<&Bla>,
 ) -> Result<(Header, Samples, Stats, BlaStats), String> {
-    let (plane, tier) = setup(view, p)?;
-    if tier == Tier::Scaled || p.columns.has(Column::Bound) {
-        return Err("a series start needs f64 deltas and no Bound column".into());
+    series.render_masked(view, p, orbit, bla, None)
+}
+
+impl Series {
+    /// Prepare a series start only when a small timing probe predicts a net win over
+    /// the supplied BLA/plain renderer (DEC-19). Setup and probe costs count. Small,
+    /// bounded and scaled frames decline before building. The caller may reuse the
+    /// admitted start for masks of the same frame, without rebuilding it.
+    /// Returns the initializer and whether its tail should use the supplied BLA.
+    pub fn prepare(
+        view: &View,
+        p: &Params,
+        orbit: &(Reference, u32),
+        bla: Option<&Bla>,
+        mask: Option<&[bool]>,
+    ) -> Result<Option<(Series, bool)>, String> {
+        let (plane, tier) = setup(view, p)?;
+        let samples = p.nx as usize * p.ny as usize;
+        if mask.is_some_and(|m| m.len() != samples) {
+            return Err("sample mask must cover the sample grid".into());
+        }
+        let active = mask.map_or(samples, |m| m.iter().filter(|&&v| v).count());
+        if active < 16_384
+            || tier == Tier::Scaled
+            || p.columns.has(Column::Bound)
+            || p.max_iter < 256
+        {
+            return Ok(None);
+        }
+        if let Some(t) = bla {
+            bla_checks(view, p, orbit, t)?;
+        }
+        let needed = precision(&plane, tier);
+        if orbit.0.len() < 2
+            || orbit.0.re.len() != orbit.0.im.len()
+            || orbit.0.re[0] != 0.0
+            || orbit.0.im[0] != 0.0
+            || orbit.1 < needed
+            || (tier == Tier::F64 && orbit.1 != needed)
+        {
+            return Err("series preparation needs the frame's valid reference orbit".into());
+        }
+        let started = Instant::now();
+        // Keep an abstention cheap even on interior-heavy 100k-iteration frames.
+        // Censored probe samples take the ordinary retry, making admission
+        // conservative rather than treating an unfinished series tail as a win.
+        let probe_params = Params {
+            max_iter: p.max_iter.min(8192),
+            ..*p
+        };
+        let series = Series::build(
+            &orbit.0,
+            dc_max(&plane, p),
+            plane.h() * f64::from(p.ss),
+            probe_params.max_iter,
+            SeriesConfig::default(),
+        );
+        if series.n == 0 {
+            return Ok(None);
+        }
+        let points: Vec<usize> = match mask {
+            Some(m) => m
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &v)| v.then_some(i))
+                .step_by((active / 9).max(1))
+                .take(9)
+                .collect(),
+            None => [p.ny / 8, p.ny / 2, 7 * p.ny / 8]
+                .into_iter()
+                .flat_map(|j| {
+                    [p.nx / 8, p.nx / 2, 7 * p.nx / 8]
+                        .map(|i| j as usize * p.nx as usize + i as usize)
+                })
+                .collect(),
+        };
+        let mut job = Job::new(
+            &orbit.0,
+            &plane,
+            tier,
+            &probe_params,
+            p.columns.with(Column::Class),
+        );
+        let mut probe = |with_series: bool, with_bla: bool| {
+            job.series = with_series.then_some(&series);
+            job.bla = if with_bla { bla } else { None };
+            let t = Instant::now();
+            for &index in &points {
+                let mut skip = Skip::default();
+                let (i, j) = (index % p.nx as usize, index / p.nx as usize);
+                let result = match (job.deriv, job.bla.is_some()) {
+                    (true, true) => job.one::<true, false, true>(i, j, &mut skip),
+                    (true, false) => job.one::<true, false, false>(i, j, &mut skip),
+                    (false, true) => job.one::<false, false, true>(i, j, &mut skip),
+                    (false, false) => job.one::<false, false, false>(i, j, &mut skip),
+                };
+                std::hint::black_box(result);
+            }
+            t.elapsed().as_secs_f64()
+        };
+        let baseline = probe(false, bla.is_some());
+        let plain_tail = probe(true, false);
+        let bla_tail = if bla.is_some() {
+            probe(true, true)
+        } else {
+            f64::INFINITY
+        };
+        let use_bla = bla_tail < plain_tail;
+        let accelerated = plain_tail.min(bla_tail);
+        // Pixel iteration is parallel; preparation/probing is serial. Charge setup
+        // against the predicted parallel frame, with a 20% margin for sampling noise.
+        let factor = active as f64 / points.len() as f64 / p.threads.clamp(1, p.ny as usize) as f64;
+        let projected_baseline = baseline * factor;
+        let projected_series = accelerated * factor + started.elapsed().as_secs_f64();
+        Ok((projected_series < 0.8 * projected_baseline).then_some((series, use_bla)))
     }
-    if series.points != orbit.0.len() as u64 {
-        return Err("series built over another orbit".into());
+
+    /// Render an admitted series start on a whole frame or a sample mask. Unresolved
+    /// samples retry from zero, retaining the ordinary nucleus-contraction heuristic.
+    pub fn render_masked(
+        &self,
+        view: &View,
+        p: &Params,
+        orbit: (Reference, u32),
+        bla: Option<&Bla>,
+        mask: Option<&[bool]>,
+    ) -> Result<(Header, Samples, Stats, BlaStats), String> {
+        let series = self;
+        let (plane, tier) = setup(view, p)?;
+        if tier == Tier::Scaled || p.columns.has(Column::Bound) {
+            return Err("a series start needs f64 deltas and no Bound column".into());
+        }
+        if series.points != orbit.0.len() as u64 {
+            return Err("series built over another orbit".into());
+        }
+        let dc = dc_max(&plane, p);
+        if dc.is_nan() || dc > series.rho {
+            return Err(format!(
+                "view reaches |dc| = {dc:e}, beyond the series radius {:e}",
+                series.rho
+            ));
+        }
+        if let Some(bla) = bla {
+            bla_checks(view, p, &orbit, bla)?;
+        }
+        let (h, s, st, b) = run(view, p, Some(orbit), bla, mask, Some(series))?;
+        let mut h = h;
+        h.kernel.push_str(" series/0");
+        Ok((h, s, st, b))
     }
-    let dc = dc_max(&plane, p);
-    if dc.is_nan() || dc > series.rho {
-        return Err(format!(
-            "view reaches |dc| = {dc:e}, beyond the series radius {:e}",
-            series.rho
-        ));
-    }
-    if let Some(bla) = bla {
-        bla_checks(view, p, &orbit, bla)?;
-    }
-    let (h, s, st, b) = run(view, p, Some(orbit), bla, None, Some(series))?;
-    let mut h = h;
-    h.kernel.push_str(" series/0");
-    Ok((h, s, st, b))
 }
 
 /// [`render_bla`]'s refusals.
@@ -401,9 +530,9 @@ impl<'a> Job<'a> {
     pub(crate) fn outcome(&self, i: usize, j: usize) -> Outcome {
         let skip = &mut Skip::default();
         match (self.deriv, !self.q.is_empty()) {
-            (_, true) => self.one::<true, true, false>(i, j, skip),
-            (true, false) => self.one::<true, false, false>(i, j, skip),
-            (false, false) => self.one::<false, false, false>(i, j, skip),
+            (_, true) => self.one::<true, true, false>(i, j, skip).0,
+            (true, false) => self.one::<true, false, false>(i, j, skip).0,
+            (false, false) => self.one::<false, false, false>(i, j, skip).0,
         }
     }
 
@@ -413,12 +542,39 @@ impl<'a> Job<'a> {
         i: usize,
         j: usize,
         skip: &mut Skip,
+    ) -> (Outcome, u64) {
+        let first = self.one_from::<D, B, L>(i, j, skip, true);
+        let prefix = self
+            .series
+            .filter(|_| !B && first != Outcome::Interior { n: 0 })
+            .map_or(0, |s| s.n);
+        let mut spent = first.iterations(self.max_iter) - prefix;
+        let result = if prefix > 0 && first == Outcome::Unresolved {
+            let ordinary = self.one_from::<D, B, L>(i, j, skip, false);
+            spent += ordinary.iterations(self.max_iter);
+            ordinary
+        } else {
+            first
+        };
+        if L {
+            spent = spent - skip.skipped + skip.blocks;
+        }
+        (result, spent)
+    }
+
+    #[inline]
+    fn one_from<const D: bool, const B: bool, const L: bool>(
+        &self,
+        i: usize,
+        j: usize,
+        skip: &mut Skip,
+        use_series: bool,
     ) -> Outcome {
         let pl = self.plane;
         let h = pl.h();
         let (ux, uy) = pl.unit_offset(i, j);
         let start = |ar: f64, ai: f64| match self.series {
-            Some(s) if !B => {
+            Some(s) if !B && use_series => {
                 let (xr, xi, dr, di) = s.eval::<D>(ar, ai);
                 Start {
                     n: s.n,
@@ -493,13 +649,9 @@ impl<'a> Job<'a> {
                 continue;
             }
             let mut skip = Skip::default();
-            let o = self.one::<D, B, L>(i, row.j, &mut skip);
-            its += o.iterations(self.max_iter);
-            if let Some(s) = self.series.filter(|_| o != Outcome::Interior { n: 0 }) {
-                its -= s.n; // iterates the series start replaced
-            }
+            let (o, spent) = self.one::<D, B, L>(i, row.j, &mut skip);
+            its += spent;
             if L {
-                its = its - skip.skipped + skip.blocks;
                 b.blocks += skip.blocks;
                 b.skipped += skip.skipped;
                 let closed = matches!(o, Outcome::Interior { n: 0 });

@@ -12,6 +12,13 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- CPU film keyframes use a guarded series initializer when a small timing probe
+  predicts a net speedup over the existing renderer. Unprofitable frames retain
+  their previous path, and unresolved initialized samples retry through the
+  ordinary kernel. `FD_CPU_SERIES=off` enables reproducible before/after comparisons.
+
 ## [0.9.0] - 2026-10-20
 
 ### Changed
