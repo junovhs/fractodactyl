@@ -157,7 +157,7 @@ struct Front { z: C, du: C, n: i32, err: f64 }
 fn front(lo: bool, u: C, du_in: C, n_in: i32) -> Front {
     var du = du_in;
     var n = n_in;
-    // 23 approach iterates, with dz/dc in unscaled parameter coordinates.
+    // q-1 approach iterates, with dz/dc in unscaled parameter coordinates.
     var d = u * value(0);
     var ed = 0.0lf;
     if lo {
@@ -166,9 +166,9 @@ fn front(lo: bool, u: C, du_in: C, n_in: i32) -> Front {
         var du32 = vec2<f32>(ldexp2(du, -e));
         let one32 = vec2<f32>(f32(ldexp(1.0lf, -e)), 0.0);
         ed = f64(EPS32) * length(d);
-        for (var i = 0; i < 23; i += 1) {
-            let zz = vec2<f32>(cx(160 + 2 * i));
-            let lz = length(cx(160 + 2 * i));
+        for (var i = 0; i < i32(value(160)); i += 1) {
+            let zz = vec2<f32>(cx(162 + 2 * i));
+            let lz = length(cx(162 + 2 * i));
             let ld = f64(length(d32));
             ed = f64(2.0 * length(zz + d32)) * ed + 4.0 * f64(EPS32) * (2.0 * lz * ld + ld * ld);
             du32 = 2.0 * mul32(zz + d32, du32) + one32;
@@ -177,13 +177,13 @@ fn front(lo: bool, u: C, du_in: C, n_in: i32) -> Front {
         d = C(d32);
         du = ldexp2(C(du32), e);
     } else {
-        for (var i = 0; i < 23; i += 1) {
-            let zc = cx(160 + 2 * i);
+        for (var i = 0; i < i32(value(160)); i += 1) {
+            let zc = cx(162 + 2 * i);
             du = 2.0 * mul(zc + d, du) + C(1.0, 0.0);
             d = 2.0 * mul(zc, d) + mul(d, d);
         }
     }
-    n += 23;
+    n += i32(value(160));
 
     // Koenigs jump; Horner in the tail atlas is the final landing.
     let h0 = cx(17) + d;
@@ -212,7 +212,7 @@ fn front(lo: bool, u: C, du_in: C, n_in: i32) -> Front {
     if landing.ok {
         du = mul(mul(mul(landing.dz, dphi), du), divc(C(1.0, 0.0), w0));
         // dz/dw0 = dzs/w0 through t = (log w0 + j log rho - centre)/r.
-        return Front(landing.z, du, n + 2 * i32(j) + landing.m, length(landing.dz) / length(w0) * ew);
+        return Front(landing.z, du, n + i32(value(161)) * i32(j) + landing.m, length(landing.dz) / length(w0) * ew);
     }
     if j > 0.0 {
         let t = j * value(16);
@@ -236,7 +236,7 @@ fn front(lo: bool, u: C, du_in: C, n_in: i32) -> Front {
             dpsi = s.dy;
         }
         du = mul(mul(mul(dpsi, rj), dphi), du);
-        return Front(alpha + hw, du, n + 2 * i32(j), err);
+        return Front(alpha + hw, du, n + i32(value(161)) * i32(j), err);
     }
     return Front(alpha + h0, du, n, ed);
 }
@@ -293,7 +293,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>,
     let period = i32(value(3));
     let maxit = i32(value(5));
     let nn = i32(value(26));
-    g_phi_base = 206;
+    g_phi_base = 162 + 2 * i32(value(160));
     g_psi_base = g_phi_base + 2 * NPHI;
     g_node_base = g_psi_base + 2 * NPSI;
     g_leaf_base = g_node_base + 4 * nn;

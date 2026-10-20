@@ -152,14 +152,14 @@ struct Front { z: ZF, du: CF, n: i32 }
 fn front(u: CE, du_in: CF, n_in: i32) -> Front {
     var du = du_in;
     var n = n_in;
-    // 23 approach iterates, with dz/dc in unscaled parameter coordinates.
+    // q-1 approach iterates, with dz/dc in unscaled parameter coordinates.
     var d = ce_mul_fe(u, fe_at(0));
-    for (var i = 0; i < 23; i += 1) {
-        let zc = ce_at(160 + 2 * i);
+    for (var i = 0; i < int_at(160); i += 1) {
+        let zc = ce_at(162 + 2 * i);
         du = cf_add(cf_scale(cf_mul(cf_of(ce_add(zc, d)), du), 2.0), cf_one());
         d = ce_add(ce_mul_f(ce_mul(zc, d), 2.0), ce_mul(d, d));
     }
-    n += 23;
+    n += int_at(160);
 
     // Koenigs jump; Horner in the tail atlas is the final landing.
     let h0 = ce_add(ce_at(17), d);
@@ -177,7 +177,7 @@ fn front(u: CE, du_in: CF, n_in: i32) -> Front {
     let landing = horner_patch(lnw, ff_atan2(w0.im, w0.re), jf, int_at(23), int_at(26), int_at(27));
     if (landing.ok) {
         du = cf_mul(cf_mul(cf_mul(landing.dz, dphi), du), cf_inv(cf_of(w0)));
-        return Front(landing.z, du, n + 2 * i32(jf) + landing.m);
+        return Front(landing.z, du, n + int_at(161) * i32(jf) + landing.m);
     }
     if (jf > 0.0) {
         let t = ff_mul_f(ff_at(16), jf);
@@ -192,7 +192,7 @@ fn front(u: CE, du_in: CF, n_in: i32) -> Front {
         let xw = ce_mul(w0, rj);
         let sp = series(g_psi_base, NPSI, xw);
         du = cf_mul(cf_mul(cf_mul(sp.dy, cf_of(rj)), dphi), du);
-        return Front(zf_add(alpha, zf_of(sp.y)), du, n + 2 * i32(jf));
+        return Front(zf_add(alpha, zf_of(sp.y)), du, n + int_at(161) * i32(jf));
     }
     return Front(zf_add(alpha, zf_of(h0)), du, n);
 }
@@ -225,7 +225,7 @@ fn finish(gid: i32, z_in: ZF, du_in: CF, n_in: i32) {
 }
 
 fn set_bases() {
-    g_phi_base = 206;
+    g_phi_base = 162 + 2 * int_at(160);
     g_psi_base = g_phi_base + 2 * NPHI;
     g_node_base = g_psi_base + 2 * NPSI;
     g_leaf_base = g_node_base + 4 * int_at(26);

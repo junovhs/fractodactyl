@@ -2,12 +2,12 @@
 //! docs/research/10-8-26/misiurewicz-frame-transfer.md, PROB-07/08/09).
 //!
 //! A zone is a period-`P` minibrot nucleus `C` parked near a Misiurewicz point whose
-//! repelling 2-cycle (point `A`, multiplier `rho`) the orbit circles many times. For a
+//! repelling r-cycle (point `A`, multiplier `rho`) the orbit circles many times. For a
 //! pixel `c` close enough to `C`, its orbit is:
 //! 1. returns to `C` every `P` steps: one degree-4 biseries map per return (in
 //!    `u = (z - C) / scale` and `v = (c - C) / scale`), while `|z - C| <= guard`;
-//! 2. 23 steps against `C`'s critical orbit, landing near `A`;
-//! 3. the spiral out along the 2-cycle in one Koenigs jump: `w = phi(z - A)`,
+//! 2. q-1 steps against `C`'s critical orbit, landing near `A`;
+//! 3. the spiral out along the r-cycle in one Koenigs jump: `w = phi(z - A)`,
 //!    `w rho^j`, back with `psi = phi^-1`;
 //! 4. a tail patch (Taylor polynomial of `f_C^m(A + psi(w))` in `log w`) and the last
 //!    plain steps at the fixed parameter `C`.
@@ -38,8 +38,8 @@ mod mid;
 
 /// Tail patch polynomial length (tail_patches.py `D`).
 const PATCH_D: usize = 16;
-/// Critical-orbit steps from a return to the Koenigs chart (the zone's `q - 1`).
-const APPROACH: usize = 23;
+/// Relation assumed by zone files written before explicit `relation q r` lines.
+const LEGACY_RELATION: (usize, usize) = (24, 2);
 /// Largest first-return truncation shift, in pixels, a covered frame may carry. A shift
 /// of `s` px moves `de` by about `s` (|grad de| ~ 1), so near the scored floor
 /// (`de` = 1e-3 px, `fd compare` tolerance 0.2%) the relative `de` error is ~ s / 1e-3.
@@ -129,6 +129,7 @@ pub struct Zone {
     rho: Cx,
     z24ma: Cx,
     orbit: Vec<Cx>,
+    relation: (usize, usize),
     deg: usize,
     /// `bis[i][j]`: coefficient of `u^i v^j`.
     bis: Vec<Vec<Cx>>,
@@ -181,6 +182,7 @@ impl Zone {
             rho: Cx::default(),
             z24ma: Cx::default(),
             orbit: Vec::new(),
+            relation: LEGACY_RELATION,
             deg: 0,
             bis: Vec::new(),
             phi: Vec::new(),
@@ -231,6 +233,15 @@ impl Zone {
                 }
                 "c" => z.c = cx(1)?,
                 "period" => z.period = n(1)? as u64,
+                "relation" => {
+                    let integer = |i: usize| -> Result<usize, String> {
+                        f.get(i)
+                            .ok_or_else(|| bad("missing relation value"))?
+                            .parse::<usize>()
+                            .map_err(|_| bad("bad relation integer"))
+                    };
+                    z.relation = (integer(1)?, integer(2)?);
+                }
                 "scale" | "size" => z.scale = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
                 "guard" => z.guard = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
                 "max_dc" => z.max_dc = ZoneSize::parse(&f).map_err(|e| bad(&e))?,
@@ -238,8 +249,8 @@ impl Zone {
                 "bias" => z.bias = cx(1)?,
                 "alpha" => z.alpha = cx(1)?,
                 "rho" => z.rho = cx(1)?,
-                "z24_minus_alpha" => z.z24ma = cx(1)?,
-                "z24_minus_alpha_x" => z24ma_x = Some(fx(1)?),
+                "z24_minus_alpha" | "entry_minus_alpha" => z.z24ma = cx(1)?,
+                "z24_minus_alpha_x" | "entry_minus_alpha_x" => z24ma_x = Some(fx(1)?),
                 "orbit" => z.orbit.push(cx(2)?),
                 "biseries" => raw.push((n(1)? as usize, n(2)? as usize, cx(3)?)),
                 "biseries_x" => raw_x.push((n(1)? as usize, n(2)? as usize, fx(3)?)),
@@ -298,9 +309,14 @@ impl Zone {
         {
             return Err("incomplete zone: needs period, scale, guard, r0 and biseries".into());
         }
-        if z.orbit.len() != APPROACH {
+        let (q, r) = z.relation;
+        if q == 0 || r == 0 || q >= z.period as usize || r >= z.period as usize {
+            return Err("relation needs 0 < q,r < period".into());
+        }
+        if z.orbit.len() != q - 1 {
             return Err(format!(
-                "expected {APPROACH} orbit points, got {}",
+                "expected {} orbit points, got {}",
+                q - 1,
                 z.orbit.len()
             ));
         }
@@ -493,7 +509,7 @@ impl Zone {
             exps[17] = 0;
             exps[18] = 0;
         }
-        // A fixed 8x8 complex biseries and the 23 orbit points precede the variable data.
+        // A fixed 8x8 biseries, relation counts, then q-1 orbit points precede the series.
         for i in 0..8 {
             for j in 0..8 {
                 let a = match deep {
@@ -508,6 +524,7 @@ impl Zone {
                 exps.extend([a.e, a.e]);
             }
         }
+        v.extend([(self.relation.0 - 1) as f64, self.relation.1 as f64]);
         for a in &self.orbit {
             v.extend([a.0, a.1]);
         }
@@ -705,6 +722,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn relation_counts_are_checked_and_legacy_zones_still_load() {
+        let text = include_str!("../../../bench/zones/v0-core.zone");
+        assert_eq!(Zone::parse(text).unwrap().relation, (24, 2));
+        for relation in ["0 2", "24 0", "25 2", "-1 2", "24 1.5", "24"] {
+            assert!(
+                Zone::parse(&format!("{text}\nrelation {relation}\n")).is_err(),
+                "{relation}"
+            );
+        }
+        let explicit = Zone::parse(&format!("{text}\nrelation 24 2\n")).unwrap();
+        assert_eq!(explicit.relation, (24, 2));
+    }
+
+    #[test]
     fn gpu_f64_constants_use_scaled_decimal_offsets() {
         let z = v0();
         let p = params(&[Column::Nu, Column::De, Column::Normal]);
@@ -714,11 +745,11 @@ mod tests {
         assert_eq!(packed[0], 1e-25);
         assert!(packed[8].is_finite() && packed[9].is_finite());
         assert!(packed[10] > 0.0 && packed[10] < 1e-10);
-        assert_eq!(packed[160], z.orbit[0].0);
-        assert_eq!(packed[161], z.orbit[0].1);
+        assert_eq!(packed[162], z.orbit[0].0);
+        assert_eq!(packed[163], z.orbit[0].1);
         assert_eq!(
             packed.len(),
-            206 + 2 * (z.phi.len() + z.psi.len()) + 4 * z.nodes.len() + 36 * z.leaves.len()
+            208 + 2 * (z.phi.len() + z.psi.len()) + 4 * z.nodes.len() + 36 * z.leaves.len()
         );
         let mut outside = view;
         outside.width = "1e-12".into();

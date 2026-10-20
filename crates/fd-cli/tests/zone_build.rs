@@ -561,3 +561,134 @@ fn zone_written_renders_rung7676() {
     let failed = written_zone_renders((&r, &i), &["--period", &p.to_string()], &frames, "rung7676");
     assert!(failed.is_empty(), "{failed:?}");
 }
+
+#[test]
+fn zone_other_relation() {
+    // The leftmost period-128 nucleus approaches M(2,1) = -2. Its initial
+    // displacement is (4*pi^2/3) * 4^-P; Newton refines the exact centre in fd zone.
+    let bits = bits_for_digits(240);
+    let re = Float::from_i64(-2, bits)
+        .add(&Float::parse("13.1594725348", bits).unwrap().ldexp(-256))
+        .to_decimal(230);
+    let dir = std::env::temp_dir().join(format!("fd-prob36-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let zone = dir.join("other.zone");
+    let o = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args([
+            "zone",
+            &re,
+            "0",
+            "--period",
+            "128",
+            "--patch-depth",
+            "2",
+            "-o",
+        ])
+        .arg(&zone)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let report = String::from_utf8_lossy(&o.stdout);
+    eprintln!("{report}");
+    assert_eq!(field(&report, "q"), "2");
+    assert_eq!(field(&report, "r"), "1");
+    assert!(field(&report, "laps").parse::<usize>().unwrap() >= 100);
+    let text = std::fs::read_to_string(&zone).unwrap();
+    let centre: Vec<_> = text
+        .lines()
+        .find(|l| l.starts_with("c_exact "))
+        .unwrap()
+        .split_whitespace()
+        .skip(1)
+        .collect();
+    // An exterior frame near the nucleus avoids the separate deep-interior
+    // classification gap tracked in FIX-04. Every pixel must still match BLA.
+    let view = [
+        "--re",
+        centre[0],
+        "--im",
+        "2e-152",
+        "--width",
+        "1e-152",
+        "--size",
+        "480x270",
+        "--iter",
+        "10000",
+        "--columns",
+        "nu,de,normal",
+        "--threads",
+        "4",
+    ];
+    let store = dir.join("store");
+    let mut orbit = String::new();
+    let mut bla = String::new();
+    for (sub, key) in [("put", "orbit"), ("bla", "bla")] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+        cmd.args(["orbit", sub, "--store"]).arg(&store).args(view);
+        if sub == "bla" {
+            cmd.args(["--orbit", &orbit]);
+        }
+        let o = cmd.output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        let report = String::from_utf8_lossy(&o.stdout);
+        let id = report
+            .lines()
+            .find_map(|l| l.strip_prefix(&format!("{key} ")))
+            .unwrap()
+            .to_string();
+        if sub == "put" {
+            orbit = id;
+        } else {
+            bla = id;
+        }
+    }
+    for mode in [None, Some("f32only")] {
+        let out = dir.join(if mode.is_none() {
+            "bla.fds"
+        } else {
+            "zone.fds"
+        });
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_fd"));
+        cmd.args([
+            "render",
+            "--re",
+            centre[0],
+            "--im",
+            "2e-152",
+            "--width",
+            "1e-152",
+            "--size",
+            "480x270",
+            "--iter",
+            "10000",
+            "--columns",
+            "nu,de,normal",
+            "--threads",
+            "4",
+        ]);
+        if let Some(mode) = mode {
+            cmd.arg("--zone").arg(&zone).args(["--gpu-kernel", mode]);
+        } else {
+            cmd.arg("--store").arg(&store).args(["--bla", &bla]);
+        }
+        let o = cmd.arg("-o").arg(&out).output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        if mode.is_some() {
+            let reader = fd_samples::Reader::open(&out).unwrap();
+            assert!(
+                reader.header.kernel.contains("wgpu"),
+                "{}",
+                reader.header.kernel
+            );
+        }
+    }
+    let truth = read_fds(&dir.join("bla.fds"));
+    assert!(
+        truth.class.iter().any(|c| c.escaped()),
+        "must exercise escaping pixels"
+    );
+    let d = strict_diff(&truth, &read_fds(&dir.join("zone.fds")));
+    eprintln!("M(2,1) whole frame: {d:?}");
+    assert_eq!((d.0, d.1, d.2, d.3), (0, 0, 0, 0));
+    std::fs::remove_dir_all(dir).unwrap();
+}

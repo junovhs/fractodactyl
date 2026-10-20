@@ -54,12 +54,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let t = Instant::now();
     let s = seed(re, im, max_iter, period)?;
     if let Some(out) = a.str("o") {
-        // The zone kernel's approach and jump are written for M(24, 2) (zone.wgsl: 23
-        // approach steps, a 2-cycle); other relations are reported, not written.
-        if (s.q, s.r) != (24, 2) {
+        if s.laps < 100 {
             return Err(format!(
-                "the zone kernel takes M(24,2) zones; this centre's relation is M({},{})",
-                s.q, s.r
+                "the M({},{}) orbit shadows its cycle for {} laps; writing a zone needs 100",
+                s.q, s.r, s.laps
             ));
         }
         let text = zone_text(&s, depth);
@@ -161,7 +159,9 @@ pub(crate) fn seed(
                 .ok_or("the orbit escapes before any return")?
         }
     };
-    let digits = digits_for(p);
+    // The period-based estimate was calibrated on M(24,2). Faster expanding
+    // cycles can be much deeper at the same period; retain the supplied precision.
+    let digits = digits_for(p).max(re.len().max(im.len()) + 40);
     let bits = bits_for_digits(digits);
     let c = nucleus(&Complex::parse(re, im, bits)?, p, digits, bits)?;
     let (q, r) = misiurewicz(&c, p, bits)?;
@@ -432,6 +432,7 @@ fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     );
     let _ = writeln!(o, "c {}", c(&s.c));
     let _ = writeln!(o, "period {}", s.period);
+    let _ = writeln!(o, "relation {} {}", s.q, s.r);
     let _ = writeln!(o, "scale {:?} {}", 2.0 * sm, se - 1);
     // The loop guard, scale x 1e-3 (koenigs_bench_consts.py `auto`; v0's 1e-28).
     let (gm, ge) = m.guard.frexp();
@@ -440,16 +441,21 @@ fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     let _ = writeln!(o, "bias {}", c(&m.bias));
     let _ = writeln!(o, "alpha {}", c(&s.alpha));
     let _ = writeln!(o, "rho {}", c(&s.rho));
-    // C's critical orbit z_1 = C .. z_23 (the approach) and z_24 - A (the Koenigs entry).
+    // C's critical orbit z_1 .. z_{q-1} and z_q - A (the Koenigs entry).
     let mut zs = vec![s.c.clone()];
-    for _ in 0..23 {
+    for _ in 1..s.q {
         let next = zs.last().unwrap().sqr().add(&s.c);
         zs.push(next);
     }
-    let entry = zs[23].sub(&s.alpha);
-    let _ = writeln!(o, "z24_minus_alpha {}", c(&entry));
-    let _ = writeln!(o, "z24_minus_alpha_x {}", x(&entry));
-    for (i, z) in zs.iter().take(23).enumerate() {
+    let entry = zs[s.q - 1].sub(&s.alpha);
+    let key = if (s.q, s.r) == (24, 2) {
+        "z24_minus_alpha"
+    } else {
+        "entry_minus_alpha"
+    };
+    let _ = writeln!(o, "{key} {}", c(&entry));
+    let _ = writeln!(o, "{key}_x {}", x(&entry));
+    for (i, z) in zs.iter().take(s.q - 1).enumerate() {
         let _ = writeln!(o, "orbit {i} {}", c(z));
     }
     for (i, j, a) in &m.coeff {
