@@ -351,7 +351,7 @@ mod tests {
         use std::time::Instant;
         let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
         let size: u32 = std::env::var("FD_PROBE_WIDTH")
-            .unwrap_or("128".into())
+            .unwrap_or("256".into())
             .parse()
             .unwrap();
         let mut p = Params {
@@ -392,9 +392,11 @@ mod tests {
             let dc = bla_dc_max(&view, &p).unwrap();
             for (eps, minimum, order, prefix) in [
                 (EPS_MAX, 0, 0, false),
-                (1e-6, 2, 2, false),
-                (1e-3, 4, 4, false),
-                (1e-3, 4, 4, true),
+                (1e-2, 4, 4, false),
+                (1e-2, 4, 4, true),
+                (3e-2, 4, 4, false),
+                (3e-2, 4, 4, true),
+                (1e-1, 4, 4, true),
             ] {
                 let t = Instant::now();
                 let series = prefix.then(|| {
@@ -418,7 +420,11 @@ mod tests {
                 let mut levels = Vec::new();
                 let mut q_levels = Vec::new();
                 let mut prev = singles;
-                let mut q_prev = vec![Quadratic::single(order); prev.len()];
+                let mut q_prev = if order > 0 {
+                    vec![Quadratic::single(order); prev.len()]
+                } else {
+                    Vec::new()
+                };
                 while next.iter().any(|b| b.r > 0.0) {
                     if order > 0 {
                         let q: Vec<_> = (0..prev.len() / 2)
@@ -464,12 +470,19 @@ mod tests {
                     .count();
                 let mut nu_max = 0.0f64;
                 let mut de_max = 0.0f64;
+                let mut non_finite = 0;
                 for i in 0..plain.class.len() {
                     if !plain.class[i].escaped() || !accelerated.class[i].escaped() {
                         continue;
                     }
                     let a = plain.nu.as_ref().unwrap()[i];
                     let b = accelerated.nu.as_ref().unwrap()[i];
+                    if !a.is_finite()
+                        || !b.is_finite()
+                        || !accelerated.de.as_ref().unwrap()[i].is_finite()
+                    {
+                        non_finite += 1;
+                    }
                     if a.is_finite() && b.is_finite() {
                         nu_max = nu_max.max(
                             (a - b).abs()
@@ -484,7 +497,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nonfinite={non_finite} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }
