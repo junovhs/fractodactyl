@@ -27,6 +27,8 @@ use crate::reference::Reference;
 /// Guard thresholds and the order schedule.
 #[derive(Clone, Copy, Debug)]
 pub struct SeriesConfig {
+    #[cfg(test)]
+    pub(crate) stop_after_stall: u64,
     /// First active order (equal to `max_order` for a fixed-order series).
     pub start_order: usize,
     /// Largest order.
@@ -43,6 +45,8 @@ pub struct SeriesConfig {
 impl Default for SeriesConfig {
     fn default() -> SeriesConfig {
         SeriesConfig {
+            #[cfg(test)]
+            stop_after_stall: 0,
             start_order: 8,
             max_order: 64,
             grow_at: 1e-4,
@@ -242,6 +246,15 @@ impl Series {
                 active = (2 * active).min(k_max);
                 out.growth.push(step);
             }
+            #[cfg(test)]
+            if cfg.stop_after_stall > 0
+                && best
+                    .as_ref()
+                    .is_some_and(|b| step - b.0 >= cfg.stop_after_stall)
+            {
+                out.stop = "stall";
+                break;
+            }
         }
         if let Some((n, mut b, e, f, budget_e, budget_f, dmin, constant)) = best {
             #[cfg(test)]
@@ -368,6 +381,65 @@ mod tests {
     use super::*;
     use crate::grid::{reference, render_series, render_with, Params};
     use fd_samples::{Column, ColumnSet, View};
+
+    #[test]
+    #[ignore]
+    fn series_build_stall_probe() {
+        let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
+        for (i, line) in frames
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .enumerate()
+        {
+            let v: Vec<_> = line.split_whitespace().collect();
+            let view = View {
+                center_re: v[0].into(),
+                center_im: v[1].into(),
+                width: v[2].into(),
+                rotation: 0.0,
+            };
+            let p = Params {
+                nx: 480,
+                ny: 270,
+                ss: 1,
+                max_iter: 100_000,
+                threads: 8,
+                escape_radius: 1e10,
+                columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
+                tier: None,
+            };
+            let orbit = reference(&view, &p).unwrap();
+            let rho = crate::grid::bla_dc_max(&view, &p).unwrap();
+            let mut baseline = None;
+            for stall in [0, 32, 128] {
+                let t = std::time::Instant::now();
+                let s = Series::build(
+                    &orbit.0,
+                    rho,
+                    v[2].parse::<f64>().unwrap() / 480.0,
+                    8192,
+                    SeriesConfig {
+                        stop_after_stall: stall,
+                        ..SeriesConfig::default()
+                    },
+                );
+                let elapsed = t.elapsed().as_secs_f64();
+                let same = baseline.as_ref().is_none_or(|b: &Series| {
+                    b.n == s.n
+                        && b.b == s.b
+                        && b.state_bound == s.state_bound
+                        && b.derivative_bound == s.derivative_bound
+                });
+                println!(
+                    "frame={i} stall={stall} n={} built={} build={elapsed:.6} identical={same}",
+                    s.n, s.built_steps
+                );
+                if stall == 0 {
+                    baseline = Some(s);
+                }
+            }
+        }
+    }
 
     /// Whole-frame promotion gate plus the actual fd film/compare surfaces. The
     /// workflow supplies its built CLI; nothing is silently skipped without it.
