@@ -222,6 +222,136 @@ impl Quadratic {
         result.p[2] = (0.0, 0.0);
         result
     }
+    /// Positive-coefficient majorant of the terms discarded by composition. A
+    /// scalar t counts total degree; evaluating the tail at t=1 bounds every
+    /// degree > order term over |delta| <= radius and |dc| <= dc_max.
+    fn tail(mut p: Self, mut q: Self, x: &Block, y: &Block, radius: f64, dc_max: f64) -> f64 {
+        p.p[1] = x.a;
+        p.p[2] = x.b;
+        q.p[1] = y.a;
+        q.p[2] = y.b;
+        let mut weights = [0.0; 5];
+        for n in 1..=p.order {
+            for j in 0..=n {
+                let a = p.p[Self::index(n - j, j)];
+                weights[n] += a.0.hypot(a.1) * radius.powi((n - j) as i32) * dc_max.powi(j as i32);
+            }
+        }
+        let mut powers = [[0.0; 17]; 5];
+        powers[0][0] = 1.0;
+        for i in 1..=p.order {
+            for n in 0..=p.order * (i - 1) {
+                for j in 1..=p.order {
+                    powers[i][n + j] += powers[i - 1][n] * weights[j];
+                }
+            }
+        }
+        let mut tail = 0.0;
+        for n in 1..=q.order {
+            for j in 0..=n {
+                let a = q.p[Self::index(n - j, j)];
+                let w = a.0.hypot(a.1) * dc_max.powi(j as i32);
+                for k in 0..=p.order * (n - j) {
+                    if k + j > p.order {
+                        tail += w * powers[n - j][k];
+                    }
+                }
+            }
+        }
+        tail
+    }
+    fn norms(mut p: Self, x: &Block, radius: f64, dc_max: f64) -> (f64, f64) {
+        p.p[1] = x.a;
+        p.p[2] = x.b;
+        let (mut state, mut parameter) = (0.0, 0.0);
+        for n in 1..=p.order {
+            for j in 0..=n {
+                let a = p.p[Self::index(n - j, j)];
+                let w = a.0.hypot(a.1) * radius.powi((n - j) as i32) * dc_max.powi(j as i32);
+                if n > j {
+                    state += w;
+                } else {
+                    parameter += w;
+                }
+            }
+        }
+        (state, parameter)
+    }
+    fn slope(mut q: Self, y: &Block, radius: f64, dc_max: f64) -> f64 {
+        q.p[1] = y.a;
+        q.p[2] = y.b;
+        let mut slope = 0.0;
+        for n in 1..=q.order {
+            for j in 0..n {
+                let a = q.p[Self::index(n - j, j)];
+                slope += (n - j) as f64
+                    * a.0.hypot(a.1)
+                    * radius.powi((n - j - 1) as i32)
+                    * dc_max.powi(j as i32);
+            }
+        }
+        slope
+    }
+    /// Research-only alternative to the linear radius: exact quadratic leaves,
+    /// composed Taylor tail bounds, and explicit decline when the error budget or
+    /// the second half's input domain cannot be satisfied.
+    fn guarded(
+        x: &Block,
+        y: &Block,
+        p: Self,
+        q: Self,
+        dc: f64,
+        eps: f64,
+        len: usize,
+    ) -> (Block, Self) {
+        if x.r == 0.0 || y.r == 0.0 {
+            return (
+                Block::default(),
+                Self {
+                    order: p.order,
+                    ..Self::default()
+                },
+            );
+        }
+        let poly = Self::merge(x, y, p, q);
+        let mut b = Block {
+            a: Self::mul(y.a, x.a),
+            b: Self::sum(Self::mul(y.a, x.b), y.b, (0.0, 0.0)),
+            ..Block::default()
+        };
+        let pure_tail = Self::tail(p, q, x, y, 0.0, dc);
+        let mut radius = x.r;
+        for _ in 0..64 {
+            let (nd, nc) = Self::norms(p, x, radius, dc);
+            let ex = x.alpha * radius + x.beta * dc;
+            if nd + nc + ex > y.r {
+                radius *= 0.5;
+                continue;
+            }
+            let slope = Self::slope(q, y, nd + nc + ex, dc);
+            let tail = Self::tail(p, q, x, y, radius, dc);
+            b.alpha = (slope + y.alpha) * x.alpha + y.alpha * nd / radius + tail / radius;
+            b.beta = (slope + y.alpha) * x.beta + y.alpha * nc / dc + y.beta + pure_tail / dc;
+            let error = b.alpha * radius + b.beta * dc;
+            let budget = eps * len as f64 * (b.a.0.hypot(b.a.1) * radius + b.b.0.hypot(b.b.1) * dc);
+            if error.is_finite() && budget.is_finite() && error <= budget {
+                b.r = radius;
+                return (b, poly);
+            }
+            if pure_tail > budget || !tail.is_finite() {
+                radius *= 0.1;
+            } else {
+                radius *= (budget / error).powf(0.2).clamp(0.1, 0.5);
+            }
+        }
+        (
+            Block::default(),
+            Self {
+                order: p.order,
+                ..Self::default()
+            },
+        )
+    }
     pub(crate) fn eval(
         self,
         x: (f64, f64),
@@ -392,11 +522,8 @@ mod tests {
             let dc = bla_dc_max(&view, &p).unwrap();
             for (eps, minimum, order, prefix) in [
                 (EPS_MAX, 0, 0, false),
-                (1e-2, 4, 4, false),
-                (1e-2, 4, 4, true),
-                (3e-2, 4, 4, false),
-                (3e-2, 4, 4, true),
-                (1e-1, 4, 4, true),
+                (1e-10, 3, 4, false),
+                (1e-10, 3, 4, true),
             ] {
                 let t = Instant::now();
                 let series = prefix.then(|| {
@@ -409,7 +536,20 @@ mod tests {
                     )
                 });
                 let singles: Vec<_> = (1..orbit.0.len() - 1)
-                    .map(|k| Block::single(orbit.0.re[k], orbit.0.im[k], eps))
+                    .map(|k| {
+                        if order == 0 {
+                            Block::single(orbit.0.re[k], orbit.0.im[k], eps)
+                        } else if orbit.0.re[k].hypot(orbit.0.im[k]) <= 2.0 {
+                            Block {
+                                a: (2.0 * orbit.0.re[k], 2.0 * orbit.0.im[k]),
+                                b: (1.0, 0.0),
+                                r: 0.125,
+                                ..Block::default()
+                            }
+                        } else {
+                            Block::default()
+                        }
+                    })
                     .collect();
                 let merge = |l: &[Block]| -> Vec<Block> {
                     l.chunks_exact(2)
@@ -425,24 +565,31 @@ mod tests {
                 } else {
                     Vec::new()
                 };
+                let mut block_len = 2;
                 while next.iter().any(|b| b.r > 0.0) {
                     if order > 0 {
-                        let q: Vec<_> = (0..prev.len() / 2)
+                        let pairs: Vec<_> = (0..prev.len() / 2)
                             .map(|i| {
-                                Quadratic::merge(
+                                Quadratic::guarded(
                                     &prev[2 * i],
                                     &prev[2 * i + 1],
                                     q_prev[2 * i],
                                     q_prev[2 * i + 1],
+                                    dc,
+                                    eps,
+                                    block_len,
                                 )
                             })
                             .collect();
+                        next = pairs.iter().map(|p| p.0).collect();
+                        let q: Vec<_> = pairs.into_iter().map(|p| p.1).collect();
                         q_prev = q.clone();
                         q_levels.push(q);
                     }
                     let up = merge(&next);
                     prev = next.clone();
                     levels.push(std::mem::replace(&mut next, up));
+                    block_len *= 2;
                 }
                 let table = Bla {
                     min_level: minimum,
