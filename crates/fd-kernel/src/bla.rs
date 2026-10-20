@@ -13,6 +13,10 @@ use crate::sample::RESOLVABLE;
 /// periodicity threshold `RESOLVABLE |z|` means no block ever covers an iterate the
 /// plain kernel would judge for periodicity.
 pub const EPS_MAX: f64 = 1.0 / (1u64 << 41) as f64;
+
+/// Minimum block length that amortizes lookup, derivative and error-accounting costs.
+/// Shorter valid blocks are intentionally left to plain perturbation (FIX-09).
+pub const MIN_PROFITABLE_STEPS: u64 = 8;
 const _: () = assert!(2.0 * EPS_MAX <= RESOLVABLE * (1.0 - 2.0 * EPS_MAX));
 
 /// Refuse an `eps` outside `(0, EPS_MAX]` or a bad `dc_max`.
@@ -193,24 +197,42 @@ impl Bla {
         )
     }
 
-    /// The longest block starting at reference index `m` that is valid for
-    /// `|delta|^2 = d2` and at most `budget` steps long, with its step count (at least 2).
+    /// Whether the table has any block long enough to repay its per-block overhead.
+    /// A frame with only shorter levels can use the plain path without any BLA lookups.
+    pub fn has_profitable_blocks(&self) -> bool {
+        let first = MIN_PROFITABLE_STEPS.trailing_zeros() as usize - 1;
+        self.levels.get(first).is_some_and(|level| level.iter().any(|b| b.r > 0.0))
+    }
+
+    /// The longest valid block starting at reference index `m`, with length at least
+    /// `min_steps` (a power of two >= 2) and at most `budget` steps.
     ///
-    /// A level-`j` block starts where its first half (the level `j-1` block at the same
-    /// index) starts and its radius is at most that half's (`merge`), so validity only
-    /// shrinks going up: walk up from level 1 and stop at the first failure.
+    /// The parent's validity radius is never larger than its first child's, so an
+    /// invalid minimum-size block rejects all longer blocks without checking them.
+    /// Starting the search at the minimum size also skips the expensive lookups for
+    /// short blocks that cost more to evaluate than the steps they replace.
     #[inline]
-    pub(crate) fn find(&self, m: usize, d2: f64, budget: u64) -> Option<(&Block, usize)> {
-        // Blocks of 2^j steps start at k = m - 1 divisible by 2^j (m = 0 wraps: odd).
+    pub(crate) fn find(
+        &self,
+        m: usize,
+        d2: f64,
+        budget: u64,
+        min_steps: u64,
+    ) -> Option<(&Block, usize)> {
+        debug_assert!(min_steps >= 2 && min_steps.is_power_of_two());
         let k = m.wrapping_sub(1);
+        let first = min_steps.trailing_zeros() as usize - 1;
         let top = (k.trailing_zeros() as usize).min(self.levels.len());
+        if first >= top || budget < min_steps {
+            return None;
+        }
         let ok = |i: usize| {
             (2u64 << i) <= budget && self.r2[i].get(k >> (i + 1)).is_some_and(|&r2| d2 < r2)
         };
-        if top == 0 || !ok(0) {
+        if !ok(first) {
             return None;
         }
-        let mut i = 0;
+        let mut i = first;
         while i + 1 < top && ok(i + 1) {
             i += 1;
         }
@@ -310,12 +332,36 @@ mod tests {
                     .last()
                     .map(|(i, b)| (*b.unwrap(), 2usize << i));
                 assert_eq!(
-                    t.find(m, d2, budget).map(|(b, l)| (*b, l)),
+                    t.find(m, d2, budget, 2).map(|(b, l)| (*b, l)),
                     want,
                     "m {m} d2 {d2} budget {budget}"
                 );
             }
         }
+    }
+
+    #[test]
+    fn minimum_profitable_length_matches_filtered_unrestricted_search() {
+        let r = Reference::new(-0.743643887037158, 0.131825904205312, 10_000, 1e10);
+        let t = Bla::build(&r, EPS_MAX, 1e-24).unwrap();
+        assert!(t.has_profitable_blocks());
+        for m in (0..t.points as usize).step_by(7) {
+            for d2 in [0.0, 1e-50, 1e-35, 1.0] {
+                for budget in [1, 2, 7, 8, 31, 256, u64::MAX] {
+                    let short = t.find(m, d2, budget, 2).map(|(b, n)| (*b, n));
+                    let long = t
+                        .find(m, d2, budget, MIN_PROFITABLE_STEPS)
+                        .map(|(b, n)| (*b, n));
+                    assert_eq!(
+                        long,
+                        short.filter(|(_, n)| *n as u64 >= MIN_PROFITABLE_STEPS),
+                        "m {m} d2 {d2} budget {budget}"
+                    );
+                }
+            }
+        }
+        let empty = Bla::new(EPS_MAX, 1e-24, 100, vec![]).unwrap();
+        assert!(!empty.has_profitable_blocks());
     }
 
     #[test]
@@ -332,12 +378,12 @@ mod tests {
         assert!(Bla::new(EPS_MAX, 1.0, t.points, vec![]).is_ok());
         // A tiny delta at index 1 takes the longest valid block; index 0 (Z_0 = 0) and
         // even indices (odd k) never skip, nor does a budget under 2 steps.
-        let (_, len) = t.find(1, 1e-40, u64::MAX).unwrap();
+        let (_, len) = t.find(1, 1e-40, u64::MAX, 2).unwrap();
         assert!(len > 2, "{len}");
-        assert!(t.find(0, 1e-40, u64::MAX).is_none());
-        assert!(t.find(2, 1e-40, u64::MAX).is_none());
-        assert!(t.find(1, 1e-40, 1).is_none());
-        assert_eq!(t.find(1, 1e-40, 3).unwrap().1, 2);
-        assert!(t.find(1, 1.0, u64::MAX).is_none());
+        assert!(t.find(0, 1e-40, u64::MAX, 2).is_none());
+        assert!(t.find(2, 1e-40, u64::MAX, 2).is_none());
+        assert!(t.find(1, 1e-40, 1, 2).is_none());
+        assert_eq!(t.find(1, 1e-40, 3, 2).unwrap().1, 2);
+        assert!(t.find(1, 1.0, u64::MAX, 2).is_none());
     }
 }
