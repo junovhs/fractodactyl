@@ -8,9 +8,9 @@
 //!
 //! `--bla per-frame` is the stronger independent control (BENC-01 arm B): each frame
 //! computes its own reference orbit and builds its own BLA table over it for its own
-//! largest `|dc|` (the `fd compile --bla frame` contract: `eps` = `orbit::EPS`, every
-//! level up to the first with no valid block), inside the frame's clock, then renders
-//! with it; a table with no valid block is skipped as `fd play` skips one. Nothing is
+//! largest `|dc|` (the strongest `eps` permitted by the kernel's shared periodicity
+//! guard, every level up to the first with a valid block), inside the frame clock.
+//! Tables without any >=8-step block fall back to plain perturbation. Nothing is
 //! kept for the next frame.
 //!
 //! `--zone FILE` (KERN-01): frames the zone covers (every sample within its `max_dc` of
@@ -22,15 +22,19 @@
 //! seconds.
 use crate::args::Args;
 use crate::bench::{measure, peak_rss, q, reset_peak_rss, run_oracle, sample_bytes, Frame};
-use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
 use fd_kernel::{
     bla_dc_max, reference_bits, render_bla, render_with, zone_covers, Bla, BlaStats, Params, Zone,
+    BLA_EPS_MAX,
 };
 use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
 use std::time::Instant;
+
+// The independent per-frame control can use the full radius allowed by the validity
+// contract. Stored atlas tables retain their original, conservative default.
+const EPS: f64 = BLA_EPS_MAX;
 
 const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--zone FILE] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
@@ -254,6 +258,8 @@ enum TableUse {
     None,
     /// The table holds no valid block: skipped, the frame renders with its orbit alone.
     Empty,
+    /// The table is valid, but all its blocks cost more than their replaced steps.
+    Unprofitable,
     Used,
 }
 
@@ -262,6 +268,7 @@ impl TableUse {
         match self {
             TableUse::None => "none",
             TableUse::Empty => "skipped_empty",
+            TableUse::Unprofitable => "skipped_unprofitable",
             TableUse::Used => "used",
         }
     }
@@ -332,17 +339,17 @@ fn measure_per_frame_bla<'a>(
         let operator_seconds = op.elapsed().as_secs_f64();
         let r = Instant::now();
         let (table_use, (h, s, st, bla)) = match &table {
-            Some((_, bla)) if !bla.levels.is_empty() => {
+            Some((_, bla)) if bla.has_profitable_blocks() => {
                 let (h, s, st, b) = render_bla(view, p, (orbit, bits), bla)?;
                 (TableUse::Used, (h, s, st, Some(b)))
             }
             other => {
                 let (h, s, st) = render_with(view, p, Some((orbit, bits)))?;
                 (
-                    if other.is_some() {
-                        TableUse::Empty
-                    } else {
-                        TableUse::None
+                    match other {
+                        Some((_, bla)) if bla.levels.is_empty() => TableUse::Empty,
+                        Some(_) => TableUse::Unprofitable,
+                        None => TableUse::None,
                     },
                     (h, s, st, None),
                 )
@@ -522,11 +529,12 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
     if per_frame {
         let _ = write!(
             j,
-            ",\"bla\":{{\"mode\":\"per-frame\",\"eps\":{EPS:e},\"frames_used\":{},\"frames_empty_table_skipped\":{},\"frames_without_table\":{},\
+            ",\"bla\":{{\"mode\":\"per-frame\",\"eps\":{EPS:e},\"frames_used\":{},\"frames_empty_table_skipped\":{},\"frames_unprofitable_skipped\":{},\"frames_without_table\":{},\
              \"operator_seconds\":{{\"total\":{},\"per_frame\":{}}},\"render_seconds\":{},\"table_bytes\":{{\"total\":{},\"max\":{}}},\
              \"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\"shift_px_max\":{}}}",
             t.bla_use[TableUse::Used as usize],
             t.bla_use[TableUse::Empty as usize],
+            t.bla_use[TableUse::Unprofitable as usize],
             t.bla_use[TableUse::None as usize],
             t.operator,
             num(t.operator / n as f64),
@@ -599,7 +607,7 @@ struct Totals {
     oracle_failures: usize,
     /// `--bla per-frame` only: frames per [`TableUse`], operator (table build) and
     /// render seconds, table bytes, BLA work, fallback samples.
-    bla_use: [usize; 3],
+    bla_use: [usize; 4],
     operator: f64,
     render: f64,
     table_bytes: u64,
@@ -633,7 +641,7 @@ impl Default for Totals {
             deterministic: true,
             oracle_frames: 0,
             oracle_failures: 0,
-            bla_use: [0; 3],
+            bla_use: [0; 4],
             operator: 0.0,
             render: 0.0,
             table_bytes: 0,
