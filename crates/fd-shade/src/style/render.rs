@@ -189,9 +189,7 @@ impl StyleRenderer {
         let out_bytes = pixels * 4;
         let limits = device.limits();
         for bytes in [input_bytes, hdr_bytes, out_bytes] {
-            if bytes > limits.max_storage_buffer_binding_size
-                || bytes > limits.max_buffer_size
-            {
+            if bytes > limits.max_storage_buffer_binding_size || bytes > limits.max_buffer_size {
                 return Err(
                     "style exceeds GPU buffer limits; tiled styling is not implemented".into(),
                 );
