@@ -445,7 +445,11 @@ fn la_speed_band_correctness_smoke() {
         assert!(frame.contains(r#""mode":"per-frame""#), "{frame}");
         assert!(frame.contains(r#""ok":true}"#), "{frame}");
     }
-    let comparison = ok(&fd(&["compare", plain.to_str().unwrap(), la.to_str().unwrap()]));
+    let comparison = ok(&fd(&[
+        "compare",
+        plain.to_str().unwrap(),
+        la.to_str().unwrap(),
+    ]));
     let totals = comparison.lines().last().unwrap();
     assert_eq!(num(totals, "class_mismatches"), 0.0, "{comparison}");
     assert!(totals.ends_with(r#""ok":true}"#), "{comparison}");
