@@ -1,0 +1,15 @@
+{
+  "scene": "cusp-8",
+  "order": 12,
+  "denom": 3,
+  "tolerance": 1e-12,
+  "prefix": 18938,
+  "stop": "state",
+  "state_bound": 9.883924298400426e-13,
+  "derivative_bound": 1.1059478335110727e-10,
+  "min_denominator": 0.02515320296430823,
+  "max_solve_condition": 2.0426985474354058e+18,
+  "reference_s": 0.2938705530000334,
+  "setup_s": 3.349164304000169,
+  "total_s": 3.643035897000118
+}

@@ -3431,3 +3431,18 @@ in `docs/2026-10-20/README.md`; CSVs preserve failures. **No promotion:** sparse
 Python comparisons, no optimized native BLA opponent, no actual FIX-09 frames,
 no certified arithmetic or demonstrated renderer 3x. Next: condition-aware
 error allocation and segmented continuation, after resolving endpoint accuracy.
+
+### PROB-39: rational/local parameter chart tournament (2026-10-20)
+
+Followed PROB-38 with 180 initial and 300 expanded snapshot comparisons (1.90/2.31 s),
+then residual guards, endpoint tests, local regions, a native scalar microbenchmark,
+holdouts, and error attribution. At cusp width 1e-8, order-8 one-pole initialization
+admits 16,916 iterations vs polynomial 8,935. A local order-16 one-pole chart admits
+31,858 and passes 9/9 escaping training points and 12/12 mixed holdouts. Native
+**warm evaluator only** gain is about 3.2x on training and 2.0x on holdouts; setup
+excluded, no optimized BLA/full frame/FIX-09-band comparison. Narrower charts fail
+six endpoints each; extended build precision does not cure those failures, while
+state tolerance 1e-15 restores accuracy at a shorter prefix. Valley diagnostics
+separately show a reference-conversion floor. **Research lead, no promotion or
+production 3x claim.** Reproduction, exact-arithmetic residual/derivative derivation,
+setup costs, failed variants and raw data: `docs/2026-10-20/rational-charts/README.md`.

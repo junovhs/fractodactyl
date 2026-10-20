@@ -1,0 +1,14 @@
+{
+  "cpu": "AMD Ryzen 9 3900X 12-Core Processor",
+  "platform": "Linux-7.1.1-76070101-generic-x86_64-with-glibc2.35",
+  "rustc": "rustc 1.90.0 (1159e78c4 2025-09-14)",
+  "flags": [
+    "-O"
+  ],
+  "threads": 1,
+  "rounds": 7,
+  "repetitions_per_round": 32,
+  "scope": "warm scalar evaluator only; native reference and guard construction excluded",
+  "native_holdout_exit_code": 101,
+  "native_budget15_holdout_exit_code": 0
+}

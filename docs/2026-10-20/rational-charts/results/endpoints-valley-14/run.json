@@ -1,0 +1,31 @@
+{
+  "elapsed_s": 3.018644143000074,
+  "note": "Sparse Python evaluator only; no native/full-frame speedup",
+  "configs": [
+    [
+      0,
+      0,
+      1e-12
+    ],
+    [
+      8,
+      0,
+      1e-12
+    ],
+    [
+      8,
+      1,
+      1e-12
+    ],
+    [
+      12,
+      1,
+      1e-12
+    ],
+    [
+      12,
+      1,
+      1e-18
+    ]
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "elapsed_s": 2.3106029989999115,
+  "truth_sha256": "ab8924d49b5887c133ee8a726a6a58861cd90cd2de669cf63342e8d2d429d33f",
+  "numpy": "2.2.6",
+  "mpmath": "1.4.1",
+  "python": "3.10.12"
+}

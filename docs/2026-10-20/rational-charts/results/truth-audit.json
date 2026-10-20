@@ -1,0 +1,8 @@
+{
+  "points": 9,
+  "original_dps": 100,
+  "audit_dps": 150,
+  "max_relative_error": "0.0",
+  "original_sha256": "b431724b62336dd9939451a9d50ff7bba8089a9b7e0ddb6d856464aff593cb0e",
+  "audit_sha256": "75c30d58007ed1774b91404d79248981346cd3df297b6ce9b7270ce851e1bee6"
+}
