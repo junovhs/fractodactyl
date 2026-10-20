@@ -392,3 +392,50 @@ fn de_and_normal_are_scored() {
     assert_eq!(num(section(t, "normal"), "frames_scored"), 0.0, "{t}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+
+#[test]
+fn la_speed_band_correctness_smoke() {
+    // FIX-09: exercise the entire troublesome 1e-14 .. 1e-29 band with the
+    // production per-frame BLA choice, including frames that choose plain.
+    // The 24-frame, 480x270 performance gate lives in scripts/check/FIX-09.sh.
+    let dir = std::env::temp_dir().join(format!("fd-la-band-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("path.txt");
+    let committed = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../bench/path-atlas-v0.txt");
+    let source = std::fs::read_to_string(committed).unwrap();
+    let first = source.lines().find(|line| !line.starts_with('#')).unwrap();
+    let parts: Vec<&str> = first.split_whitespace().collect();
+    let mut frames = String::new();
+    for width in ["1e-14", "1e-17", "1e-20", "1e-23", "1e-26", "1e-29"] {
+        frames.push_str(&format!("{} {} {width}\n", parts[0], parts[1]));
+    }
+    std::fs::write(&path, frames).unwrap();
+    let (plain, la) = (dir.join("plain"), dir.join("la"));
+    let path = path.to_str().unwrap();
+    let grid = [
+        "--size", "32x18", "--ss", "1", "--iter", "20000",
+        "--columns", "nu,de", "--threads", "2", "--runs", "1",
+    ];
+    ok(&fd(&[
+        &["control", path, "-o", plain.to_str().unwrap()][..],
+        &grid,
+    ].concat()));
+    let output = ok(&fd(&[
+        &["control", path, "--bla", "per-frame", "-o", la.to_str().unwrap()][..],
+        &grid,
+    ].concat()));
+    assert_eq!(output.lines().count(), 7, "{output}");
+    for frame in output.lines().take(6) {
+        assert!(frame.contains("\\"mode\\":\\"per-frame\\""), "{frame}");
+        assert!(frame.contains("\\"ok\\":true}"), "{frame}");
+    }
+    let comparison = ok(&fd(&[
+        "compare", plain.to_str().unwrap(), la.to_str().unwrap(),
+    ]));
+    let totals = comparison.lines().last().unwrap();
+    assert_eq!(num(totals, "class_mismatches"), 0.0, "{comparison}");
+    assert!(totals.ends_with("\\"ok\\":true}"), "{comparison}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
