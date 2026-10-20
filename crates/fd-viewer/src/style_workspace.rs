@@ -131,8 +131,8 @@ const CONTROLS: &[Control] = &[
         name: "light_angle",
         label: "Light direction",
         group: "Light & material",
-        min: -3.141593,
-        max: 3.141593,
+        min: -std::f32::consts::PI,
+        max: std::f32::consts::PI,
         step: 0.025,
     },
     Control {

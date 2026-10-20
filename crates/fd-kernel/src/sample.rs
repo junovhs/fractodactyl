@@ -372,7 +372,7 @@ impl Contraction {
             self.started = true;
         }
         let a = re.abs().max(im.abs());
-        if a != 0.0 && (a > HI || a < LO) {
+        if a != 0.0 && !(LO..=HI).contains(&a) {
             let e = a.log2().floor() as i64;
             let scale = exp2i(-e);
             re *= scale;
@@ -382,7 +382,7 @@ impl Contraction {
         (self.re, self.im) = (self.re * re - self.im * im, self.re * im + self.im * re);
         self.exp += exp;
         let a = self.re.abs().max(self.im.abs());
-        if a != 0.0 && (a > HI || a < LO) {
+        if a != 0.0 && !(LO..=HI).contains(&a) {
             let e = a.log2().floor() as i64;
             let scale = exp2i(-e);
             self.re *= scale;
