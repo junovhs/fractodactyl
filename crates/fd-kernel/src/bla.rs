@@ -134,9 +134,8 @@ pub struct Bla {
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Quadratic {
-    c: (f64, f64),
-    d: (f64, f64),
-    e: (f64, f64),
+    p: [(f64, f64); 15],
+    order: usize,
 }
 
 #[cfg(test)]
@@ -147,43 +146,99 @@ impl Quadratic {
     fn sum(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> (f64, f64) {
         (a.0 + b.0 + c.0, a.1 + b.1 + c.1)
     }
-    fn twice(a: (f64, f64)) -> (f64, f64) {
-        (2.0 * a.0, 2.0 * a.1)
+    fn index(i: usize, j: usize) -> usize {
+        (i + j) * (i + j + 1) / 2 + j
     }
-    fn merge(x: &Block, y: &Block, p: Self, q: Self) -> Self {
-        Self {
-            c: Self::sum(
-                Self::mul(y.a, p.c),
-                Self::mul(q.c, Self::mul(x.a, x.a)),
-                (0.0, 0.0),
-            ),
-            d: Self::sum(
-                Self::mul(y.a, p.d),
-                Self::twice(Self::mul(q.c, Self::mul(x.a, x.b))),
-                Self::mul(q.d, x.a),
-            ),
-            e: Self::sum(
-                Self::mul(y.a, p.e),
-                Self::mul(q.c, Self::mul(x.b, x.b)),
-                Self::sum(Self::mul(q.d, x.b), q.e, (0.0, 0.0)),
-            ),
+    fn single(order: usize) -> Self {
+        let mut q = Self {
+            order,
+            ..Self::default()
+        };
+        q.p[Self::index(2, 0)] = (1.0, 0.0);
+        q
+    }
+    fn product(a: Self, b: Self) -> Self {
+        let mut c = Self {
+            order: a.order,
+            ..Self::default()
+        };
+        for n in 0..=a.order {
+            for j in 0..=n {
+                let x = a.p[Self::index(n - j, j)];
+                if x == (0.0, 0.0) {
+                    continue;
+                }
+                for m in 0..=a.order - n {
+                    for k in 0..=m {
+                        let y = b.p[Self::index(m - k, k)];
+                        if y == (0.0, 0.0) {
+                            continue;
+                        }
+                        let at = Self::index(n - j + m - k, j + k);
+                        c.p[at] = Self::sum(c.p[at], Self::mul(x, y), (0.0, 0.0));
+                    }
+                }
+            }
         }
+        c
+    }
+    fn merge(x: &Block, y: &Block, mut p: Self, mut q: Self) -> Self {
+        p.p[1] = x.a;
+        p.p[2] = x.b;
+        q.p[1] = y.a;
+        q.p[2] = y.b;
+        let mut powers = [Self {
+            order: p.order,
+            ..Self::default()
+        }; 5];
+        powers[0].p[0] = (1.0, 0.0);
+        powers[1] = p;
+        for i in 2..=p.order {
+            powers[i] = Self::product(powers[i - 1], p);
+        }
+        let mut result = Self {
+            order: p.order,
+            ..Self::default()
+        };
+        for n in 1..=p.order {
+            for j in 0..=n {
+                let coeff = q.p[Self::index(n - j, j)];
+                if coeff == (0.0, 0.0) {
+                    continue;
+                }
+                for degree in 0..=p.order - j {
+                    for k in 0..=degree {
+                        let at = Self::index(degree - k, k + j);
+                        result.p[at] = Self::sum(
+                            result.p[at],
+                            Self::mul(coeff, powers[n - j].p[Self::index(degree - k, k)]),
+                            (0.0, 0.0),
+                        );
+                    }
+                }
+            }
+        }
+        result.p[1] = (0.0, 0.0);
+        result.p[2] = (0.0, 0.0);
+        result
     }
     pub(crate) fn eval(
         self,
         x: (f64, f64),
         dc: (f64, f64),
     ) -> ((f64, f64), (f64, f64), (f64, f64)) {
-        let (u, v, w) = (
-            Self::mul(self.c, x),
-            Self::mul(self.d, dc),
-            Self::mul(self.e, dc),
-        );
-        (
-            Self::sum(Self::mul(u, x), Self::mul(v, x), Self::mul(w, dc)),
-            Self::sum(Self::twice(u), v, (0.0, 0.0)),
-            Self::sum(Self::mul(self.d, x), Self::twice(w), (0.0, 0.0)),
-        )
+        let (mut value, mut dx, mut dy) = ((0.0, 0.0), (0.0, 0.0), (0.0, 0.0));
+        for i in (0..=self.order).rev() {
+            let (mut row, mut drow) = ((0.0, 0.0), (0.0, 0.0));
+            for j in (0..=self.order - i).rev() {
+                drow = Self::sum(Self::mul(drow, dc), row, (0.0, 0.0));
+                row = Self::sum(Self::mul(row, dc), self.p[Self::index(i, j)], (0.0, 0.0));
+            }
+            dx = Self::sum(Self::mul(dx, x), value, (0.0, 0.0));
+            dy = Self::sum(Self::mul(dy, x), drow, (0.0, 0.0));
+            value = Self::sum(Self::mul(value, x), row, (0.0, 0.0));
+        }
+        (value, dx, dy)
     }
 }
 
@@ -290,7 +345,8 @@ mod tests {
     #[test]
     #[ignore]
     fn la_tolerance_probe() {
-        use crate::grid::{bla_dc_max, reference, render_bla, render_with, Params};
+        use crate::grid::{bla_dc_max, reference, render_bla, render_series, render_with, Params};
+        use crate::series::{Series, SeriesConfig};
         use fd_samples::{Column, ColumnSet, View};
         use std::time::Instant;
         let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
@@ -334,14 +390,22 @@ mod tests {
             let (_, plain, _) = render_with(&view, &p, Some(orbit.clone())).unwrap();
             let plain_s = t.elapsed().as_secs_f64() + reference_s;
             let dc = bla_dc_max(&view, &p).unwrap();
-            for (eps, minimum, quadratic) in [
-                (EPS_MAX, 0, false),
-                (1e-8, 0, false),
-                (1e-6, 0, true),
-                (1e-4, 0, true),
-                (1e-3, 2, true),
+            for (eps, minimum, order, prefix) in [
+                (EPS_MAX, 0, 0, false),
+                (1e-6, 2, 2, false),
+                (1e-3, 4, 4, false),
+                (1e-3, 4, 4, true),
             ] {
                 let t = Instant::now();
+                let series = prefix.then(|| {
+                    Series::build(
+                        &orbit.0,
+                        dc,
+                        view.width.parse::<f64>().unwrap() / f64::from(p.nx),
+                        p.max_iter,
+                        SeriesConfig::default(),
+                    )
+                });
                 let singles: Vec<_> = (1..orbit.0.len() - 1)
                     .map(|k| Block::single(orbit.0.re[k], orbit.0.im[k], eps))
                     .collect();
@@ -354,33 +418,29 @@ mod tests {
                 let mut levels = Vec::new();
                 let mut q_levels = Vec::new();
                 let mut prev = singles;
-                let mut q_prev = vec![
-                    Quadratic {
-                        c: (1.0, 0.0),
-                        ..Quadratic::default()
-                    };
-                    prev.len()
-                ];
+                let mut q_prev = vec![Quadratic::single(order); prev.len()];
                 while next.iter().any(|b| b.r > 0.0) {
-                    let q: Vec<_> = (0..prev.len() / 2)
-                        .map(|i| {
-                            Quadratic::merge(
-                                &prev[2 * i],
-                                &prev[2 * i + 1],
-                                q_prev[2 * i],
-                                q_prev[2 * i + 1],
-                            )
-                        })
-                        .collect();
-                    q_prev = q.clone();
-                    q_levels.push(q);
+                    if order > 0 {
+                        let q: Vec<_> = (0..prev.len() / 2)
+                            .map(|i| {
+                                Quadratic::merge(
+                                    &prev[2 * i],
+                                    &prev[2 * i + 1],
+                                    q_prev[2 * i],
+                                    q_prev[2 * i + 1],
+                                )
+                            })
+                            .collect();
+                        q_prev = q.clone();
+                        q_levels.push(q);
+                    }
                     let up = merge(&next);
                     prev = next.clone();
                     levels.push(std::mem::replace(&mut next, up));
                 }
                 let table = Bla {
                     min_level: minimum,
-                    quadratic: if quadratic { q_levels } else { Vec::new() },
+                    quadratic: q_levels,
                     eps,
                     dc_max: dc,
                     points: orbit.0.len() as u64,
@@ -390,8 +450,11 @@ mod tests {
                         .collect(),
                     levels,
                 };
-                let (_, accelerated, stats, bla) =
-                    render_bla(&view, &p, orbit.clone(), &table).unwrap();
+                let (_, accelerated, stats, bla) = match series {
+                    Some(ref s) => render_series(&view, &p, orbit.clone(), s, Some(&table)),
+                    None => render_bla(&view, &p, orbit.clone(), &table),
+                }
+                .unwrap();
                 let la_s = t.elapsed().as_secs_f64() + reference_s;
                 let mismatches = plain
                     .class
@@ -421,7 +484,7 @@ mod tests {
                         de_max = de_max.max((a - b).abs() / a);
                     }
                 }
-                println!("frame={index} width={} eps={eps:e} min={} quadratic={quadratic} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
+                println!("frame={index} width={} eps={eps:e} min={} order={order} prefix={prefix} plain={plain_s:.6} la={la_s:.6} speed={:.3} class={mismatches} nu_px={nu_max:e} de={de_max:e} blocks={} iterations={}", view.width, 2 << minimum, plain_s/la_s, bla.blocks, stats.iterations);
             }
         }
     }
