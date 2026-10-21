@@ -14,6 +14,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `fd zone -o` now writes the v0 ladder's mid-depth constants and reference orbit
+  in Rust, so its generated zones use the GPU mid-band renderer without a Python
+  generation step. The existing mid-band validity checks still apply.
+
 - `fd adapters` lists GPU indices, backends, vendor/device IDs, names and native
   f64 support. GPU commands accept `--adapter N`; `FD_ADAPTER` selects the viewer's
   adapter and supplies a CLI default. The flag takes precedence over the environment.

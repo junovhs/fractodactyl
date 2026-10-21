@@ -181,7 +181,7 @@ export const docs = defineDocs({
                     blocks: [
                         { kind: "p", text: "`fd zone RE IM -o FILE` finds the minibrot's structure and writes a complete deep-band zone in Rust: 7.8 s for the v0 minibrot (period 764), 66 s for a rung near 1e-1000." },
                         { kind: "p", text: "If `fd zone -o` refuses a detected relation, its error gives the minibrot period, relation M(q,r), and the measured laps around that cycle when available. If detection stops before laps are measured, payoff has not been assessed. Writing a zone requires at least 100 laps: fewer laps are unlikely to repay the setup cost. This is a conservative payoff estimate, not a measured speedup for your film. Render without a zone when it declines." },
-                        { kind: "callout", tone: "warn", text: "Today `fd zone` covers minibrots near the Misiurewicz point M(24,2), and the v0 path's mid-depth constants still come from the research script `make_zone.sh`. Making zones for any film is the next big step." },
+                        { kind: "callout", tone: "warn", text: "Today `fd zone` writes the deep-zone constants and, on the v0 ladder, the mid-depth constants and reference orbit too. The mid-depth operator keeps its existing validity checks; other ladders do not gain mid-depth coverage. Making zones for any film is the next big step." },
                     ],
                 },
             ],

@@ -430,6 +430,7 @@ fn zone_text(s: &Seed, depth: usize) -> String {
     let atlas = crate::zone_patch::build(f(&s.alpha), f(&s.rho), &psi, f(&s.c), depth);
     let mut o = lines(s, &return_map(s, DEGREE), &k);
     o.push_str(&atlas.lines());
+    mid_lines(s, &mut o);
     o
 }
 
@@ -572,4 +573,101 @@ pub(crate) fn koenigs(s: &Seed, n: usize) -> Koenigs {
     phi.remove(0);
     psi.remove(0);
     Koenigs { phi, psi }
+}
+
+/// PROB-14's v0 two-cycle chart, with coefficients and parameter derivatives from
+/// equation (4) of parameter-taylor-truncation-of-the-koenigs-coefficients.md.
+/// Reuse the refined cycle point and series product: no second cycle solver or
+/// rounded absolute centre participates in the high-precision construction.
+fn mid_lines(s: &Seed, out: &mut String) {
+    use std::fmt::Write as _;
+    let bits = s.c.re.precision();
+    // This port is validated only on v0's ladder. The relation alone does not
+    // identify that ladder: other M(24,2) points must not acquire its mid operator.
+    // Its limit is about 1.7e-25 from v0; this 1e-20 neighbourhood contains
+    // the deeper rungs without extending the renderer's empirical validity gate.
+    let v0 = Complex::parse(
+        "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502",
+        "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922",
+        bits,
+    ).unwrap();
+    if (s.q, s.r) != (24, 2)
+        || !s
+            .c
+            .sub(&v0)
+            .norm2()
+            .lt(&Float::parse("1e-40", bits).unwrap())
+    {
+        return;
+    }
+    let one = Complex::from_i64(1, bits);
+    let p = &s.alpha;
+    // p is the root nearest z_24, already selected by cycle Newton. For this
+    // ladder 2p+1 = sign * sqrt(-3-4c), with the principal square root.
+    let signed_s = p.ldexp(1).add(&one);
+    let sign = if signed_s.re.is_negative() { -1 } else { 1 };
+    let sqrt = if sign == 1 {
+        signed_s.clone()
+    } else {
+        signed_s.neg()
+    };
+    let pprime = one.neg().div(&signed_s);
+    let a = p.sqr().ldexp(2).sub(&p.ldexp(1)).sub(&one.ldexp(1));
+    let ap = p.ldexp(3).sub(&one.ldexp(1)).mul(&pprime);
+    let b = p.ldexp(2);
+    let bp = pprime.ldexp(2);
+    let lambda = s.c.add(&one).ldexp(2);
+    let mut powers = vec![one.clone()];
+    for j in 1..512 {
+        powers.push(powers[j - 1].mul(&lambda));
+    }
+    let mut k = vec![Complex::zero(bits); 19];
+    let mut kp = k.clone();
+    k[1] = one.clone();
+    for n in 2..=18 {
+        let k2 = series_mul(&k, &k, n);
+        let k2p: Vec<_> = series_mul(&k, &kp, n).iter().map(|v| v.ldexp(1)).collect();
+        let k3 = series_mul(&k2, &k, n);
+        let k3p: Vec<_> = series_mul(&k2p, &k, n)
+            .iter()
+            .zip(series_mul(&k2, &kp, n))
+            .map(|(a, b)| a.add(&b))
+            .collect();
+        let k4 = series_mul(&k2, &k2, n);
+        let k4p: Vec<_> = series_mul(&k2, &k2p, n)
+            .iter()
+            .map(|v| v.ldexp(1))
+            .collect();
+        let den = powers[n].sub(&lambda);
+        let denp = powers[n - 1]
+            .mul(&Complex::from_i64(n as i64, bits))
+            .sub(&one)
+            .ldexp(2);
+        k[n] = a.mul(&k2[n]).add(&b.mul(&k3[n])).add(&k4[n]).div(&den);
+        let qnp = ap
+            .mul(&k2[n])
+            .add(&a.mul(&k2p[n]))
+            .add(&bp.mul(&k3[n]))
+            .add(&b.mul(&k3p[n]))
+            .add(&k4p[n]);
+        kp[n] = qnp.sub(&denp.mul(&k[n])).div(&den);
+    }
+    let (reference, _) = orbit(&s.c, s.period, bits);
+    let pair = |z: &Complex| format!("{:?} {:?}", z.re.to_f64(), z.im.to_f64());
+    let _ = writeln!(out, "mid_u {}", pair(&reference[24].sub(p)));
+    let _ = writeln!(out, "mid_s {}", pair(&sqrt));
+    let _ = writeln!(out, "mid_p {}", pair(p));
+    let _ = writeln!(out, "mid_sign {sign}");
+    let _ = writeln!(out, "mid_lambda {}", pair(&lambda));
+    for (key, values) in [
+        ("mid_z", &reference[..25]),
+        ("ref", &reference[..s.period]),
+        ("mid_k", &k[..]),
+        ("mid_kp", &kp[..]),
+        ("mid_t", &powers[..]),
+    ] {
+        for (i, z) in values.iter().enumerate() {
+            let _ = writeln!(out, "{key} {i} {}", pair(z));
+        }
+    }
 }

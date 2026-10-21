@@ -490,6 +490,60 @@ fn written_zone_renders(
         "PROB-12 {tag}: {}",
         String::from_utf8_lossy(&o.stdout).trim()
     );
+    let text = std::fs::read_to_string(&zone).unwrap();
+    assert!(text.lines().any(|l| l.starts_with("mid_kp 18 ")));
+    assert!(text.lines().any(|l| l.starts_with("mid_t 511 ")));
+    let refs = text.lines().filter(|l| l.starts_with("ref ")).count();
+    assert_eq!(
+        refs,
+        field(&String::from_utf8_lossy(&o.stdout), "period")
+            .parse::<usize>()
+            .unwrap()
+    );
+    if tag == "mid" {
+        let frozen =
+            std::fs::read_to_string(root().join("crates/fd-cli/tests/fixtures/zones/v0.zone"))
+                .unwrap();
+        let constants = |s: &str| -> Vec<String> {
+            let mut rows: Vec<_> = s
+                .lines()
+                .filter(|l| l.starts_with("mid_") || l.starts_with("ref "))
+                .map(String::from)
+                .collect();
+            rows.sort();
+            rows
+        };
+        let (got, want) = (constants(&text), constants(&frozen));
+        assert_eq!(got.len(), want.len());
+        let mut worst = 0.0f64;
+        for (g, w) in got.iter().zip(&want) {
+            let g: Vec<_> = g.split_whitespace().collect();
+            let w: Vec<_> = w.split_whitespace().collect();
+            assert_eq!(g[0], w[0]);
+            assert_eq!(g.len(), w.len());
+            let start = if g.len() == 4 {
+                assert_eq!(g[1], w[1]);
+                2
+            } else {
+                1
+            };
+            for j in start..g.len() {
+                let (a, b) = (g[j].parse::<f64>().unwrap(), w[j].parse::<f64>().unwrap());
+                let rel = (a - b).abs() / b.abs().max(1e-300);
+                worst = worst.max(rel);
+                assert!(
+                    rel <= 1e-12,
+                    "{} vs {}: {rel:e}",
+                    got.iter().find(|s| s.starts_with(g[0])).unwrap(),
+                    w[j]
+                );
+            }
+        }
+        eprintln!(
+            "PROB-35 {} frozen mid/ref lines, worst relative difference {worst:e}",
+            got.len()
+        );
+    }
     let mut failed = Vec::new();
     for (name, re, im, width, iter) in frames {
         let out = dir.join(format!("{name}.fds"));
@@ -510,6 +564,15 @@ fn written_zone_renders(
             .output()
             .unwrap();
         assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        if name.starts_with("v0-mid-") {
+            let reader = fd_samples::Reader::open(&out).unwrap();
+            eprintln!("PROB-35 {name}: {}", reader.header.kernel);
+            assert!(
+                reader.header.kernel.starts_with("zone-mid-wgpu-"),
+                "{}",
+                reader.header.kernel
+            );
+        }
         let frozen = root().join(format!(
             "crates/fd-cli/tests/fixtures/zones/frames/{name}.fds"
         ));
@@ -551,6 +614,35 @@ fn rung_frames(k: u32, size: &str) -> (String, String, u64, Vec<FixtureFrame>) {
         })
         .collect();
     (f[2].to_string(), f[3].to_string(), period, frames)
+}
+
+#[test]
+fn zone_written_renders_mid() {
+    let (re, im) = v0_centre();
+    let frames: Vec<_> = [
+        (100, "1.04668e-6"),
+        (175, "1.21095e-11"),
+        (200, "2.73884e-13"),
+        (225, "6.19447e-15"),
+        (250, "1.40101e-16"),
+        (275, "3.1687e-18"),
+        (300, "7.1667e-20"),
+        (325, "1.6209e-21"),
+        (350, "3.66603e-23"),
+        (400, "1.87531e-26"),
+    ]
+    .into_iter()
+    .map(|(row, width)| {
+        (
+            format!("v0-mid-{row}"),
+            re.clone(),
+            im.clone(),
+            width.into(),
+            100_000,
+        )
+    })
+    .collect();
+    assert!(written_zone_renders((&re, &im), &[], &frames, "mid").is_empty());
 }
 
 #[test]
@@ -625,6 +717,9 @@ fn zone_other_relation() {
         .split_whitespace()
         .skip(1)
         .collect();
+    assert!(!text
+        .lines()
+        .any(|l| l.starts_with("mid_") || l.starts_with("ref ")));
     // An exterior frame near the nucleus avoids the separate deep-interior
     // classification gap tracked in FIX-04. Every pixel must still match BLA.
     let view = [
