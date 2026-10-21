@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 mod style_workspace;
 
 const USAGE: &str =
-    "usage: fd-viewer [--check] [--fd PATH]\n       fd-viewer --style [--samples INPUT.fds] [--style-look LOOK.style] [--check --style-output DIR]\n\nManual: https://fractodactyl.dev/docs/";
+    "usage: fd-viewer [--check] [--fd PATH]\n       fd-viewer --style [--samples INPUT.fds] [--style-look LOOK.style] [--check --style-output DIR]\n\nFD_ADAPTER=N selects a GPU from `fd adapters`.\n\nManual: https://fractodactyl.dev/docs/";
 
 /// The V2 page the window shows.
 static URL: OnceLock<String> = OnceLock::new();

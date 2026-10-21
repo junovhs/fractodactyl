@@ -278,20 +278,26 @@ impl Opened {
         // The binary64 kernels are proven on Vulkan only (GPU-12/19/20). The f32-only
         // kernel runs on any adapter (CLEA-05): Vulkan or DX12, the latter through the
         // statically linked DXC, as fd-shade's passes (FIX-59).
-        let backends = match mode {
-            Kernel::F32Only => wgpu::Backends::VULKAN | wgpu::Backends::DX12,
-            _ => wgpu::Backends::VULKAN,
+        let choice = fd_shade::gpu::adapters::choice()?;
+        let inventory = if choice.is_some() {
+            fd_shade::gpu::adapters::enumerate()
+        } else {
+            fd_shade::gpu::adapters::native()
         };
-        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-        descriptor.backends = backends;
-        descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::StaticDxc.with_env();
-        let instance = wgpu::Instance::new(descriptor);
-        let mut adapters: Vec<_> = pollster::block_on(instance.enumerate_adapters(backends))
+        if let Some(index) = choice {
+            fd_shade::gpu::adapters::selected(&inventory, index)?;
+        }
+        let mut adapters: Vec<_> = inventory
             .into_iter()
+            .enumerate()
+            .filter(|(index, _)| choice.is_none_or(|selected| selected == *index))
+            .map(|(_, a)| a)
             .filter(|a| {
                 let limits = a.limits();
                 let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
-                (mode == Kernel::F32Only || a.get_info().device_type != wgpu::DeviceType::Cpu)
+                (mode == Kernel::F32Only || a.get_info().backend == wgpu::Backend::Vulkan)
+                    && (mode == Kernel::F32Only
+                        || a.get_info().device_type != wgpu::DeviceType::Cpu)
                     && a.features().contains(required)
                     && x > 0
                     && groups.div_ceil(x) <= u64::from(limits.max_compute_workgroups_per_dimension)
@@ -324,7 +330,10 @@ impl Opened {
         };
         let info = adapter.get_info();
         let name = info.name;
-        if info.device_type == wgpu::DeviceType::Cpu {
+        if let Some(index) = choice {
+            eprintln!("fd: zone adapter {index}: {name} ({:?})", info.backend);
+        }
+        if info.device_type == wgpu::DeviceType::Cpu && choice.is_none() {
             eprintln!("fd: no hardware GPU for the zone kernel; running it on the software adapter {name} ({:?})", info.backend);
         }
         let limits = adapter.limits();

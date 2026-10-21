@@ -10,13 +10,6 @@ use std::sync::mpsc;
 /// runs the WGSL (DEC-28). Vulkan is preferred; DX12 serves Windows without a Vulkan
 /// driver. Returns the adapter name, device and queue.
 pub fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), String> {
-    let backends = wgpu::Backends::VULKAN | wgpu::Backends::DX12;
-    let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
-    descriptor.backends = backends;
-    // DX12 compiles through statically linked DXC: the legacy FXC default miscompiles the
-    // studio shade pass on WARP (FIX-59), while DXC matches the CPU.
-    descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::StaticDxc;
-    let instance = wgpu::Instance::new(descriptor);
     let rank = |a: &wgpu::Adapter| {
         let info = a.get_info();
         let kind = match info.device_type {
@@ -28,10 +21,20 @@ pub fn open_device(label: &str) -> Result<(String, wgpu::Device, wgpu::Queue), S
         };
         (kind, info.backend != wgpu::Backend::Vulkan)
     };
-    let adapter = pollster::block_on(instance.enumerate_adapters(backends))
-        .into_iter()
-        .min_by_key(rank)
-        .ok_or("no wgpu adapter")?;
+    let choice = super::adapters::choice()?;
+    let adapters = if choice.is_some() {
+        super::adapters::enumerate()
+    } else {
+        super::adapters::native()
+    };
+    let adapter = if let Some(index) = choice {
+        super::adapters::selected(&adapters, index)?
+    } else {
+        adapters
+            .iter()
+            .min_by_key(|a| rank(a))
+            .ok_or("no wgpu adapter")?
+    };
     let name = adapter.get_info().name;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some(label),

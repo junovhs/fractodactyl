@@ -12,6 +12,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `fd adapters` lists GPU indices, backends, vendor/device IDs, names and native
+  f64 support. GPU commands accept `--adapter N`; `FD_ADAPTER` selects the viewer's
+  adapter and supplies a CLI default. The flag takes precedence over the environment.
+
 ### Changed
 
 - `fd zone -o` refusal messages explain the detected period, relation, laps around

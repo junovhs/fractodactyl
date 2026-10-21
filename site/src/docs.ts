@@ -140,7 +140,7 @@ export const docs = defineDocs({
                             { title: "Get the source", text: "Clone `github.com/junovhs/fractodactyl`." },
                             { title: "Build", text: "`cargo build --release -p fd-cli -p fd-viewer` (on Linux the viewer needs WebKitGTK 4.1)." },
                             { title: "Install FFmpeg", text: "Put `ffmpeg` on PATH so `fd film --mp4` can encode." },
-                            { title: "Check the GPU", text: "wgpu needs a Vulkan driver, Mesa's lavapipe on Linux, or DX12 (WARP without a GPU) on Windows. So far it has been run on an AMD RX 5700 XT, lavapipe and WARP." },
+                            { title: "Choose the GPU", text: "Run `fd adapters` to list index, backend, vendor:device ID, name and native f64 support. GPU commands (`film`, `render`, `shade`, `style`, `play`, `control`, `bench` and `explore`) accept `--adapter N`; for example `fd shade INPUT.fds --preset ice --adapter 0 -o OUT`. The flag overrides `FD_ADAPTER`. Set `FD_ADAPTER=0` before launching `fd-viewer` to use the same index in its explorer and styling workspace (PowerShell: `$env:FD_ADAPTER='0'`). Indices are stable for the current adapter inventory; list again after changing drivers or hardware. Without a selection, fd keeps its hardware-first ranking. Selecting an adapter never substitutes a different GPU; a zone may use the f32-only kernel on that same adapter when native f64 is unavailable. wgpu needs a Vulkan driver, Mesa's lavapipe on Linux, or DX12 (WARP without a GPU) on Windows. So far it has been run on an AMD RX 5700 XT, lavapipe and WARP." },
                         ] },
                     ],
                 },

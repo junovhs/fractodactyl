@@ -32,6 +32,7 @@ mod zone_patch;
 
 const USAGE: &str = "\
 usage:
+  fd adapters
   fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
             [--columns nu,de,normal,bound] [--threads N] [--rotation R]
             [--kernel auto|f64|fx|scaled] [--store DIR --orbit ID] -o out.fds
@@ -104,6 +105,8 @@ usage:
 exit: 0 ok, 1 fd schedule (or fd compile --on-miss fail) missed a deadline,
       2 any other error
 
+GPU commands accept --adapter N (overrides FD_ADAPTER); list indices with fd adapters.
+
 Manual: https://fractodactyl.dev/docs/";
 
 /// Exit code of `fd schedule` when a chunk misses its first-use deadline (without
@@ -111,8 +114,54 @@ Manual: https://fractodactyl.dev/docs/";
 pub(crate) const EXIT_MISSED: i32 = 1;
 
 fn main() {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    let result = match argv.first().map(String::as_str) {
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    let result = configure_adapter(&mut argv).and_then(|()| dispatch(&argv));
+    if let Err(e) = result {
+        eprintln!("fd: {e}");
+        std::process::exit(2);
+    }
+}
+
+fn configure_adapter(argv: &mut Vec<String>) -> Result<(), String> {
+    let mut selected = None;
+    let mut i = 1;
+    while i < argv.len() {
+        if argv[i] == "--adapter" {
+            let value = argv.get(i + 1).ok_or("--adapter needs a value")?;
+            selected =
+                Some(value.parse::<usize>().map_err(|_| {
+                    format!("--adapter: expected a non-negative index, got {value:?}")
+                })?);
+            argv.drain(i..i + 2);
+        } else {
+            i += 1;
+        }
+    }
+    if let Some(index) = selected {
+        fd_shade::gpu::adapters::select(index)?;
+    }
+    // Validate environment choices before a zone path can report a CPU fallback.
+    if argv.first().is_some_and(|s| {
+        matches!(
+            s.as_str(),
+            "render" | "bench" | "shade" | "film" | "style" | "play" | "control" | "explore"
+        )
+    }) {
+        if let Some(index) = fd_shade::gpu::adapters::choice()? {
+            fd_shade::gpu::adapters::selected(&fd_shade::gpu::adapters::enumerate(), index)?;
+        }
+    }
+    Ok(())
+}
+
+fn dispatch(argv: &[String]) -> Result<(), String> {
+    match argv.first().map(String::as_str) {
+        Some("adapters") if argv.len() == 1 => {
+            for row in fd_shade::gpu::adapters::rows() {
+                println!("{row}");
+            }
+            Ok(())
+        }
         Some("render") => render::run(&argv[1..]),
         Some("bench") => bench::run(&argv[1..]),
         Some("shade") => shade::run(&argv[1..]),
@@ -146,9 +195,5 @@ fn main() {
             Ok(())
         }
         _ => Err(USAGE.to_string()),
-    };
-    if let Err(e) = result {
-        eprintln!("fd: {e}");
-        std::process::exit(2);
     }
 }

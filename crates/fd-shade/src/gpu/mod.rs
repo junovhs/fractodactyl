@@ -8,6 +8,8 @@ use crate::{Appearance, Look, Rgb8};
 use fd_samples::{Header, Samples};
 use std::sync::{mpsc, Mutex};
 
+/// Adapter inventory and process selection shared by all GPU paths.
+pub mod adapters;
 #[cfg(test)]
 mod prepare_tests;
 #[cfg(test)]
