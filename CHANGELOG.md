@@ -20,6 +20,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The public style manual explains bundled preset lookup, `FD_LOOKS` precedence,
+  and using an unpacked release from another working directory.
+
 - The public film manual explains zero-based single-frame, half-open and inclusive
   `--frames` selections, with a runnable preview and empty-range guidance.
 
