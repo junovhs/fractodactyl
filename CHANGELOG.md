@@ -14,6 +14,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `fd zone -o` refusal messages explain the detected period, relation, laps around
+  the cycle, and why the existing guard declines to write a zone.
+
 - Saved places use your personal data folder (or `FD_PLACES`) in installed
   packages and source builds. Packaged places remain readable without being
   overwritten by saves.

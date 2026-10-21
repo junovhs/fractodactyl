@@ -48,6 +48,30 @@ fn rel(a: (f64, f64), b: (f64, f64)) -> f64 {
 }
 
 #[test]
+fn zone_refusal_explains() {
+    // The same M(2,1) family as zone_other_relation, with too few laps to write
+    // a zone. The analytic displacement starts Newton near its period-32 nucleus.
+    let bits = bits_for_digits(120);
+    let re = Float::from_i64(-2, bits)
+        .add(&Float::parse("13.1594725348", bits).unwrap().ldexp(-64))
+        .to_decimal(110);
+    let path = std::env::temp_dir().join(format!("fd-zone-refusal-{}.zone", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let out = Command::new(env!("CARGO_BIN_EXE_fd"))
+        .args(["zone", &re, "0", "--period", "32", "-o"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    eprintln!("CLI exit {}: {stderr}", out.status);
+    assert!(!out.status.success(), "unexpected zone: {stderr}");
+    assert!(!path.exists(), "refusal wrote a zone file");
+    for detail in ["period 32", "M(2,1)", "laps", "too few", "pay", "100"] {
+        assert!(stderr.contains(detail), "missing {detail:?}: {stderr}");
+    }
+}
+
+#[test]
 fn zone_report_v0() {
     let atlas = std::fs::read_to_string(root().join("bench/path-atlas-v0.txt")).unwrap();
     let centre: Vec<&str> = atlas

@@ -67,8 +67,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if let Some(out) = a.str("o") {
         if s.laps < 100 {
             return Err(format!(
-                "the M({},{}) orbit shadows its cycle for {} laps; writing a zone needs 100",
-                s.q, s.r, s.laps
+                "period {}, detected relation M({},{}): the orbit follows its cycle for {} laps; \
+                 too few laps for a zone to be likely to pay off its setup cost (writing needs at least 100)",
+                s.period, s.q, s.r, s.laps
             ));
         }
         let text = zone_text(&s, depth);
@@ -180,7 +181,8 @@ pub(crate) fn seed(
     let (alpha, rho) = cycle(&c, &z[q], r, digits, bits)?;
     if log2_norm2(&rho) <= 0.0 {
         return Err(format!(
-            "the M({q},{r}) cycle is not repelling (|rho| = {:.4})",
+            "period {p}, detected relation M({q},{r}): the cycle is not repelling (|rho| = {:.4}); \
+             it is not a usable cycle for a zone; laps not measured and payoff not assessed",
             (log2_norm2(&rho) / 2.0).exp2()
         ));
     }
@@ -192,7 +194,9 @@ pub(crate) fn seed(
     let laps = (n - q) / r;
     if laps < 2 {
         return Err(format!(
-            "the orbit shadows the M({q},{r}) cycle for {laps} laps; a Koenigs jump needs 2"
+            "period {p}, detected relation M({q},{r}): the orbit follows its cycle for {laps} laps; \
+             too few laps for a zone to be likely to pay off its setup cost \
+             (a Koenigs jump needs 2; writing a zone needs at least 100)"
         ));
     }
     Ok(Seed {
