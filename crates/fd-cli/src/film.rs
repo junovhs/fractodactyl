@@ -30,8 +30,32 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--json] [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
-[--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
+[--frames N|A..B|A..=B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
 [--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+
+/// Normalize film frame selection to the half-open interval used by the renderer.
+fn frame_selection(r: &str, count: usize) -> Result<(usize, usize), String> {
+    let bad = || format!("--frames: expected N, A..B or A..=B within 0..{count}, got {r:?}");
+    let parse = |s: &str| s.parse::<usize>().map_err(|_| bad());
+    let (from, to) = if let Some((a, b)) = r.split_once("..=") {
+        (parse(a)?, parse(b)?.checked_add(1).ok_or_else(bad)?)
+    } else if let Some((a, b)) = r.split_once("..") {
+        let (from, to) = (parse(a)?, parse(b)?);
+        if from == to {
+            return Err(format!(
+                "--frames: {r:?} is empty; use --frames {from} to select one frame"
+            ));
+        }
+        (from, to)
+    } else {
+        let frame = parse(r)?;
+        (frame, frame.checked_add(1).ok_or_else(bad)?)
+    };
+    if from >= to || to > count {
+        return Err(bad());
+    }
+    Ok((from, to))
+}
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -526,21 +550,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let compare_every: usize = a.num("compare-every", 0)?;
     let (from, to) = match a.str("frames") {
         None => (0, views.len()),
-        Some(r) => {
-            let bad = || {
-                format!(
-                    "--frames: expected A..B within 0..{}, got {r:?}",
-                    views.len()
-                )
-            };
-            let (x, y) = r.split_once("..").ok_or_else(bad)?;
-            let (x, y): (usize, usize) =
-                (x.parse().map_err(|_| bad())?, y.parse().map_err(|_| bad())?);
-            if x >= y || y > views.len() {
-                return Err(bad());
-            }
-            (x, y)
-        }
+        Some(r) => frame_selection(r, views.len())?,
     };
     let raw_dir = a.str("raw-dir");
     if let Some(dir) = raw_dir {
@@ -1431,6 +1441,29 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn film_frame_selection_bounds() {
+        assert_eq!(frame_selection("0", 1).unwrap(), (0, 1));
+        assert_eq!(frame_selection("0..=0", 1).unwrap(), (0, 1));
+        assert_eq!(frame_selection("0..1", 1).unwrap(), (0, 1));
+        for r in [
+            "", "-1", "0..", "..1", "0..==1", "0..1..2", "1", "0..=1", "0..2", "1..0", "1..=0",
+        ] {
+            assert!(frame_selection(r, 1).is_err(), "{r}");
+        }
+        assert!(frame_selection("0", 0).is_err());
+        let max = usize::MAX;
+        for r in [max.to_string(), format!("0..={max}"), format!("{max}0")] {
+            assert!(frame_selection(&r, max).is_err(), "{r}");
+        }
+        assert_eq!(
+            frame_selection(&(max - 1).to_string(), max).unwrap(),
+            (max - 1, max)
+        );
+        let empty = frame_selection("1..1", 2).unwrap_err();
+        assert!(empty.contains("empty") && empty.contains("--frames 1"));
+    }
 
     const RE: &str = "-0.7432918908524302029316241585089040394625440130877230883413356446722846985935655895273743988748934502";
     const IM: &str = "0.1312405523087976047708458738159648480193742492666251343726688732491323053181613282916110110463622922";

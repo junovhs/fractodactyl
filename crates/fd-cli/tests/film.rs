@@ -555,3 +555,77 @@ fn film_report_kernel_breakdown() {
     }
     fs::remove_dir_all(dir).unwrap();
 }
+
+// FILM-19: exercise frame selection through the real CLI and encoded output.
+#[test]
+fn film_frames_forms() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("fd-film19-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let mut failures = Vec::new();
+    for (selection, expected) in [
+        ("0", Some(1)),
+        ("0..=0", Some(1)),
+        ("1", Some(1)),
+        ("1..=1", Some(1)),
+        ("0..=1", Some(2)),
+        ("0..2", Some(2)),
+        ("0..0", None),
+    ] {
+        let movie = dir.join(format!("{selection}.mp4"));
+        let output = Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args([
+                "film",
+                "-0.75",
+                "0.1",
+                "--from",
+                "4",
+                "--to",
+                "2",
+                "--seconds",
+                "1",
+                "--fps",
+                "2",
+                "--size",
+                "16x16",
+                "--iter",
+                "32",
+                "--threads",
+                "1",
+                "--x264",
+                "ultrafast",
+                "--look",
+                "umber",
+                "--ss",
+                "1",
+                "--keyframes",
+                "off",
+                "--frames",
+                selection,
+                "--mp4",
+            ])
+            .arg(&movie)
+            .output()
+            .unwrap();
+        let log = String::from_utf8_lossy(&output.stderr);
+        eprintln!("--frames {selection}: exit={} stderr={log}", output.status);
+        if let Some(count) = expected {
+            if !output.status.success() {
+                failures.push(format!("{selection}: {log}"));
+                continue;
+            }
+            assert_eq!(
+                decoded_rgb(&movie).len(),
+                count * 16 * 16 * 3,
+                "{selection}: decoded frame count"
+            );
+        } else if output.status.success() || !log.contains("empty") || !log.contains("--frames 0") {
+            failures.push(format!("{selection}: expected empty range guidance: {log}"));
+        }
+    }
+    fs::remove_dir_all(dir).unwrap();
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
