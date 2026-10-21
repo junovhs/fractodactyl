@@ -1,5 +1,9 @@
 # GPU architecture and adaptive precision after mathematical acceleration
 
+> Historical research record. Zone-pipeline commands below refer to frozen prototypes;
+> use `fd zone RE IM -o FILE` for new zones. Freeze policy:
+> `tools/research/misiurewicz/README.md` (CLEA-02).
+
 **Research date:** 2026-10-10  
 **Project:** Fractodactyl  
 **Status:** architecture assessment and unmeasured GPU scheduling prototype; **no new GPU speedup or 1e-3-pixel contract pass claimed**.

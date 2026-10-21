@@ -49,10 +49,9 @@ on a software adapter if there is no GPU), fd's per-frame BLA elsewhere. It shad
 GPU (the studio look exists once, as WGSL) and pipes the frames to ffmpeg; `fd filmcheck`
 compares a film against an exact render.
 
-`fd zone -o` writes the zone's deep-band constants. The mid band of the v0 path
-(widths around 1e-6 to 1e-27) still needs the constants that
-`tools/research/misiurewicz/make_zone.sh` appends (python3 with mpmath and numpy) until
-PROB-35 ports them; without them those frames render with the perturbation kernel. Film defaults: the `studio` look with the `ice` preset, 0.15
+`fd zone RE IM -o FILE` writes the deep-band constants and, on the v0 ladder,
+the mid-band constants and reference orbit in Rust. Use this command to build zones;
+the earlier research producers are frozen historical evidence. Film defaults: the `studio` look with the `ice` preset, 0.15
 decades/s, 60 fps, 1920x1080, `--ss 2`, `--aa on`, `--unresolved interior`.
 
 Looks: `--preset NAME` picks `looks/NAME.look` or a built-in (`ice`, `coral`, `steel`,

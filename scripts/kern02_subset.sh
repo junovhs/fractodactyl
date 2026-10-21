@@ -16,8 +16,10 @@ Path(sys.argv[1]).write_text("# KERN-02 original frames " + " ".join(map(str, in
                              + "\n" + "\n".join(rows[i] for i in indices) + "\n")
 PY
 cargo build --release
-bash tools/research/misiurewicz/make_zone.sh data/zones/v0.zone
 fd=target/release/fd
+mkdir -p data/zones
+read -r zone_re zone_im _ < <(awk '!/^#/ && NF {print; exit}' bench/path-atlas-v0.txt)
+"$fd" zone "$zone_re" "$zone_im" -o data/zones/v0.zone
 flags=(--size 960x540 --iter 100000 --columns nu,de,normal
        --bla per-frame --runs 1 --threads "$threads")
 "$fd" control "$out/path.txt" "${flags[@]}" -o "$out/bla" > "$out/bla.jsonl"

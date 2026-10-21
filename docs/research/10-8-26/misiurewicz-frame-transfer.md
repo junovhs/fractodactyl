@@ -1,5 +1,9 @@
 # Misiurewicz frame transfer: genuine deep frames as exact transforms of shallower ones
 
+> Historical research record. Zone-pipeline commands below refer to frozen prototypes;
+> use `fd zone RE IM -o FILE` for new zones. Freeze policy:
+> `tools/research/misiurewicz/README.md` (CLEA-02).
+
 Probe run 2026-10-08. Scripts and data are in the session scratchpad; the commands are
 reproduced below.
 

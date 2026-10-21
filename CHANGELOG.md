@@ -24,6 +24,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Zone generation instructions and the KERN-02 gates now use `fd zone`; the
+  superseded research producers are frozen and their manual CI workflow is retired.
+
 - The public style manual explains bundled preset lookup, `FD_LOOKS` precedence,
   and using an unpacked release from another working directory.
 

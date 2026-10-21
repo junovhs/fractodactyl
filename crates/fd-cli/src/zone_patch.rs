@@ -188,7 +188,7 @@ fn fit(ch: &Chart, centres: &[C64], r: f64) -> Vec<(i64, [C64; D], i64)> {
 }
 
 /// The atlas for the cycle point `a`, multiplier `rho`, `psi` (psi_1..) and the
-/// parameter `c`, to `max_depth` levels (make_zone.sh: 6).
+/// parameter `c`, to `max_depth` levels (frozen research defaults: 6).
 pub(crate) fn build(a: C64, rho: C64, psi: &[C64], c: C64, max_depth: usize) -> Atlas {
     let ch = Chart {
         a,

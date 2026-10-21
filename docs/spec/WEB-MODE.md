@@ -1,5 +1,9 @@
 # Web mode: ChatGPT web writes the code, the agent orchestrates and lands
 
+> Historical research record. Zone-pipeline commands below refer to frozen prototypes;
+> use `fd zone RE IM -o FILE` for new zones. Freeze policy:
+> `tools/research/misiurewicz/README.md` (CLEA-02).
+
 The owner sometimes asks for **web mode**. ChatGPT web has unlimited **Chat** use; the
 agent's (Claude's) quota is the scarce resource. So ChatGPT, open in the owner's Chrome,
 implements Ishoo issues and pushes branches. The agent picks the issue, sends the brief,

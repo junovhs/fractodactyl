@@ -68,8 +68,8 @@ ash/GLSL code deleted.
 - PROB-30..34, PROB-12 (2026-10-17): `fd zone RE IM -o ZONE` builds a complete deep-band
   zone in Rust from its centre (structure, return map, Koenigs chart, tail patch atlas),
   line-for-line identical to the committed v0 zone; 7.8 s for v0, 66 s for the 1e-1000
-  rung. It does not yet write the v0 mid-band constants (PROB-35), so make_zone.sh is
-  still needed for those.
+  rung. PROB-35 also writes the v0 ladder's mid-band constants and reference orbit.
+  CLEA-02 freezes the superseded research producers; `fd zone` is the only live producer.
 
 **Also landed (plan "Desktop viewer"):** VIEW-06 `fd-viewer`, the V2 stone explorer in
 its own Dioxus window (it runs `fd explore --exit-with-stdin 1` as a child); VIEW-08 the
@@ -79,9 +79,8 @@ Linux the page is a GTK widget, so the mouse wheel keeps zooming after a drag.
 **Remaining, in plan order (check `ishoo_plan op:show` for the live list):**
 BENC-11 (BENC-10's race on the RTX 3050 Ti laptop) · GPU-29, SHAD-12 (the f32-only zone
 kernel and the studio look on the laptop's RTX 3050 Ti and no-f64 Intel Iris Xe) ·
-GPU-05 (f32-only replacements for every binary64 zone stage) · PROB-35 (`fd zone` writes
-the mid-band constants) → CLEA-02 (retire make_zone.sh, koenigs_bench and the other
-research copies of the zone pipeline).
+GPU-05 (f32-only replacements for every binary64 zone stage).
+PROB-35 and CLEA-02 have completed the Rust producer and frozen its research predecessors.
 
 ## Decisions to know
 
@@ -132,9 +131,9 @@ shaders are WGSL, compiled by wgpu at run time).
   wgpu. `scripts/check/GPU-02.sh` runs the film-equivalence gate of the f32 or mixed
   kernel against binary64.
 - Re-shade stored samples without iterating: `fd shade X.fds --preset ice -o DIR`.
-- Other zones: `fd zone RE IM -o FILE` writes a deep-band zone from a minibrot centre
-  near M(24,2) (`--period P` skips the period search). The v0 path's mid-band constants
-  still come from `tools/research/misiurewicz/make_zone.sh` until PROB-35.
+- Other zones: `fd zone RE IM -o FILE` writes a zone from a minibrot centre
+  near M(24,2) (`--period P` skips the period search), including the mid-band constants
+  and reference orbit on the v0 ladder. The mid-band validity checks still apply.
 
 ## Known loose ends
 

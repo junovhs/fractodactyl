@@ -13,8 +13,10 @@ threads=${THREADS:-4}
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo build --release
-bash tools/research/misiurewicz/make_zone.sh data/zones/v0.zone
 fd=target/release/fd
+mkdir -p data/zones
+read -r zone_re zone_im _ < <(awk '!/^#/ && NF {print; exit}' bench/path-atlas-v0.txt)
+"$fd" zone "$zone_re" "$zone_im" -o data/zones/v0.zone
 
 gate_fail=0
 if [[ "$mode" == control || "$mode" == all ]]; then

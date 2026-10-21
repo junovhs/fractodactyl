@@ -208,7 +208,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "threads",
         std::thread::available_parallelism().map_or(1, |n| n.get()),
     )?;
-    // The v0 zone, when it has been built (tools/research/misiurewicz/make_zone.sh), speeds
+    // The v0 zone, when it has been built (fd zone RE IM -o data/zones/v0.zone), speeds
     // up look-mode renders of deep v0 views; `--zone FILE` picks another.
     let zone = match a.str("zone") {
         Some(f) => Some(Zone::load(f)?),

@@ -1,5 +1,9 @@
 # Fractodactyl hardware architecture: experimental GPU queue ablation
 
+> Historical research record. Zone-pipeline commands below refer to frozen prototypes;
+> use `fd zone RE IM -o FILE` for new zones. Freeze policy:
+> `tools/research/misiurewicz/README.md` (CLEA-02).
+
 This is an **unmeasured test prototype**, not an established whole-frame GPU speedup.
 
 ## Source and reproducibility

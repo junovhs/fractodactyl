@@ -5,7 +5,7 @@
 //! multiplier `rho`) the critical orbit of `C` shadows before returning. It follows
 //! zone_seed.py's `nucleus`/`misiurewicz` and koenigs_tail.py's cycle Newton. PROB-32
 //! adds the first-return biseries and its diagonal series (returns_exit_tail.py
-//! `build_map_mp`, koenigs_bench_consts.py `diagonal`); PROB-33 the Koenigs chart phi at
+//! `build_map_mp` and the frozen constants prototype's `diagonal`); PROB-33 the chart phi at
 //! A and psi = phi^-1 (koenigs_tail.py `setup`, psi_series.py `reverse`).
 use crate::args::Args;
 use fd_fixed::{bits_for_digits, Complex, Float};
@@ -18,11 +18,11 @@ const USAGE: &str =
     "usage: fd zone RE IM [--period P | --max-iter N (3000)] [--patch-depth N (6)] \
                      [-o ZONE | --emit report|lines]\n       fd zone --suggest RE IM [--count N (3)] [--max-iter N (3000)]";
 
-/// Koenigs chart radius (make_zone.sh R0).
+/// Koenigs chart radius (frozen research defaults R0).
 const R0: f64 = 0.03;
-/// Biseries degree (make_zone.sh: koenigs_bench_consts.py DEGREE 4).
+/// Biseries degree (frozen research default: 4).
 const DEGREE: usize = 4;
-/// Koenigs series terms written (make_zone.sh: TERMS 12 and PSI_TERMS 18).
+/// Koenigs series terms written (frozen research defaults: TERMS 12 and PSI_TERMS 18).
 const PHI_TERMS: usize = 12;
 const PSI_TERMS: usize = 18;
 /// psi terms the tail patch atlas is fitted with (tail_patches.py `reverse(coef, 24)`).
@@ -144,7 +144,7 @@ fn orbit(c: &Complex, n: usize, bits: usize) -> (Vec<Complex>, Vec<Complex>) {
     (z, u)
 }
 
-/// Working digits for period `p` (koenigs_bench_consts.py): the reference orbit loses
+/// Working digits for period `p` (frozen research constants prototype): the reference orbit loses
 /// roughly one digit per 16 steps beyond v0's 764.
 fn digits_for(p: usize) -> usize {
     let depth = 50 + p.saturating_sub(764) / 16;
@@ -311,7 +311,7 @@ pub(crate) struct ReturnMap {
 }
 
 /// The zone scale, 10^floor(log10(size) / 2) for the minibrot size 1/|b dz/dc|
-/// (koenigs_bench_consts.py): return-map states scale as the square root of the size.
+/// (frozen research constants prototype): return-map states scale as the square root of the size.
 fn log10_size(s: &Seed) -> f64 {
     let bits = s.c.re.precision();
     let one = Complex::from_i64(1, bits);
@@ -454,7 +454,7 @@ fn lines(s: &Seed, m: &ReturnMap, k: &Koenigs) -> String {
     let _ = writeln!(o, "period {}", s.period);
     let _ = writeln!(o, "relation {} {}", s.q, s.r);
     let _ = writeln!(o, "scale {:?} {}", 2.0 * sm, se - 1);
-    // The loop guard, scale x 1e-3 (koenigs_bench_consts.py `auto`; v0's 1e-28).
+    // The loop guard, scale x 1e-3 (frozen research constants prototype `auto`; v0's 1e-28).
     let (gm, ge) = m.guard.frexp();
     let _ = writeln!(o, "guard {:?} {}", 2.0 * gm, ge - 1);
     let _ = writeln!(o, "r0 {R0:?}");

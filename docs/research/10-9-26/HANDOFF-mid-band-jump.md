@@ -1,5 +1,9 @@
 # Handoff: the mid-band fast path (PROB-14), 2026-10-09 evening
 
+> Historical research record. Zone-pipeline commands below refer to frozen prototypes;
+> use `fd zone RE IM -o FILE` for new zones. Freeze policy:
+> `tools/research/misiurewicz/README.md` (CLEA-02).
+
 Written by a cloud session without Ishoo. Nothing here is filed as an issue yet: the
 list under "File these" is for the next agent with Ishoo. Every number is in the
 METHOD.md results log (rows dated 2026-10-09); the four owner-run research answers are in

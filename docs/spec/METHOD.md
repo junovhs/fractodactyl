@@ -3637,3 +3637,24 @@ and with keyframes, checks route-time/frame accounting, and checks exact repeate
 build counts under direct and jet-AA rendering. `prob28-target` and `prob28-slice`
 self-build their exact snapshots, render/encode the actual workloads, parse their
 reports, and assert accounting and frame counts. Both completed with exit 0.
+
+
+## CLEA-02: the zone producer and preserved evidence (2026-10-21)
+
+`fd zone RE IM -o FILE` is the only live zone producer. It now includes PROB-35's
+mid-band constants and reference orbit on the v0 ladder. Earlier commands and
+measurements above are historical records, not current build instructions.
+The prototypes used for those measurements are frozen in place under
+`tools/research/misiurewicz/README.md`; retain their source and measured results
+without using them to produce new zones. The old manual benchmark workflow is retired.
+The Python oracle remains independent by design (DEC-24).
+
+CLEA-02 verification: all six PROB-08 widths (1e-35, 1e-38, 1e-40, 1e-43,
+1e-46, 2e-48), 480x270, 100000 iterations, nu/de/normal: pre-change core versus
+Rust core and frozen full zone versus Rust full zone, **12/12 fd compare passes**,
+1,555,200 scored samples, 0 class mismatches, 0 tolerance failures. Worst nu shift
+1.46e-6 px. These are comparisons at the strict gate, not byte identity. Generation
+and comparison logs, old zone copies and the full regenerated local product are
+in `target/clea02-evidence`; the compact bench core is committed. No frozen expected
+zone/frame fixtures were overwritten. See `bench/zones/README.md` for exact inputs
+and the command to generate the historical local `data/zones/v0.zone` path.
