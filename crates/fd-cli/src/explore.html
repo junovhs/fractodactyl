@@ -711,7 +711,7 @@ document.getElementById("psave").onclick = async () => {
   const text = `# fractodactyl place (saved by fd explore)\nre ${toDec(view.re, view.D)}\nim ${toDec(view.im, view.D)}\n` +
     `width ${shortWidth(view.l10w)}\niter ${iterFor(view.l10w)}\n`;
   const r = await fetch("/place?name=" + encodeURIComponent(name), { method: "POST", body: text });
-  pstatus.textContent = (await r.text()).replace(/ \S*\/places\//, " places/") + (r.ok ? `\nfilm it: fd film --place ${name} --mp4 ${name}.mp4` : "");
+  pstatus.textContent = (await r.text()) + (r.ok ? `\nfilm it: fd film --place ${name} --mp4 ${name}.mp4` : "");
   if (r.ok) listPlaces();
 };
 const sel = document.getElementById("pal");

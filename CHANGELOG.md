@@ -14,6 +14,10 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Saved places use your personal data folder (or `FD_PLACES`) in installed
+  packages and source builds. Packaged places remain readable without being
+  overwritten by saves.
+
 - CPU film keyframes use a guarded series initializer when a small timing probe
   predicts a net speedup over the existing renderer. Unprofitable frames retain
   their previous path, and unresolved initialized samples retry through the

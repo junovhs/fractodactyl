@@ -262,10 +262,11 @@ fn sibling_fd() -> Result<PathBuf, String> {
     }
 }
 
-/// The directory `fd explore` resolves looks/, places/ and data/zones/ in: the first
+/// The directory `fd explore` resolves looks/ and data/zones/ in: the first
 /// ancestor of the `fd` binary or the working directory that has a looks/ folder (the
 /// repository), else the release package `fd` sits in (REL-01: its looks/ is beside it),
-/// else the working directory.
+/// else the working directory. Places use the child backend's shared runtime
+/// store: per-user saves and read-only package/checkout places (DEC-35).
 fn home(fd: &Path) -> PathBuf {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let from_fd = fd.canonicalize().ok();

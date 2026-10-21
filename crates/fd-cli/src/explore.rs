@@ -14,7 +14,7 @@
 //! (validated by `fd_shade::Look::parse`), so `fd film --preset NAME` renders it.
 //! `raw=3` (EXPL-07) is the same per-sample data from the fast navigation kernel, for a
 //! studio preset as the live look while navigating.
-//! Places (EXPL-08): `GET /places` lists `places/*.place` as tab-separated
+//! Places (EXPL-08): `GET /places` lists personal and curated places as tab-separated
 //! `name re im width iter` lines, `POST /place?name=` saves one, for `fd film --place NAME`.
 //! `--capture FILE` (tests): the page in `?test` mode posts its look-mode pixels to
 //! `POST /capture`, written to FILE, and the served samples go to FILE.fds.
@@ -643,7 +643,7 @@ fn save_look(query: &str, body: &[u8]) -> Result<String, String> {
     Ok(format!("saved {}", path.display()))
 }
 
-/// Validate and write `places/NAME.place` (EXPL-08).
+/// Validate and save a personal place through the shared store (EXPL-08, DEC-35).
 fn save_place(query: &str, body: &[u8]) -> Result<String, String> {
     let n = name_of(query)?;
     let place =
