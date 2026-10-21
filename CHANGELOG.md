@@ -20,6 +20,9 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The public film manual explains zero-based single-frame, half-open and inclusive
+  `--frames` selections, with a runnable preview and empty-range guidance.
+
 - `fd zone -o` refusal messages explain the detected period, relation, laps around
   the cycle, and why the existing guard declines to write a zone.
 
