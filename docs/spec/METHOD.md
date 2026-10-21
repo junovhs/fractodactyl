@@ -3487,3 +3487,153 @@ start-state error about 10^4x. That is the valley endpoint failure on real frame
 **Go/no-go:** no-go for the initializer as FIX-09's 3x answer; go for it as FIX-09's
 first stage, followed by staged LA past each fold and a carried nucleus contraction.
 Report, per-bin CSVs, compare logs and reproduction: `docs/2026-10-20/series-frames/README.md`.
+
+
+### PROB-28: actual PROB-22 film route and rebuild census (2026-10-21)
+
+Measured the best landed production path after PERF-06, with profiling only: no
+kernel, admission rule, planner or reuse policy changed. Machine: Ryzen 9 3900X,
+RX 5700 XT (RADV NAVI10). One process-cold run per workload, with fd and ffmpeg
+restricted to CPU affinity 0–7, 8 fd workers, GPU studio shading. Series selection
+was automatic (`FD_CPU_SERIES` unset); no `--zone` was supplied, as in PROB-22.
+Rust compilation preceded each run and is excluded from the film timing. These
+are observations on this machine, not portable throughput or a speedup claim.
+
+Reproduce through the named `prob28-target` / `prob28-slice` Ishoo checks, which
+run `python3 tools/research/film-timing.py target|slice --fd LANE/build/release/fd
+--out OUTPUT --workers 8`. The wrapper builds fd-cli from the exact lane checkout
+before measuring, so a persistent lane binary cannot silently belong to another
+snapshot. Full argv, source snapshot, affinity, exit status and JSON are committed
+beside this entry in [the evidence directory](../research/2026-10-21-film-timing/).
+The exact centre comes from the frozen [PROB-22 planner result](../2026-10-20/series-frames/results/plan.json):
+
+```sh
+RE=-0.8296874999999996981089858669738646984522311568651036619209
+IM=0.1859374999999989417838556112859064221737945709381783514212
+# Affinity 0-7, as set by the measurement wrapper:
+fd film "$RE" "$IM" --from 0.5 --to 4.542e-28 --rate 0.5 --size 1280x720 \
+  --fps 30 --keyframes 2 --preset master-ice --threads 8 --json --mp4 target.mp4
+fd film "$RE" "$IM" --from 1e-20 --to 1e-22 --seconds 10 --size 1920x1080 \
+  --fps 30 --keyframes 2 --preset master-ice --threads 8 --json --mp4 slice.mp4
+```
+
+Defaults retained: max_iter 100000, ss 2, CRF 16, x264 slow, chroma 420. Keyframe
+sample grids are 2x output dimensions at ss 1. The original rounded endpoint
+produces 1623 output frames (54.1 s, about 27 decades); the slice is 300 frames.
+The raw JSON and adjacent invocation records retain the exact source snapshots; executable source was
+unchanged between the two measurements; only measurement documentation followed.
+The [equivalence record](../research/2026-10-21-film-timing/equivalence.json) verifies
+all 825 existing Git-normalized blobs except METHOD and records measured/final
+executable checksums. Normal Cargo lane checks inject CARGO_INCREMENTAL=1, while
+the measurement wrapper leaves it unset (release default: off); the build
+configuration differs, so their executable checksums need not match. Final
+behavior checks verify the same source inputs without replaying the long films.
+
+`routes.*.seconds` partitions host-observed kernel-call elapsed time, **including
+setup and retries**; its sum equals `render.total_seconds`. `kernel_frames` counts
+actual rendered keyframes (or direct kernels), while `frames` attributes each
+output frame to its outer contributing keyframe, even when its inner keyframe
+uses another route. Thus output counts sum to the film length without pretending
+every output frame ran a kernel. `mid` means the existing WGSL mid-band operator;
+`zone` is a retained zero entry for the retired CPU zone. Series tails are reported
+separately as `series-bla` and `series-perturbation`, and remain in their historical
+BLA/perturbation aggregates under `render` for compatibility.
+
+All percentages below divide by film wall seconds. Reference and BLA builds are
+nested **inside** route/render time; keyframe prepare/sample-shade/resample are
+nested **inside** shade time. Do not add those subtotals to their parents. GPU
+intervals are host submission/wait intervals, not device timestamp measurements.
+For the studio path, `StudioGpu::frame` submits shade and resample together: the
+combined interval is in `sample_shade_seconds`; `resample_seconds=0` means there
+is no separately timed host interval, **not** that resampling costs nothing.
+`prepare_seconds=0` likewise retains the legacy field after preparation moved
+onto the device. This census does not claim separate device-stage timings.
+Encode wait includes pipe writes and the final encoder drain; asynchronous
+encoding overlaps rendering. Diagnostic `--compare-every` renders are excluded
+from this production census (disabled in both measurements).
+
+| Route / stage | 720p target: seconds (% wall) | 1080p slice: seconds (% wall) |
+|---|---:|---:|
+| route `zone` | 0.000 (0.00%) | 0.000 (0.00%) |
+| route `bla` | 451.763 (49.45%) | 0.000 (0.00%) |
+| route `perturbation` | 25.856 (2.83%) | 0.000 (0.00%) |
+| route `zone-gpu` | 0.000 (0.00%) | 0.000 (0.00%) |
+| route `mid` | 0.000 (0.00%) | 0.000 (0.00%) |
+| route `scaled` | 0.000 (0.00%) | 0.000 (0.00%) |
+| route `series-bla` | 137.421 (15.04%) | 0.000 (0.00%) |
+| route `series-perturbation` | 240.131 (26.29%) | 191.082 (88.63%) |
+| render total | 855.171 (93.61%) | 191.082 (88.63%) |
+| reference orbit (nested) | 1.259 (0.14%) | 0.159 (0.07%) |
+| BLA build (nested) | 0.442 (0.05%) | 0.064 (0.03%) |
+| shade total | 8.548 (0.94%) | 2.637 (1.22%) |
+| keyframe prepare (nested) | 0.000 (0.00%) | 0.000 (0.00%) |
+| sample shade (nested) | 7.979 (0.87%) | 2.549 (1.18%) |
+| resample (nested) | 0.000 (0.00%) | 0.000 (0.00%) |
+| encode wait | 49.762 (5.45%) | 21.793 (10.11%) |
+| wall | 913.536 (100.00%) | 215.596 (100.00%) |
+
+| Route | 720p output / kernel frames | 1080p output / kernel frames |
+|---|---:|---:|
+| `zone` | 0 / 0 | 0 / 0 |
+| `bla` | 160 / 10 | 0 / 0 |
+| `perturbation` | 216 / 12 | 0 / 0 |
+| `zone-gpu` | 0 / 0 | 0 / 0 |
+| `mid` | 0 / 0 | 0 / 0 |
+| `scaled` | 0 / 0 | 0 / 0 |
+| `series-bla` | 126 / 7 | 0 / 0 |
+| `series-perturbation` | 1121 / 62 | 300 / 8 |
+
+Build counters increment only after an actual successful build, including empty
+BLA tables; attempts avoided by keyframe reuse are not builds. Reference identity
+uses the exact centre decimal strings, actual precision bits, max_iter and escape
+radius bits. This is conservative for numerically equivalent alternate decimal
+spellings (the fixed-centre film itself keeps one spelling). BLA identity adds
+exact dc_max and EPS bits: today's builder has no dc_max rounding/bucket, so an
+exact-input bucket is used. This does **not** count potential reuse of a deeper
+reference at a shallower precision, or of a wider BLA table at a smaller dc_max.
+
+| Build measurement | 720p target | 1080p slice |
+|---|---:|---:|
+| `reference_builds` total / repeated | 91 / 29 (31.87%) | 8 / 0 (0.00%) |
+| `reference_builds` repeated-build seconds (% wall) | 0.000574 (0.000063%) | 0.000000 (0.000000%) |
+| `bla_builds` total / repeated | 91 / 0 (0.00%) | 8 / 0 (0.00%) |
+| `bla_builds` repeated-build seconds (% wall) | 0.000000 (0.000000%) | 0.000000 (0.000000%) |
+
+For the target, eliminating all identical repeated builds would save at most 0.000574 s (0.000063% wall; Amdahl 1.0000006x). Eliminating **all** reference/BLA setup, including unique builds, is bounded by 1.701 s (0.186%; 1.0019x). For the slice, eliminating all identical repeated builds would save at most 0.000000 s (0.000000% wall; Amdahl 1.0000000x). Eliminating **all** reference/BLA setup, including unique builds, is bounded by 0.223 s (0.103%; 1.0010x). These are optimistic zero-cost/unchanged-other-work bounds, not a cache implementation
+or a rejection of broader valid reuse. They supply DEC-15's measured setup share
+for CACH-01/PERF-02; cross-precision or wider-domain reuse needs its own evidence.
+
+The BLA-inclusive routes (ordinary BLA plus series+BLA) are the existing fast-path
+opportunity denominator. A BLA frame is not automatically a legal zone frame:
+
+| Existing path | What must hold before it can replace a BLA frame |
+|---|---|
+| KERN-02 mid jump (now WGSL mid-band) | A compiled mid operator for this nucleus must exist; `zone_covers`/`gpu_mid_input` must admit the entire frame and escape radius, with supported nu/de/normal columns and finite/i32-bounded GPU inputs. |
+| Zone via AUTO-01's cycle compiler | A suitable cycle/chart must be discovered and compiled, then its parameter domain and truncation bound must cover the whole frame; the production zone gate must pass. Compiler existence alone is not coverage. |
+| GPU zone kernel | The corresponding deep or mid zone must cover the frame, its GPU input packer must accept it, and device execution must pass validity checks. Moving per-frame BLA to a GPU is not an existing zone fast path. |
+
+Neither run supplied an operator for this period-2535 nucleus. Thus no existing
+operator was demonstrated legal on its BLA frames: the **measured current legal
+substitution share is zero** (Amdahl 1.000x), not evidence that a suitable operator
+cannot be built. No target operator was compiled or new coverage inferred here.
+As an absolute optimistic envelope, if any one of those paths legally replaced
+**every** BLA-inclusive call at zero cost, including its setup, the bounds would be:
+
+| Workload | BLA-inclusive seconds (% wall) | Perfect-replacement Amdahl ceiling |
+|---|---:|---:|
+| target | 589.184 (64.49%) | 2.816x |
+| slice | 0.000 (0.00%) | 1.000x |
+
+Actual gains would be lower because replacement work is nonzero, legality may
+cover only a subset, and reducing rendering may expose encoder wait. These are
+wall-time bounds against the current series-enabled route, not comparisons to an
+older plain renderer.
+
+Verification: named local checks `prob28-report` (red before: missing `routes`,
+exit 101; green after: exit 0), `prob28-unit` (11 passed), `prob28-film` (5 passed,
+including frozen look and resident/readback pixel parity), and `cargo-fmt` all
+passed. The report test drives `fd film --json` across the zone boundary directly
+and with keyframes, checks route-time/frame accounting, and checks exact repeated
+build counts under direct and jet-AA rendering. `prob28-target` and `prob28-slice`
+self-build their exact snapshots, render/encode the actual workloads, parse their
+reports, and assert accounting and frame counts. Both completed with exit 0.

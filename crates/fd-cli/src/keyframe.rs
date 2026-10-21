@@ -14,7 +14,7 @@
 //! precision and the output needs no second dither. The studio look shades, and tent
 //! resamples, only on wgpu ([`fd_shade::gpu::StudioGpu`], SHAD-11); other looks shade
 //! whole keyframes on the CPU and resample here.
-use crate::film::{render_frame_kernel, Used};
+use crate::film::{render_frame_profiled, BuildTimings, Used};
 use crate::path::sig6;
 use fd_kernel::{zone_covers, Params, Zone};
 use fd_samples::{Header, Samples, View};
@@ -50,6 +50,9 @@ pub(crate) struct Keyframes<'a> {
     shaded: [Rgb8; 2],
     output: Rgb8,
     lut: [f32; 256],
+    pub builds: BuildTimings,
+    /// Outer contributing keyframe route for each output-frame count.
+    pub frame_route: Used,
     /// Stage timings for the film JSON report. Prepare stays 0 since SHAD-11: the
     /// studio look prepares on the device, inside sample shade; the field keeps the
     /// fd-film/1 report's shape.
@@ -105,6 +108,8 @@ impl<'a> Keyframes<'a> {
             },
             lut: std::array::from_fn(|v| (v as f32 / 255.0).powf(2.2)),
             rendered: Vec::new(),
+            builds: BuildTimings::default(),
+            frame_route: Used::Plain,
             prepare_seconds: 0.0,
             sample_shade_seconds: 0.0,
             resample_seconds: 0.0,
@@ -205,7 +210,7 @@ impl<'a> Keyframes<'a> {
                     // Only the validity word came back; the samples stay on the device.
                     self.zone_readback_bytes += 4;
                     self.rendered
-                        .push((j, t.elapsed().as_secs_f64(), Used::Zone));
+                        .push((j, t.elapsed().as_secs_f64(), Used::zone(&h)));
                     self.cache.push((j, self.width(j), h, Samples::default()));
                     return Ok(());
                 }
@@ -218,7 +223,8 @@ impl<'a> Keyframes<'a> {
             }
             self.zone_renderer = None;
             self.zone_readback_bytes += 4;
-            let (h, s, used) = render_frame_kernel(&view, &self.p, self.zone, &mut None)?;
+            let (h, s, used) =
+                render_frame_profiled(&view, &self.p, self.zone, &mut None, &mut self.builds)?;
             self.rendered.push((j, t.elapsed().as_secs_f64(), used));
             self.cache.push((j, self.width(j), h, s));
             return Ok(());
@@ -230,14 +236,15 @@ impl<'a> Keyframes<'a> {
         let (h, s, used) = match gpu_result {
             Some(Ok((h, s))) => {
                 self.zone_readback_bytes += 16 * s.class.len() as u64;
-                (h, s, Used::Zone)
+                let used = Used::zone(&h);
+                (h, s, used)
             }
             Some(Err(e)) => {
                 eprintln!("fd film: wgpu zone unavailable ({e}); using the perturbation kernel");
                 self.zone_renderer = None;
-                render_frame_kernel(&view, &self.p, self.zone, &mut None)?
+                render_frame_profiled(&view, &self.p, self.zone, &mut None, &mut self.builds)?
             }
-            None => render_frame_kernel(&view, &self.p, self.zone, &mut None)?,
+            None => render_frame_profiled(&view, &self.p, self.zone, &mut None, &mut self.builds)?,
         };
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         self.cache.push((j, self.width(j), h, s));
@@ -276,6 +283,12 @@ impl<'a> Keyframes<'a> {
         });
         self.ensure(k, k)?;
         self.ensure(k + 1, k)?;
+        self.frame_route = self
+            .rendered
+            .iter()
+            .find(|r| r.0 == k)
+            .expect("rendered outer keyframe")
+            .2;
         if let (Some(l), None) = (self.studio.clone(), &self.gpu) {
             self.enable_gpu(&l, a)
                 .map_err(|e| format!("studio look needs a wgpu adapter: {e}"))?;

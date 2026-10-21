@@ -1,0 +1,43 @@
+{
+  "command": [
+    "/home/juno/.local/share/ishoo/verification-lanes/10faeb403b0ed6987dc9cdb02850c7e234b79a18c424e0cf228bb5552a15aeb9/heavy-0/build/release/fd",
+    "film",
+    "-0.8296874999999996981089858669738646984522311568651036619209",
+    "0.1859374999999989417838556112859064221737945709381783514212",
+    "--from",
+    "1e-20",
+    "--to",
+    "1e-22",
+    "--seconds",
+    "10",
+    "--size",
+    "1920x1080",
+    "--fps",
+    "30",
+    "--keyframes",
+    "2",
+    "--preset",
+    "master-ice",
+    "--threads",
+    "8",
+    "--json",
+    "--mp4",
+    "/home/juno/fractodactyl/target/prob28-evidence/slice.mp4"
+  ],
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "workers": 8,
+  "source_commit": "3bcd0aff49ac31f1b620e82a72601ba3170f2d0a",
+  "environment": {},
+  "started_unix": 1792561455.753415,
+  "elapsed_seconds": 215.66950249671936,
+  "exit_code": 0
+}

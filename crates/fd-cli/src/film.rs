@@ -27,7 +27,7 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 
 const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
-[--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
+[--json] [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames A..B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
@@ -35,10 +35,106 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 
 /// Which kernel rendered a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)] // Keep retired CPU routes explicit as zero entries in the report schema.
 pub(crate) enum Used {
     Zone,
     Bla,
     Plain,
+    ZoneGpu,
+    Mid,
+    Scaled,
+    SeriesBla,
+    SeriesPlain,
+}
+
+impl Used {
+    const ALL: [Self; 8] = [
+        Self::Zone,
+        Self::Bla,
+        Self::Plain,
+        Self::ZoneGpu,
+        Self::Mid,
+        Self::Scaled,
+        Self::SeriesBla,
+        Self::SeriesPlain,
+    ];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Zone => "zone",
+            Self::Bla => "bla",
+            Self::Plain => "perturbation",
+            Self::ZoneGpu => "zone-gpu",
+            Self::Mid => "mid",
+            Self::Scaled => "scaled",
+            Self::SeriesBla => "series-bla",
+            Self::SeriesPlain => "series-perturbation",
+        }
+    }
+
+    pub(crate) fn zone(header: &Header) -> Self {
+        if header.kernel.starts_with("zone-mid-") {
+            Self::Mid
+        } else {
+            Self::ZoneGpu
+        }
+    }
+
+    fn legacy(self) -> usize {
+        match self {
+            Self::Zone | Self::ZoneGpu | Self::Mid => 0,
+            Self::Bla | Self::SeriesBla => 1,
+            Self::Plain | Self::Scaled | Self::SeriesPlain => 2,
+        }
+    }
+}
+
+/// Observes builds without retaining or reusing mathematical products.
+#[derive(Default)]
+pub(crate) struct BuildTimings {
+    reference_seconds: f64,
+    bla_seconds: f64,
+    reference_builds: usize,
+    repeated_references: usize,
+    repeated_reference_seconds: f64,
+    bla_builds: usize,
+    repeated_blas: usize,
+    repeated_bla_seconds: f64,
+    references: std::collections::HashSet<String>,
+    blas: std::collections::HashSet<String>,
+}
+
+impl BuildTimings {
+    fn reference_key(view: &View, p: &Params, bits: u32) -> String {
+        format!(
+            "{}|{}|{bits}|{}|{}",
+            view.center_re,
+            view.center_im,
+            p.max_iter,
+            p.escape_radius.to_bits()
+        )
+    }
+
+    fn reference(&mut self, key: &str, seconds: f64) {
+        self.reference_seconds += seconds;
+        self.reference_builds += 1;
+        if !self.references.insert(key.to_owned()) {
+            self.repeated_references += 1;
+            self.repeated_reference_seconds += seconds;
+        }
+    }
+
+    fn bla(&mut self, key: &str, dc: f64, seconds: f64) {
+        self.bla_seconds += seconds;
+        self.bla_builds += 1;
+        // No rounding/bucketing is used by today's builder: its exact dc_max bits
+        // and EPS are part of the build input, not merely a potential reuse radius.
+        let key = format!("{key}|{}|{}", EPS.to_bits(), dc.to_bits());
+        if !self.blas.insert(key) {
+            self.repeated_blas += 1;
+            self.repeated_bla_seconds += seconds;
+        }
+    }
 }
 
 // Reproducible before/after measurements and an explicit diagnostic fallback.
@@ -94,7 +190,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
-    let a = Args::parse(argv, &known)?;
+    // Film always emits fd-film/1; accept an explicit --json for report consumers.
+    let argv: Vec<_> = argv
+        .iter()
+        .filter(|a| a.as_str() != "--json")
+        .cloned()
+        .collect();
+    let a = Args::parse(&argv, &known)?;
     // Zone frames and keyframes run on the wgpu zone kernel (CLEA-04); zone_gpu::choose
     // picks it when the flag is absent.
     let kernel_flag = a.str("gpu-kernel");
@@ -514,6 +616,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         keyframes,
         ..Report::default()
     };
+    let mut builds = BuildTimings::default();
     for (f, view) in views.iter().enumerate().take(to).skip(from) {
         if let Some(k) = keys.as_mut() {
             let t = Instant::now();
@@ -544,6 +647,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 r.add(used, secs);
             }
             r.shade += frame_seconds - kf;
+            r.output_frames[k.frame_route as usize] += 1;
             let done = f + 1 - from;
             if done == 1 || done % 60 == 0 || done == to - from {
                 let el = wall.elapsed().as_secs_f64();
@@ -555,13 +659,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         let t = Instant::now();
         let (hd, mut s, used) = if jet_aa {
             let (hd, s, used, computed, st) =
-                render_frame_jet(view, &p, zone.as_ref(), &mut frame_gpu)?;
+                render_frame_jet(view, &p, zone.as_ref(), &mut frame_gpu, &mut builds)?;
             r.jet_samples += computed;
             (0..3).for_each(|k| r.jet_stage[k] += st[k]);
             r.jet_pixels += (p.nx / 2) as u64 * (p.ny / 2) as u64;
             (hd, s, used)
         } else {
-            render_frame_kernel(view, &p, zone.as_ref(), &mut frame_gpu)?
+            render_frame_profiled(view, &p, zone.as_ref(), &mut frame_gpu, &mut builds)?
         };
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
@@ -571,7 +675,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         let secs = t.elapsed().as_secs_f64();
         r.add(used, secs);
-        if used == Used::Zone && compare_every > 0 && (f - from).is_multiple_of(compare_every) {
+        r.output_frames[used as usize] += 1;
+        if used.legacy() == 0 && compare_every > 0 && (f - from).is_multiple_of(compare_every) {
             let t = Instant::now();
             render_frame(view, &p, None)?;
             r.compared.push((secs, t.elapsed().as_secs_f64()));
@@ -601,11 +706,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 "  frame {done}/{} width {} ({}) {:.0} s elapsed, ~{:.0} s left",
                 to - from,
                 view.width,
-                match used {
-                    Used::Zone => "zone",
-                    Used::Bla => "bla",
-                    Used::Plain => "perturbation",
-                },
+                used.name(),
                 el,
                 el / done as f64 * (to - from - done) as f64
             );
@@ -618,11 +719,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         r.gpu_device = k.gpu_device().map(str::to_owned);
         r.zone_readback_bytes = k.zone_readback_bytes;
     }
+    r.builds = keys.map_or(builds, |k| k.builds);
     drop(pipe);
+    let encode_finish = Instant::now();
     let status = enc.wait().map_err(|e| format!("ffmpeg: {e}"))?;
     if !status.success() {
         return Err(format!("ffmpeg failed: {status}"));
     }
+    r.encode_wait += encode_finish.elapsed().as_secs_f64();
     println!(
         "{}",
         r.json(mp4, to - from, fps, wall.elapsed().as_secs_f64())
@@ -1050,17 +1154,36 @@ pub(crate) fn render_frame_kernel(
     zone: Option<&Zone>,
     gpu: &mut Option<crate::zone_gpu::Renderer>,
 ) -> Result<(Header, Samples, Used), String> {
+    render_frame_profiled(view, p, zone, gpu, &mut BuildTimings::default())
+}
+
+pub(crate) fn render_frame_profiled(
+    view: &View,
+    p: &Params,
+    zone: Option<&Zone>,
+    gpu: &mut Option<crate::zone_gpu::Renderer>,
+    builds: &mut BuildTimings,
+) -> Result<(Header, Samples, Used), String> {
     if let Some(z) = zone {
         if zone_covers(view, p, z)? {
             if let Some((h, s)) = crate::zone_gpu::render_zone_frame(gpu, view, p, z) {
-                return Ok((h, s, Used::Zone));
+                let used = Used::zone(&h);
+                return Ok((h, s, used));
             }
         }
     }
+    let t = Instant::now();
     let orbit = fd_kernel::reference(view, p)?;
+    let key = BuildTimings::reference_key(view, p, orbit.1);
+    builds.reference(&key, t.elapsed().as_secs_f64());
     let (r, bits) = (&orbit.0, orbit.1);
     let table = match bla_dc_max(view, p) {
-        Ok(dc) => Some(Bla::build(r, EPS, dc)?).filter(|t| !t.levels.is_empty()),
+        Ok(dc) => {
+            let t = Instant::now();
+            let table = Bla::build(r, EPS, dc)?;
+            builds.bla(&key, dc, t.elapsed().as_secs_f64());
+            Some(table).filter(|t| !t.levels.is_empty())
+        }
         Err(_) => None,
     };
     if let Some((series, use_bla)) = prepare_cpu_series(view, p, &orbit, table.as_ref(), None)? {
@@ -1071,7 +1194,15 @@ pub(crate) fn render_frame_kernel(
             if use_bla { table.as_ref() } else { None },
             None,
         )?;
-        return Ok((h, s, if use_bla { Used::Bla } else { Used::Plain }));
+        return Ok((
+            h,
+            s,
+            if use_bla {
+                Used::SeriesBla
+            } else {
+                Used::SeriesPlain
+            },
+        ));
     }
     let (orbit, _) = orbit;
     if let Some(table) = table {
@@ -1079,7 +1210,12 @@ pub(crate) fn render_frame_kernel(
         return Ok((h, s, Used::Bla));
     }
     let (h, s, _) = render_with(view, p, Some((orbit, bits)))?;
-    Ok((h, s, Used::Plain))
+    let used = if h.kernel.contains("scaled") {
+        Used::Scaled
+    } else {
+        Used::Plain
+    };
+    Ok((h, s, used))
 }
 
 /// A film frame with jet-AA (FILM-16): pass 1 computes each pixel's top-left ss 2
@@ -1093,6 +1229,7 @@ pub(crate) fn render_frame_jet(
     p: &Params,
     zone: Option<&Zone>,
     gpu: &mut Option<crate::zone_gpu::Renderer>,
+    builds: &mut BuildTimings,
 ) -> Result<(Header, Samples, Used, u64, [f64; 3]), String> {
     if p.ss != 2 {
         return Err("jet-AA rebuilds ss 2 frames".into());
@@ -1109,12 +1246,21 @@ pub(crate) fn render_frame_jet(
     // and perturbation frames: 1.84x faster on a tendril film at 1e-57).
     if let (true, Some(z)) = (in_zone, zone) {
         if let Some((hd, s)) = crate::zone_gpu::render_zone_frame(gpu, view, p, z) {
-            return Ok((hd, s, Used::Zone, 4 * (w * h) as u64, [0.0; 3]));
+            let used = Used::zone(&hd);
+            return Ok((hd, s, used, 4 * (w * h) as u64, [0.0; 3]));
         }
     }
+    let t = Instant::now();
     let (o, bits) = fd_kernel::reference(view, p)?;
+    let key = BuildTimings::reference_key(view, p, bits);
+    builds.reference(&key, t.elapsed().as_secs_f64());
     let table = match bla_dc_max(view, p) {
-        Ok(dc) => Some(Bla::build(&o, EPS, dc)?).filter(|t| !t.levels.is_empty()),
+        Ok(dc) => {
+            let t = Instant::now();
+            let table = Bla::build(&o, EPS, dc)?;
+            builds.bla(&key, dc, t.elapsed().as_secs_f64());
+            Some(table).filter(|t| !t.levels.is_empty())
+        }
         Err(_) => None,
     };
     let orbit = (o, bits);
@@ -1129,7 +1275,15 @@ pub(crate) fn render_frame_jet(
                 if *use_bla { table.as_ref() } else { None },
                 Some(mask),
             )?;
-            return Ok((hd, s, if *use_bla { Used::Bla } else { Used::Plain }));
+            return Ok((
+                hd,
+                s,
+                if *use_bla {
+                    Used::SeriesBla
+                } else {
+                    Used::SeriesPlain
+                },
+            ));
         }
         match &table {
             Some(t) => {
@@ -1138,7 +1292,12 @@ pub(crate) fn render_frame_jet(
             }
             None => {
                 let (hd, s, _) = render_with_masked(view, p, Some(orbit.clone()), mask)?;
-                Ok((hd, s, Used::Plain))
+                let used = if hd.kernel.contains("scaled") {
+                    Used::Scaled
+                } else {
+                    Used::Plain
+                };
+                Ok((hd, s, used))
             }
         }
     };
@@ -1163,6 +1322,10 @@ struct Report {
     /// Oversampling multiplier, or None for direct per-frame rendering.
     keyframes: Option<u32>,
     frames: [usize; 3],
+    route_frames: [usize; 8],
+    output_frames: [usize; 8],
+    route_seconds: [f64; 8],
+    builds: BuildTimings,
     seconds: [f64; 3],
     shade: f64,
     gpu_device: Option<String>,
@@ -1183,7 +1346,9 @@ struct Report {
 
 impl Report {
     fn add(&mut self, used: Used, secs: f64) {
-        let k = used as usize;
+        self.route_frames[used as usize] += 1;
+        self.route_seconds[used as usize] += secs;
+        let k = used.legacy();
         self.frames[k] += 1;
         self.seconds[k] += secs;
     }
@@ -1201,8 +1366,35 @@ impl Report {
             0.0
         };
         let render = self.seconds.iter().sum::<f64>();
+        let routes = Used::ALL
+            .iter()
+            .map(|&route| {
+                let k = route as usize;
+                format!(
+                    "{}:{{\"frames\":{},\"kernel_frames\":{},\"seconds\":{}}}",
+                    crate::bench::q(route.name()),
+                    self.output_frames[k],
+                    self.route_frames[k],
+                    self.route_seconds[k]
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let b = &self.builds;
+        let stages = format!(
+            "\"routes\":{{{routes}}},\"route_frame_basis\":\"outer keyframe for keyframe films; actual kernel for direct films\",\"timing_basis\":\"route seconds include setup; reference and BLA seconds are subsets of render; keyframe stages are subsets of shade; encode wait is host blocking time\",\"reference_seconds\":{},\"bla_build_seconds\":{},\"reference_builds\":{{\"total\":{},\"repeated\":{},\"repeated_seconds\":{}}},\"bla_builds\":{{\"total\":{},\"repeated\":{},\"repeated_seconds\":{}}},",
+            b.reference_seconds,
+            b.bla_seconds,
+            b.reference_builds,
+            b.repeated_references,
+            b.repeated_reference_seconds,
+            b.bla_builds,
+            b.repeated_blas,
+            b.repeated_bla_seconds
+        );
+
         format!(
-            "{{\"schema\":\"fd-film/1\",\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
+            "{{\"schema\":\"fd-film/1\",{stages}\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
              \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"zone_readback_bytes\":{},\"keyframes\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
@@ -1533,13 +1725,13 @@ mod tests {
             unresolved_interior: true,
             ..Appearance::STILL
         };
-        for (v, want) in [(&deep, Used::Zone), (&shallow, Used::Bla)] {
+        for (v, want) in [(&deep, Used::ZoneGpu), (&shallow, Used::Bla)] {
             let (h, s, used) = render_frame(v, &p, Some(&zone)).unwrap();
             assert_eq!(used, want, "{}", v.width);
             let img = look.shade_with(&h, &s, &film);
             assert_eq!((img.w, img.h, img.data.len()), (32, 18, 32 * 18 * 3));
         }
         // Without a zone the deep frame falls back to fd's own kernel.
-        assert_ne!(render_frame(&deep, &p, None).unwrap().2, Used::Zone);
+        assert_ne!(render_frame(&deep, &p, None).unwrap().2, Used::ZoneGpu);
     }
 }

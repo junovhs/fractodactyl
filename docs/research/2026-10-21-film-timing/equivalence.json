@@ -1,0 +1,45 @@
+{
+  "target_snapshot": "cd92c86fc254593c5feee1b859aaab1fd4b8799d",
+  "slice_snapshot": "3bcd0aff49ac31f1b620e82a72601ba3170f2d0a",
+  "measured_tree": "9de7c22089e0a1350ebb82e21fd31ebe34c81962",
+  "identical_measured_executable_sha256": "10eb814865c0ba0a9e920bbdbeafc19717070c6f827afa034728d5c232cff22c",
+  "final_rebuild_executable_sha256": "10eb814865c0ba0a9e920bbdbeafc19717070c6f827afa034728d5c232cff22c",
+  "final_rebuild_matches_measured": true,
+  "unchanged_measured_files_except_method": 825,
+  "measured_source_manifest_sha256": "4449810f3954b3e305a161a1c2d228ce85a6f9a3c494453adc34601cd8822c0d",
+  "existing_file_changes_after_measurement": [
+    "docs/spec/METHOD.md"
+  ],
+  "new_files_after_measurement": [
+    "docs/research/2026-10-21-film-timing/equivalence.json",
+    "docs/research/2026-10-21-film-timing/slice-invocation.json",
+    "docs/research/2026-10-21-film-timing/slice.json",
+    "docs/research/2026-10-21-film-timing/target-invocation.json",
+    "docs/research/2026-10-21-film-timing/target.json"
+  ],
+  "equivalence": "All pre-existing measured files except METHOD.md have identical Git-normalized blob hashes in the final worktree. Only METHOD.md and newly added empirical-result records differ. The measurement script and all executable/runtime inputs are identical. Target and slice have the same SHA-256 fd executable; the final rebuild checksum and equality result are recorded separately. Normal Cargo lane checks use CARGO_INCREMENTAL=1 and their artifact differs. The measured wrapper leaves incremental unset (the release default is off). Source inputs are identical, and the final production rebuild uses that exact measured build configuration.",
+  "normal_final_tree_checks": {
+    "cargo-fmt": {
+      "job": 555,
+      "exit_code": 0
+    },
+    "prob28-unit": {
+      "job": 556,
+      "exit_code": 0
+    },
+    "prob28-film": {
+      "job": 557,
+      "exit_code": 0
+    },
+    "prob28-report": {
+      "job": 558,
+      "exit_code": 0
+    }
+  },
+  "final_production_rebuild": {
+    "job": 560,
+    "exit_code": 0,
+    "check": "prob28-measured-build"
+  },
+  "normal_cargo_lane_executable_sha256": "c68860f85694115a0bc18bcb7130ae6ec118dc61c4762e6656fc2d918b61455c"
+}
