@@ -645,7 +645,7 @@ mod tests {
         let v: Vec<_> = frames
             .lines()
             .filter(|l| !l.starts_with('#') && !l.is_empty())
-            .last()
+            .next_back()
             .unwrap()
             .split_whitespace()
             .collect();
