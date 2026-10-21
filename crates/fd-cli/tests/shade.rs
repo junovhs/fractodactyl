@@ -146,6 +146,66 @@ fn two_looks_from_one_result_without_iterating() {
 }
 
 #[test]
+fn preset_from_release_layout() {
+    let dir = std::env::temp_dir().join(format!("fd-release-looks-{}", std::process::id()));
+    let package = dir.join("release");
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(package.join("looks")).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../looks");
+    for entry in std::fs::read_dir(source).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_some_and(|ext| ext == "look") {
+            std::fs::copy(&path, package.join("looks").join(path.file_name().unwrap())).unwrap();
+        }
+    }
+    assert!(!package.join(".git").exists());
+    let executable = package.join(format!("fd{}", std::env::consts::EXE_SUFFIX));
+    std::fs::copy(env!("CARGO_BIN_EXE_fd"), &executable).unwrap();
+    let samples = elsewhere.join("tiny.fds");
+    fd(&[
+        "render",
+        "--re",
+        "0",
+        "--im",
+        "0",
+        "--width",
+        "4",
+        "--size",
+        "8x4",
+        "--ss",
+        "1",
+        "--iter",
+        "64",
+        "--threads",
+        "1",
+        "-o",
+        samples.to_str().unwrap(),
+    ]);
+    let output = output_of_copied(
+        Command::new(&executable)
+            .current_dir(&elsewhere)
+            .env_remove("FD_LOOKS")
+            .args([
+                "shade",
+                "tiny.fds",
+                "--preset",
+                "master-ice",
+                "-o",
+                "shaded",
+            ]),
+    );
+    assert!(
+        output.status.success(),
+        "release shade exited {}: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(elsewhere.join("shaded/tiny.studio.png").is_file());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn preset_survives_removed_build_worktree() {
     let dir = std::env::temp_dir().join(format!("fd-runtime-looks-{}", std::process::id()));
     std::fs::create_dir_all(dir.join(".git/worktrees/probe")).unwrap();

@@ -2,9 +2,9 @@
 use std::path::{Path, PathBuf};
 
 /// `$FD_LOOKS`, otherwise the main checkout's `looks/`, discovered from the
-/// executable and then the current directory. Git worktrees use their common
-/// Git directory so saves survive worktree removal. Without a repository,
-/// callers can still use built-ins; saving requires an explicit `$FD_LOOKS`.
+/// executable and then the current directory, otherwise a release package's
+/// `looks/` beside the executable. Git worktrees use their common Git directory
+/// so saves survive worktree removal. Built-ins remain available without either.
 pub fn looks_dir() -> Option<PathBuf> {
     resolve(
         std::env::var_os("FD_LOOKS").map(PathBuf::from),
@@ -23,6 +23,10 @@ fn resolve(
             .into_iter()
             .chain(cwd)
             .find_map(|start| start.ancestors().find_map(repo_looks))
+            .or_else(|| {
+                let looks = exe?.parent()?.join("looks");
+                looks.is_dir().then_some(looks)
+            })
     })
 }
 
@@ -137,6 +141,24 @@ mod tests {
         );
         assert_eq!(resolve(None, None, Some(&f.0)), Some(f.0.join("looks")));
         assert_eq!(resolve(None, None, None), None);
+    }
+
+    #[test]
+    fn release_looks_follow_override_and_checkout_lookup() {
+        let f = Fixture::new();
+        let package = f.0.join("release");
+        std::fs::create_dir_all(package.join("looks")).unwrap();
+        let exe = package.join("fd");
+        assert_eq!(resolve(None, Some(&exe), None), Some(f.0.join("looks")));
+        std::fs::remove_dir_all(f.0.join(".git")).unwrap();
+        assert_eq!(resolve(None, Some(&exe), None), Some(package.join("looks")));
+        let custom = f.0.join("custom");
+        assert_eq!(
+            resolve(Some(custom.clone()), Some(&exe), None),
+            Some(custom)
+        );
+        std::fs::remove_dir_all(package.join("looks")).unwrap();
+        assert_eq!(resolve(None, Some(&exe), None), None);
     }
 
     #[test]
