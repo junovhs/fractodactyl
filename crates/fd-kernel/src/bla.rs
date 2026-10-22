@@ -7,6 +7,8 @@
 //! `eps` times the kept `2 Z_k delta_k`). Spec: docs/spec/ATLAS.md "BLA tables".
 use crate::reference::Reference;
 use crate::sample::RESOLVABLE;
+mod guarded;
+pub use guarded::{GuardedBla, GuardedBlock};
 
 /// Largest accepted `eps`, `2^-41`. Inside a block every skipped iterate has `|delta_k| <
 /// 2 eps |Z_k|` and so `|delta_k| < 2 eps / (1 - 2 eps) |z_k|`; keeping that at most the
@@ -88,14 +90,8 @@ impl Block {
         let bhat = x.b.0.hypot(x.b.1) + x.beta;
         let r = x.r.min((y.r - bhat * c) / ahat);
         let z = Block {
-            a: (
-                y.a.0 * x.a.0 - y.a.1 * x.a.1 + 0.0,
-                y.a.0 * x.a.1 + y.a.1 * x.a.0 + 0.0,
-            ),
-            b: (
-                y.a.0 * x.b.0 - y.a.1 * x.b.1 + y.b.0 + 0.0,
-                y.a.0 * x.b.1 + y.a.1 * x.b.0 + y.b.1 + 0.0,
-            ),
+            a: affine(x.a, y.a, (0.0, 0.0)),
+            b: affine(x.b, y.a, y.b),
             r,
             alpha: ay * x.alpha + y.alpha * ahat,
             beta: ay * x.beta + y.alpha * bhat + y.beta,
@@ -106,6 +102,14 @@ impl Block {
             Block::default()
         }
     }
+}
+
+// DEC-24: nominal affine composition is shared by ordinary and guarded tables.
+fn affine(x: (f64, f64), a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
+    (
+        a.0 * x.0 - a.1 * x.1 + b.0 + 0.0,
+        a.0 * x.1 + a.1 * x.0 + b.1 + 0.0,
+    )
 }
 
 /// A BLA table for one reference orbit of `points` points, valid for `|dc| <= dc_max`.

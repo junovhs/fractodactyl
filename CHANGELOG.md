@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Experimental `--gpu-perturb bla` applies shared guarded BLA blocks with derivative uncertainty and reports actual skipped work. It remains default-off, Heuristic and currently slower than CPU BLA; original plain CPU restart and unchanged output admission remain.
+
 - Film camera paths, saved places and keyframes now support decimal widths down to `1e-1000`, preserving exact destination centers. `--depth-cap` allows a smaller limit (default and maximum 1000 decades); deeper film requests are refused before rendering.
 
 - Film reports now include process CPU seconds and average busy threads for each actual kernel frame, including setup and retries, with explicit measurement boundaries and unavailable-clock handling.

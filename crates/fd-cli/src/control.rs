@@ -159,7 +159,11 @@ fn frame(
         }
         None if crate::perturb_gpu::enabled(a.str("gpu-perturb"))? => (
             crate::bench::measure_using(view, p, runs, || {
-                crate::perturb_gpu::render(view, p, None)
+                if a.str("gpu-perturb") == Some("bla") {
+                    crate::perturb_gpu::render_bla(view, p, None)
+                } else {
+                    crate::perturb_gpu::render(view, p, None)
+                }
             })?,
             None,
         ),

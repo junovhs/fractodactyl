@@ -105,7 +105,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         && table.is_none()
         && a.str("zone").is_none()
     {
-        Some(crate::perturb_gpu::render(&view, &p, orbit.clone())?)
+        Some(if a.str("gpu-perturb") == Some("bla") {
+            crate::perturb_gpu::render_bla(&view, &p, orbit.clone())?
+        } else {
+            crate::perturb_gpu::render(&view, &p, orbit.clone())?
+        })
     } else {
         if gpu_perturb {
             eprintln!("fd gpu-perturb: explicit zone/BLA/refine route takes precedence");

@@ -29,6 +29,13 @@ fn perturb_step_radius(s: PerturbState, dc: PN, z: PN, next: PN, last: bool, rad
     o.delta = pn_add(pn_add(pn_scale(pn_mul(z, s.delta), 2.0), pn_mul(s.delta, s.delta)), dc);
     o.n += 1u;
     o.m += 1u;
+    return perturb_finish(o,next,last,radius);
+}
+
+// Shared endpoint handling for a single step or an affine block; no shortcut may
+// skip an escape/rebase at its landing iterate.
+fn perturb_finish(state:PerturbState,next:PN,last:bool,radius:PN)->PerturbState {
+    var o=state;
     let physical = pn_add(next, o.delta);
     if (pn_bad(o.delta) || pn_bad(physical)) { o.status = 2u; return o; }
     if (!(pn_in_range(o.delta) && pn_in_range(physical))) { o.status = 3u; return o; }

@@ -1,0 +1,226 @@
+{
+  "schema": "gpu33-checkpoint/1",
+  "timing_snapshot": "aacef61a44d1efb834f958f96cc3c3ef2bd483d7",
+  "check": 806,
+  "adapter": "AMD Radeon RX5700XT RADV25.1.5",
+  "workers": 8,
+  "scope": "complete cold processes, same camera/AA/iterations/columns; all table/setup/upload/fallback included",
+  "size": "1280x720",
+  "camera": [
+    [
+      "tim-random",
+      "-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259",
+      "0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815",
+      "7.525118732e-81"
+    ]
+  ],
+  "arms": {
+    "plain": {
+      "process_seconds": 7.296105918998364
+    },
+    "cpu-bla": {
+      "process_seconds": 1.5195525910239667,
+      "comparison_totals": {
+        "schema": "fd-compare/1",
+        "record": "totals",
+        "a": "/home/juno/fractodactyl/target/gpu33-tim720/plain",
+        "b": "/home/juno/fractodactyl/target/gpu33-tim720/cpu-bla",
+        "px": 0.001,
+        "de_tol": 0.002,
+        "normal_tol": 0.2,
+        "frames": 1,
+        "errors": 0,
+        "frames_class_identical": 1,
+        "frames_bytes_identical": 0,
+        "frames_width_off": 0,
+        "samples": 921600,
+        "class_mismatches": 0,
+        "kinds": {
+          "escaped_to_interior": 0,
+          "escaped_to_unresolved": 0,
+          "interior_to_escaped": 0,
+          "interior_to_unresolved": 0,
+          "unresolved_to_escaped": 0,
+          "unresolved_to_interior": 0
+        },
+        "non_finite": 0,
+        "nu": {
+          "both_escaped": 921600,
+          "equal": 783308,
+          "abs_max": 1248.751294421735,
+          "px_max": 7.17511588031783e-10,
+          "over_px": 0,
+          "escape_count_changed": 591
+        },
+        "de": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "rel_max": 1.1713232426959504e-07,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "rel_max": 209425992288.66553
+          }
+        },
+        "normal": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "deg_max": 0,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "deg_max": 179.89013671875
+          }
+        },
+        "ok": true
+      }
+    },
+    "gpu-on": {
+      "process_seconds": 9.62801925902022,
+      "gpu": [
+        {
+          "accepted": 803150.0,
+          "fallback": 118450.0,
+          "guard": 118450.0,
+          "unfinished": 0.0,
+          "invalid": 0.0,
+          "gpu_seconds": 8.159965,
+          "cpu_fallback_seconds": 1.058245,
+          "total_seconds": 9.558139
+        }
+      ],
+      "comparison_totals": {
+        "schema": "fd-compare/1",
+        "record": "totals",
+        "a": "/home/juno/fractodactyl/target/gpu33-tim720/plain",
+        "b": "/home/juno/fractodactyl/target/gpu33-tim720/gpu-on",
+        "px": 0.001,
+        "de_tol": 0.002,
+        "normal_tol": 0.2,
+        "frames": 1,
+        "errors": 0,
+        "frames_class_identical": 1,
+        "frames_bytes_identical": 0,
+        "frames_width_off": 0,
+        "samples": 921600,
+        "class_mismatches": 0,
+        "kinds": {
+          "escaped_to_interior": 0,
+          "escaped_to_unresolved": 0,
+          "interior_to_escaped": 0,
+          "interior_to_unresolved": 0,
+          "unresolved_to_escaped": 0,
+          "unresolved_to_interior": 0
+        },
+        "non_finite": 0,
+        "nu": {
+          "both_escaped": 921600,
+          "equal": 706997,
+          "abs_max": 1.255102688446641e-10,
+          "px_max": 7.178054783974441e-10,
+          "over_px": 0,
+          "escape_count_changed": 0
+        },
+        "de": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "rel_max": 1.1392072530136019e-07,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "rel_max": 0
+          }
+        },
+        "normal": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "deg_max": 0,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "deg_max": 0
+          }
+        },
+        "ok": true
+      }
+    },
+    "gpu-bla": {
+      "process_seconds": 2.5845187340164557,
+      "gpu": [
+        {
+          "accepted": 865232.0,
+          "fallback": 56368.0,
+          "guard": 56368.0,
+          "unfinished": 0.0,
+          "invalid": 0.0,
+          "gpu_seconds": 1.553744,
+          "cpu_fallback_seconds": 0.610268,
+          "total_seconds": 2.510152
+        }
+      ],
+      "la": [
+        {
+          "blocks": 51667176.0,
+          "skipped": 5707109104.0,
+          "table_blocks": 6818.0,
+          "table_bytes": 981808.0,
+          "table_seconds": 0.002257
+        }
+      ],
+      "comparison_totals": {
+        "schema": "fd-compare/1",
+        "record": "totals",
+        "a": "/home/juno/fractodactyl/target/gpu33-tim720/plain",
+        "b": "/home/juno/fractodactyl/target/gpu33-tim720/gpu-bla",
+        "px": 0.001,
+        "de_tol": 0.002,
+        "normal_tol": 0.2,
+        "frames": 1,
+        "errors": 0,
+        "frames_class_identical": 1,
+        "frames_bytes_identical": 0,
+        "frames_width_off": 0,
+        "samples": 921600,
+        "class_mismatches": 0,
+        "kinds": {
+          "escaped_to_interior": 0,
+          "escaped_to_unresolved": 0,
+          "interior_to_escaped": 0,
+          "interior_to_unresolved": 0,
+          "unresolved_to_escaped": 0,
+          "unresolved_to_interior": 0
+        },
+        "non_finite": 0,
+        "nu": {
+          "both_escaped": 921600,
+          "equal": 753631,
+          "abs_max": 1.7143975128419697e-09,
+          "px_max": 7.17511588031783e-10,
+          "over_px": 0,
+          "escape_count_changed": 0
+        },
+        "de": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "rel_max": 1.1777128674788018e-07,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "rel_max": 0
+          }
+        },
+        "normal": {
+          "frames_scored": 1,
+          "compared": 899008,
+          "deg_max": 0,
+          "over_tol": 0,
+          "near_boundary": {
+            "samples": 22592,
+            "deg_max": 0
+          }
+        },
+        "ok": true
+      }
+    }
+  }
+}

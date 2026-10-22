@@ -23,8 +23,11 @@ fn main(@builtin(global_invocation_id) id:vec3<u32>) {
  if(args[3]!=0u||!pn_capability_ok()){result[8u*i+6u]=vec4<u32>(0u,0u,4u,0u);result[8u*i+7u]=vec4<u32>(0x47505502u,i,0u,0u);return;}
  let dc=unpack_ce(offset_words[3u*i],offset_words[3u*i+1u]);let rc=unpack_cf(offset_words[3u*i+2u]);
  let radius=unpack_ce(vec4<u32>(args[4],args[5],args[6],args[7]),vec4<u32>(args[8],args[9],args[10],args[11]));
- var s=PerturbState(pn_zero(),0u,0u,0u,0u);var derivative=pn_zero();var e=cf_zero();var ed=cf_zero();
+ var s=PerturbState(pn_zero(),0u,0u,0u,0u);var derivative=pn_zero();var e=cf_zero();var ed=cf_zero();var la_blocks=0u;var la_skipped=0u;
  for(var step=0u;step<args[2];step+=1u){
+  if(s.n>=args[2]){break;}
+  let jump=bla_advance(s,dc,rc,derivative,e,ed);
+  if(jump.length>0u){s=jump.s;derivative=jump.derivative;e=jump.e;ed=jump.ed;la_blocks+=1u;la_skipped+=jump.length;if(s.status!=0u){break;}continue;}
   if(s.m+1u>=args[1]){s.status=2u;break;}
   let z=reference_z(s.m);let q=reference_q(s.m);let next=reference_z(s.m+1u);let physical=pn_add(z,s.delta);
   let af=pn_magnitude_upper(physical);let ad=pn_magnitude_upper(derivative);let ax=pn_magnitude_upper(s.delta);let aw=pn_magnitude_upper(z);
@@ -44,5 +47,5 @@ fn main(@builtin(global_invocation_id) id:vec3<u32>) {
  result[b]=vec4<u32>(bitcast<u32>(s.delta.re.hi),bitcast<u32>(s.delta.im.hi),bitcast<u32>(s.delta.re.lo),bitcast<u32>(s.delta.im.lo));result[b+1u]=vec4<u32>(bitcast<u32>(s.delta.e),0u,0u,0u);
  result[b+2u]=vec4<u32>(bitcast<u32>(derivative.re.hi),bitcast<u32>(derivative.im.hi),bitcast<u32>(derivative.re.lo),bitcast<u32>(derivative.im.lo));result[b+3u]=vec4<u32>(bitcast<u32>(derivative.e),0u,0u,0u);
  result[b+4u]=packed_cf(e);result[b+5u]=packed_cf(ed);result[b+6u]=vec4<u32>(s.m,s.n,s.status,s.rebases);
- result[b+7u]=vec4<u32>(0x47505502u,i,0u,0u);
+ result[b+7u]=vec4<u32>(0x47505502u,i,la_blocks,la_skipped);
 }
