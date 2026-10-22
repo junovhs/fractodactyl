@@ -14,8 +14,8 @@
 //! precision and the output needs no second dither. The studio look shades, and tent
 //! resamples, only on wgpu ([`fd_shade::gpu::StudioGpu`], SHAD-11); other looks shade
 //! whole keyframes on the CPU and resample here.
+use crate::film::sig6_log;
 use crate::film::{render_frame_profiled, BuildTimings, Used};
-use crate::path::sig6;
 use fd_kernel::{zone_covers, Params, Zone};
 use fd_samples::{Header, Samples, View};
 use fd_shade::gpu::Resample;
@@ -29,7 +29,7 @@ const TENT: f32 = 0.5;
 pub(crate) struct Keyframes<'a> {
     re: String,
     im: String,
-    w0: f64,
+    l0: f64,
     /// Rendered keyframe footprint relative to the nominal zoom width.
     footprint: f64,
     /// Output size in pixels.
@@ -38,7 +38,7 @@ pub(crate) struct Keyframes<'a> {
     p: Params,
     zone: Option<&'a Zone>,
     zone_renderer: Option<crate::zone_gpu::Renderer>,
-    /// Rendered keyframes still needed: (index, width, header, samples).
+    /// Rendered keyframes still needed: (index, log10 width, header, samples).
     cache: Vec<(usize, f64, Header, Samples)>,
     studio: Option<Look>,
     gpu: Option<fd_shade::gpu::StudioGpu>,
@@ -65,10 +65,10 @@ pub(crate) struct Keyframes<'a> {
 
 impl<'a> Keyframes<'a> {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new_log(
         re: &str,
         im: &str,
-        w0: f64,
+        l0: f64,
         out: (u32, u32),
         m: u32,
         p: &Params,
@@ -85,7 +85,7 @@ impl<'a> Keyframes<'a> {
         Keyframes {
             re,
             im,
-            w0,
+            l0,
             footprint: 1.0,
             out: (out.0 as usize, out.1 as usize),
             p,
@@ -114,6 +114,38 @@ impl<'a> Keyframes<'a> {
             sample_shade_seconds: 0.0,
             resample_seconds: 0.0,
         }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        re: &str,
+        im: &str,
+        w0: f64,
+        out: (u32, u32),
+        m: u32,
+        p: &Params,
+        zone: Option<&'a Zone>,
+        studio: Option<Look>,
+    ) -> Self {
+        Self::new_log(re, im, w0.log10(), out, m, p, zone, studio)
+    }
+
+    #[cfg(test)]
+    fn octave(&self, w: f64) -> usize {
+        self.octave_log(w.log10())
+    }
+
+    #[cfg(test)]
+    pub fn frame(
+        &mut self,
+        w: f64,
+        off: (f64, f64),
+        rotation: f64,
+        look: &dyn Pass,
+        a: &Appearance,
+    ) -> Result<&Rgb8, String> {
+        self.frame_log(w.log10(), (off.0 / w, off.1 / w), rotation, look, a)
     }
 
     /// Enlarge rotated keyframes to at least `footprint` x the nominal width, keeping the
@@ -168,11 +200,16 @@ impl<'a> Keyframes<'a> {
     }
 
     fn width_str(&self, j: usize) -> String {
-        sig6(self.w0 * self.footprint / 2f64.powi(j as i32))
+        sig6_log(self.l0 + self.footprint.log10() - j as f64 * std::f64::consts::LOG10_2)
     }
 
+    fn width_log(&self, j: usize) -> f64 {
+        crate::film::width_log(&self.width_str(j)).expect("formatted width")
+    }
+
+    #[cfg(test)]
     fn width(&self, j: usize) -> f64 {
-        self.width_str(j).parse().expect("sig6 parses")
+        10f64.powf(self.width_log(j))
     }
 
     /// Render keyframe `j` unless cached; drop keyframes shallower than `keep`.
@@ -220,7 +257,8 @@ impl<'a> Keyframes<'a> {
                     );
                     self.rendered
                         .push((j, t.elapsed().as_secs_f64(), Used::zone(&h)));
-                    self.cache.push((j, self.width(j), h, Samples::default()));
+                    self.cache
+                        .push((j, self.width_log(j), h, Samples::default()));
                     return Ok(());
                 }
                 Ok(None) => {
@@ -238,7 +276,7 @@ impl<'a> Keyframes<'a> {
             self.builds
                 .process_cpu_frame(&view, &self.p, used, t.elapsed().as_secs_f64(), cpu);
             self.rendered.push((j, t.elapsed().as_secs_f64(), used));
-            self.cache.push((j, self.width(j), h, s));
+            self.cache.push((j, self.width_log(j), h, s));
             return Ok(());
         }
         let gpu_result = match (self.zone, self.zone_renderer.as_mut()) {
@@ -262,40 +300,44 @@ impl<'a> Keyframes<'a> {
         self.builds
             .process_cpu_frame(&view, &self.p, used, t.elapsed().as_secs_f64(), cpu);
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
-        self.cache.push((j, self.width(j), h, s));
+        self.cache.push((j, self.width_log(j), h, s));
         Ok(())
     }
 
     /// The keyframe pair for frame width `w`: `k` with `W_{k+1} < w <= W_k`.
-    fn octave(&self, w: f64) -> usize {
-        let mut k = (self.w0 / w).log2().floor().max(0.0) as usize;
-        while k > 0 && self.width(k) < w {
+    fn octave_log(&self, log: f64) -> usize {
+        let mut k = ((self.l0 - log) * std::f64::consts::LOG2_10)
+            .floor()
+            .max(0.0) as usize;
+        while k > 0 && self.width_log(k) < log {
             k -= 1;
         }
-        while self.width(k + 1) >= w {
+        while self.width_log(k + 1) >= log {
             k += 1;
         }
         k
     }
 
-    /// The frame at width `w`, centred `off` (complex, re/im) from the keyframe centre,
+    /// The frame at log10 width `log`, centred `off` in frame-width units from the keyframe centre,
     /// rotated by `rotation` radians and shaded at appearance `a`.
-    pub fn frame(
+    pub fn frame_log(
         &mut self,
-        w: f64,
+        log: f64,
         off: (f64, f64),
         rotation: f64,
         look: &dyn Pass,
         a: &Appearance,
     ) -> Result<&Rgb8, String> {
-        let req = coverage_rotated(w, off, (self.out.0 as u32, self.out.1 as u32), rotation);
+        let req = coverage_rotated(1.0, off, (self.out.0 as u32, self.out.1 as u32), rotation);
         // Rotated keyframes are enlarged by `footprint`: pick the octave by the frame's
         // scale against the nominal widths, as an unrotated film would.
-        let k = self.octave(if self.footprint > 1.0 {
-            w * self.footprint
-        } else {
-            req
-        });
+        let ramp_log = log
+            + if self.footprint > 1.0 {
+                self.footprint.log10()
+            } else {
+                req.log10()
+            };
+        let k = self.octave_log(ramp_log);
         self.ensure(k, k)?;
         self.ensure(k + 1, k)?;
         self.frame_route = self
@@ -315,18 +357,19 @@ impl<'a> Keyframes<'a> {
         let (ow, oh) = self.out;
         let (sin, cos) = rotation.sin_cos();
         let (sin, cos) = (sin as f32, cos as f32);
-        let ramp_width = if self.footprint > 1.0 {
-            w * self.footprint
-        } else {
-            req
-        };
-        let u = (outer.1 / ramp_width).log2().clamp(0.0, 1.0) as f32;
+        let u = ((outer.1 - ramp_log) * std::f64::consts::LOG2_10).clamp(0.0, 1.0) as f32;
         let ramp = (u / 0.25).min(1.0);
         let margin = 0.1 * (1.0 - u) + 1e-3;
-        let (zo, zi) = ((w / outer.1) as f32, (w / inner.1) as f32);
+        let (zo, zi) = (
+            10f64.powf(log - outer.1) as f32,
+            10f64.powf(log - inner.1) as f32,
+        );
         // The frame centre in each keyframe, in its widths (x) and heights (y, down).
         let aspect64 = ow as f64 / oh as f64;
-        let at = |wj: f64| ((off.0 / wj) as f32, (-off.1 / wj * aspect64) as f32);
+        let at = |lj: f64| {
+            let ratio = 10f64.powf(log - lj);
+            ((off.0 * ratio) as f32, (-off.1 * ratio * aspect64) as f32)
+        };
         let ((oxo, oyo), (oxi, oyi)) = (at(outer.1), at(inner.1));
         let (owidth, oheight) = outer.2.pixels();
         let (iwidth, iheight) = inner.2.pixels();

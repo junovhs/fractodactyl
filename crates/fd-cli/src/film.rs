@@ -26,7 +26,7 @@ use std::io::Write as _;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--fps F (60)] \
+const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--depth-cap DECADES (1000; maximum 1000)] [--fps F (60)] \
 [--json] [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
@@ -202,6 +202,7 @@ fn prepare_cpu_series(
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut known = vec![
         "to",
+        "depth-cap",
         "mp4",
         "from",
         "fps",
@@ -268,30 +269,17 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let fps: f64 = a.num("fps", 60.0)?;
     let speed_file = a.str("speed");
     let from = a.str("from").unwrap_or("4");
-    let width_log = |name: &str, value: &str| -> Result<f64, String> {
-        let d = fd_fixed::Decimal::parse(value)?;
-        let log = d.log2_abs() * std::f64::consts::LOG10_2;
-        if d.neg || !log.is_finite() {
-            return Err(format!(
-                "--{name}: expected a positive width, got {value:?}"
-            ));
-        }
-        Ok(log)
-    };
-    let (l0, l1) = (width_log("from", from)?, width_log("to", to)?);
-    // Existing constant-rate films are f64-limited; curve films can keep deep widths
-    // as decimal strings without ever converting their magnitude to f64 (DEC-21).
-    let (w0, mut w1): (f64, f64) = if speed_file.is_some() {
-        (from.parse().unwrap_or(0.0), to.parse().unwrap_or(0.0))
-    } else {
-        (
-            a.num("from", 4.0)?,
-            to.parse()
-                .ok()
-                .filter(|w: &f64| *w > 0.0)
-                .ok_or_else(|| format!("--to: bad or out-of-range width {to:?}"))?,
-        )
-    };
+    let (l0, mut l1) = (width_log(from)?, width_log(to)?);
+    // DEC-22: the supported film range is bounded; extreme depths remain still-only.
+    let cap: f64 = a.num("depth-cap", 1000.0)?;
+    if !(cap.is_finite() && cap > 0.0 && cap <= 1000.0) {
+        return Err("--depth-cap: expected positive decades <= 1000".into());
+    }
+    if l0.min(l1) < -cap {
+        return Err(format!(
+            "film depth exceeds --depth-cap {cap}; use fd still for deeper still-only work"
+        ));
+    }
     let ease = match a.str("ease").unwrap_or("off") {
         "on" => true,
         "off" => false,
@@ -331,25 +319,25 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     } else {
         match a.str("seconds") {
             Some(_) => a.num("seconds", 0.0)?,
-            None if ease_out > 0.0 => (w0 / w1).log10().abs() / rate + ease_out / 2.0,
+            None if ease_out > 0.0 => (l0 - l1).abs() / rate + ease_out / 2.0,
             None if ease_in > 0.0 => {
-                let t = (w0 / w1).log10().abs() / rate + ease_in / 2.0;
+                let t = (l0 - l1).abs() / rate + ease_in / 2.0;
                 if t < ease_in {
                     return Err(format!("--ease-in {ease_in}: the zoom reaches --to before full speed; shorten --ease-in"));
                 }
                 t
             }
-            None => (w0 / w1).log10().abs() / rate,
+            None => (l0 - l1).abs() / rate,
         }
     };
     if ease_in > 0.0 && a.str("seconds").is_some() {
-        let end = w0 / 10f64.powf(rate * eased_depth(seconds, ease_in));
-        if end < w1 {
+        let end = l0 - rate * eased_depth(seconds, ease_in);
+        if end < l1 {
             return Err(format!(
-                "--ease-in: {seconds} s at --rate {rate} would pass --to ({end:e} < {w1:e})"
+                "--ease-in: {seconds} s at --rate {rate} would pass --to (log10 width {end} < {l1})"
             ));
         }
-        w1 = end;
+        l1 = end;
     }
     if ease_out > 0.0 && a.str("seconds").is_some() {
         if seconds < ease_out {
@@ -357,13 +345,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 "--ease-out {ease_out} is longer than --seconds {seconds}"
             ));
         }
-        let end = w0 / 10f64.powf(rate * out_depth(seconds, seconds, ease_out));
-        if end < w1 {
+        let end = l0 - rate * out_depth(seconds, seconds, ease_out);
+        if end < l1 {
             return Err(format!(
-                "--ease-out: {seconds} s at --rate {rate} would pass --to ({end:e} < {w1:e})"
+                "--ease-out: {seconds} s at --rate {rate} would pass --to (log10 width {end} < {l1})"
             ));
         }
-        w1 = end;
+        l1 = end;
     }
     // `--offset DRE,DIM` (FILM-05): the camera centre starts at the target plus this
     // complex offset; the target then eases to the middle of the screen (see veer).
@@ -371,7 +359,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         None => (0.0, 0.0),
         Some(v) => match v
             .split_once(',')
-            .map(|(x, y)| (x.trim().parse::<f64>(), y.trim().parse::<f64>()))
+            .map(|(x, y)| (offset_ratio(x, l0), offset_ratio(y, l0)))
         {
             Some((Ok(x), Ok(y))) if x.is_finite() && y.is_finite() => (x, y),
             _ => return Err(format!("--offset: expected DRE,DIM, got {v:?}")),
@@ -413,8 +401,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let mut views = if let Some(curve) = &speed_curve {
         curve.path(re, im, fps, twist, spin)?
     } else {
-        path(
-            re, im, w0, w1, seconds, fps, twist, ease, ease_in, spin, ease_out,
+        path_log(
+            re, im, l0, l1, seconds, fps, twist, ease, ease_in, spin, ease_out,
         )?
     };
     // Placed spins are additive turns; each has zero angular speed at both ends.
@@ -486,8 +474,6 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         Some("explicit --ss")
     } else if jet_aa {
         Some("--jet-aa on")
-    } else if !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0) {
-        Some("widths outside the normal f64 range")
     } else {
         None
     };
@@ -507,15 +493,13 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 let scale = views.iter().enumerate().try_fold(
                     1.0f64,
                     |scale, (f, view)| -> Result<f64, String> {
-                        let width: f64 = view
-                            .width
-                            .parse()
-                            .map_err(|_| "bad keyframe width".to_string())?;
-                        let off = veer(offset, f as f64 / (views.len() - 1) as f64, width / w0);
-                        Ok(scale.max(
-                            crate::keyframe::coverage_rotated(width, off, (w, h), view.rotation)
-                                / width,
-                        ))
+                        let off = veer(offset, f as f64 / (views.len() - 1) as f64, 1.0);
+                        Ok(scale.max(crate::keyframe::coverage_rotated(
+                            1.0,
+                            off,
+                            (w, h),
+                            view.rotation,
+                        )))
                     },
                 )?;
                 // One output pixel of extra clearance for the tent at the corners.
@@ -524,11 +508,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 1.0
             };
             let base = if rotating {
-                w0
+                l0
             } else {
-                crate::keyframe::coverage(w0, offset, (w, h))
+                l0 + crate::keyframe::coverage(1.0, offset, (w, h)).log10()
             };
-            let mut keys = crate::keyframe::Keyframes::new(
+            let mut keys = crate::keyframe::Keyframes::new_log(
                 re,
                 im,
                 base,
@@ -653,10 +637,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         if let Some(k) = keys.as_mut() {
             let t = Instant::now();
             let before = k.rendered.len();
-            let width: f64 = view.width.parse().map_err(|_| "bad width".to_string())?;
-            let off = veer(offset, f as f64 / (views.len() - 1) as f64, width / w0);
-            let img = k.frame(
-                width,
+            let log = width_log(&view.width)?;
+            let off = veer(offset, f as f64 / (views.len() - 1) as f64, 1.0);
+            let img = k.frame_log(
+                log,
                 off,
                 view.rotation,
                 look.as_ref(),
@@ -991,7 +975,7 @@ impl SpeedCurve {
 }
 
 /// Six significant digits, retaining a deep width's decimal exponent (DEC-21).
-fn sig6_log(log: f64) -> String {
+pub(crate) fn sig6_log(log: f64) -> String {
     let exponent = log.floor() as i64;
     let (mantissa, carry) = {
         let rounded = sig6(10f64.powf(log - exponent as f64));
@@ -1112,9 +1096,28 @@ pub(crate) fn out_depth(t: f64, total: f64, s: f64) -> f64 {
     }
 }
 
-/// The camera path: `n = round(seconds * fps)` frames from width `w0` to `w1`, evenly
-/// spaced in log width (or smoothstep-eased, or eased in over `ease_in` seconds and then
-/// constant), rotating `twist` full turns over the film or by `spin` (see spin_turns).
+/// A positive decimal width's log, without converting its magnitude to f64.
+pub(crate) fn width_log(value: &str) -> Result<f64, String> {
+    let d = fd_fixed::Decimal::parse(value)?;
+    let log = d.log2_abs() * std::f64::consts::LOG10_2;
+    if d.neg || !log.is_finite() {
+        return Err(format!("expected a positive width, got {value:?}"));
+    }
+    Ok(log)
+}
+
+/// Absolute decimal offset expressed in starting-frame widths, never an absolute f64.
+fn offset_ratio(value: &str, log_width: f64) -> Result<f64, String> {
+    let d = fd_fixed::Decimal::parse(value)?;
+    let log = d.log2_abs() * std::f64::consts::LOG10_2;
+    let magnitude = 10f64.powf(log - log_width);
+    if !magnitude.is_finite() {
+        return Err("offset relative to starting width is out of range".into());
+    }
+    Ok(if d.neg { -magnitude } else { magnitude })
+}
+
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn path(
     re: &str,
@@ -1129,10 +1132,42 @@ pub(crate) fn path(
     spin: Option<(f64, f64, f64)>,
     ease_out: f64,
 ) -> Result<Vec<View>, String> {
+    path_log(
+        re,
+        im,
+        w0.log10(),
+        w1.log10(),
+        seconds,
+        fps,
+        twist,
+        ease,
+        ease_in,
+        spin,
+        ease_out,
+    )
+}
+
+/// The camera path: `n = round(seconds * fps)` frames from width `w0` to `w1`, evenly
+/// spaced in log width (or smoothstep-eased, or eased in over `ease_in` seconds and then
+/// constant), rotating `twist` full turns over the film or by `spin` (see spin_turns).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn path_log(
+    re: &str,
+    im: &str,
+    l0: f64,
+    l1: f64,
+    seconds: f64,
+    fps: f64,
+    twist: f64,
+    ease: bool,
+    ease_in: f64,
+    spin: Option<(f64, f64, f64)>,
+    ease_out: f64,
+) -> Result<Vec<View>, String> {
     fd_fixed::Decimal::parse(re)?;
     fd_fixed::Decimal::parse(im)?;
-    if !(w0.is_normal() && w1.is_normal() && w0 > 0.0 && w1 > 0.0 && twist.is_finite()) {
-        return Err("widths must be positive normal numbers and --twist finite".into());
+    if !(l0.is_finite() && l1.is_finite() && twist.is_finite()) {
+        return Err("width logs must be finite and --twist finite".into());
     }
     let n = (seconds * fps).round();
     if !(2.0..=1e7).contains(&n) {
@@ -1141,7 +1176,6 @@ pub(crate) fn path(
         ));
     }
     let n = n as usize;
-    let (l0, l1) = (w0.log10(), w1.log10());
     Ok((0..n)
         .map(|f| {
             let s = f as f64 / (n - 1) as f64;
@@ -1157,7 +1191,7 @@ pub(crate) fn path(
             View {
                 center_re: re.to_string(),
                 center_im: im.to_string(),
-                width: sig6(10f64.powf(l0 + (l1 - l0) * e)),
+                width: sig6_log(l0 + (l1 - l0) * e),
                 rotation: std::f64::consts::TAU
                     * spin.map_or(twist * e, |sp| spin_turns(s * seconds, sp)),
             }
