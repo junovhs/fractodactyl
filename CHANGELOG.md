@@ -18,6 +18,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Experimental, default-off `fd render/control --gpu-perturb on` integrates guarded Heuristic hi/lo GPU samples with visible dispatch refusal, bounded batches and exact-camera CPU restart. This groundwork is currently slower than CPU BLA; it has no automatic selection or film integration.
+
 - `fd zone -o` now writes the v0 ladder's mid-depth constants and reference orbit
   in Rust, so its generated zones use the GPU mid-band renderer without a Python
   generation step. The existing mid-band validity checks still apply.

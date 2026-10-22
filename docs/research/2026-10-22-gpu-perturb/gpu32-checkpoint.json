@@ -1,0 +1,93 @@
+{
+  "schema": "gpu32-evidence/1",
+  "views": [
+    {
+      "name": "seahorse",
+      "re": "-0.7453",
+      "im": "0.1127",
+      "width": "0.0065",
+      "accepted": 0,
+      "fallback": 9216,
+      "guard": 9212,
+      "unfinished": 4,
+      "invalid": 0,
+      "gpu_seconds": 0.165739,
+      "cpu_fallback_seconds": 0.003313,
+      "total_seconds": 0.170783
+    },
+    {
+      "name": "cusp",
+      "re": "0.25",
+      "im": "0",
+      "width": "1e-8",
+      "accepted": 0,
+      "fallback": 9216,
+      "guard": 0,
+      "unfinished": 9216,
+      "invalid": 0,
+      "gpu_seconds": 0.085784,
+      "cpu_fallback_seconds": 0.000568,
+      "total_seconds": 0.087282
+    },
+    {
+      "name": "seahorse-deep",
+      "re": "-0.7453",
+      "im": "0.1127",
+      "width": "1e-14",
+      "accepted": 0,
+      "fallback": 9216,
+      "guard": 9216,
+      "unfinished": 0,
+      "invalid": 0,
+      "gpu_seconds": 0.044738,
+      "cpu_fallback_seconds": 0.00161,
+      "total_seconds": 0.048137
+    },
+    {
+      "name": "valley",
+      "re": "-0.743643887037158704752191506114774",
+      "im": "0.131825904205311970493132056385139",
+      "width": "1e-28",
+      "accepted": 0,
+      "fallback": 9216,
+      "guard": 0,
+      "unfinished": 9216,
+      "invalid": 0,
+      "gpu_seconds": 0.065769,
+      "cpu_fallback_seconds": 0.111895,
+      "total_seconds": 0.179961
+    },
+    {
+      "name": "exterior",
+      "re": "1",
+      "im": "0.5",
+      "width": "1e-8",
+      "accepted": 688,
+      "fallback": 8528,
+      "guard": 8528,
+      "unfinished": 0,
+      "invalid": 0,
+      "gpu_seconds": 0.039832,
+      "cpu_fallback_seconds": 0.000587,
+      "total_seconds": 0.042899
+    },
+    {
+      "name": "tim-random",
+      "re": "-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259",
+      "im": "0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815",
+      "width": "7.525118732e-81",
+      "accepted": 0,
+      "fallback": 9216,
+      "guard": 0,
+      "unfinished": 9216,
+      "invalid": 0,
+      "gpu_seconds": 0.072172,
+      "cpu_fallback_seconds": 0.086185,
+      "total_seconds": 0.161699
+    }
+  ],
+  "cpu_process_wall_seconds": 0.20191175802028738,
+  "gpu_process_wall_seconds": 0.7005239829886705,
+  "limits": "one cold process per arm; 128x72 ss1 iter10000 8 CPU workers; all setup/GPU/CPU fallback included; no film or speed target claim",
+  "status": "CHECKPOINT ONLY: not promoted or landed; zero representative boundary/deep admission and slower overall"
+}

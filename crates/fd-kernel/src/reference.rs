@@ -1,6 +1,6 @@
 //! Reference orbit Z_0 = 0, Z_{n+1} = Z_n^2 + C, stored structure-of-arrays as f64.
 //! Computed either in f64 (shallow) or in fixed point at the exact centre (deep).
-use fd_fixed::Fixed;
+use fd_fixed::{Complex, Fixed};
 
 /// Reference orbit points `Z_0..Z_len-1`.
 #[derive(Clone)]
@@ -19,25 +19,65 @@ impl Reference {
     /// `MAX_LEN` points are stored. The final point is kept: a sample that reaches it
     /// rebases to Z_0, so a shorter reference is always valid, just less reused.
     pub fn new(c_re: f64, c_im: f64, max_iter: u64, escape_radius: f64) -> Reference {
-        let r2 = escape_radius * escape_radius;
-        let steps = max_iter.min(Self::MAX_LEN as u64 - 1);
-        // Most references escape early; grow on demand rather than reserving `steps`.
-        let cap = steps.min(1 << 16) as usize + 1;
-        let (mut re, mut im) = (Vec::with_capacity(cap), Vec::with_capacity(cap));
         let (mut x, mut y) = (0.0f64, 0.0f64);
-        re.push(x);
-        im.push(y);
-        for _ in 0..steps {
+        Self::collect(max_iter, escape_radius, || {
             let t = x * x - y * y + c_re;
             y = 2.0 * x * y + c_im;
             x = t;
+            (x, y)
+        })
+    }
+
+    // One collection/termination driver for the f64 and arbitrary-exponent number
+    // stages; Complex::sqr/add already own the latter's arithmetic (DEC-24).
+    fn collect(max_iter: u64, escape_radius: f64, mut step: impl FnMut() -> (f64, f64)) -> Self {
+        let steps = max_iter.min(Self::MAX_LEN as u64 - 1);
+        let cap = steps.min(1 << 16) as usize + 1;
+        let (mut re, mut im) = (Vec::with_capacity(cap), Vec::with_capacity(cap));
+        re.push(0.0);
+        im.push(0.0);
+        for _ in 0..steps {
+            let (x, y) = step();
             re.push(x);
             im.push(y);
-            if x * x + y * y > r2 {
+            if x * x + y * y > escape_radius * escape_radius {
                 break;
             }
         }
-        Reference { re, im }
+        Self { re, im }
+    }
+
+    /// Opt-in full-escape reference using existing arbitrary-exponent arithmetic.
+    /// The returned orbit meets `error_radius(Some(bits),...)`'s absolute defect
+    /// contract. Default CPU references retain the Fixed builder below.
+    ///
+    /// Domain: b>=128, 2<=R<=2^40, rounded centre L1<=4 (true L1<8).
+    /// P>=b+128 RN bits: while collecting, |Z|<=2R before a continued step;
+    /// every sqr/add intermediate is <2^85. Summing scalar rounding and decimal
+    /// parse defects conservatively gives <2^(96-P), hence <2^(-b-32), well below
+    /// the existing absolute per-step budget 2^(4-b). f64 storage rounding is
+    /// enclosed separately by error_radius. See the GPU-32 derivation/handoff.
+    pub fn from_decimal_full_escape(
+        re: &str,
+        im: &str,
+        bits: u32,
+        max_iter: u64,
+        radius: f64,
+    ) -> Result<Self, String> {
+        if !(128..=16384).contains(&bits) || !(2.0..=1099511627776.0).contains(&radius) {
+            return Err("full-escape reference outside proved precision/radius domain".into());
+        }
+        let precision = bits as usize + 128;
+        let c = Complex::parse(re, im, precision)?;
+        let size = c.re.to_f64().abs() + c.im.to_f64().abs();
+        if !size.is_finite() || size > 4.0 {
+            return Err("full-escape reference outside proved centre domain".into());
+        }
+        let mut z = Complex::zero(precision);
+        Ok(Self::collect(max_iter, radius, || {
+            z = z.sqr().add(&c);
+            (z.re.to_f64(), z.im.to_f64())
+        }))
     }
 
     /// Same orbit computed in fixed point from the exact centre. Stops at `|Z| > 2^16`
@@ -83,7 +123,7 @@ impl Reference {
     /// exact orbit `A` of the exact view centre. `bits`: the fixed-point fraction bits
     /// the orbit was computed with, or `None` for an f64 orbit from `(c_re, c_im)`, the
     /// correctly rounded centre.
-    pub(crate) fn error_radius(&self, bits: Option<u64>, c_re: f64, c_im: f64) -> Vec<f64> {
+    pub fn error_radius(&self, bits: Option<u64>, c_re: f64, c_im: f64) -> Vec<f64> {
         const U: f64 = f64::EPSILON / 2.0;
         let c1 = c_re.abs() + c_im.abs();
         // Fixed point: three truncated squares per component plus the centre's own
@@ -160,5 +200,57 @@ mod tests {
                 f[0]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod full_escape_tests {
+    use super::*;
+    use crate::Plane;
+    use fd_samples::View;
+    use std::fmt::Write as _;
+
+    #[test]
+    fn full_escape_rejects_unproved_domain() {
+        for (re, bits, radius) in [
+            ("0", 127, 1e10),
+            ("0", 128, 1.0),
+            ("0", 128, f64::NAN),
+            ("0", 128, 2f64.powi(41)),
+            ("5", 128, 1e10),
+        ] {
+            assert!(Reference::from_decimal_full_escape(re, "0", bits, 100, radius).is_err());
+        }
+    }
+
+    /// Actual consumed builder/radius output for the independent mpmath check.
+    #[test]
+    #[ignore = "writes bounded highprecision reference validation data"]
+    fn gpu_full_escape_radius_probe() {
+        let path = std::env::var("FD_REFERENCE_REPORT").expect("FD_REFERENCE_REPORT output path");
+        let mut report = String::new();
+        for (name,re,im,width,radius) in [
+            ("seahorse-deep","-0.7453","0.1127","1e-14",1e10),
+            ("valley","-0.743643887037158704752191506114774","0.131825904205311970493132056385139","1e-28",1e10),
+            ("tim-random","-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259","0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815","7.525118732e-81",1e10),
+            ("large-escape","4","0","1e-40",2f64.powi(40)),
+            ("zero","0","0","1e-100",2.0),
+        ] {
+            let v=View{center_re:re.into(),center_im:im.into(),width:width.into(),rotation:0.0};
+            let plane=Plane::new(&v,128,72).unwrap();let bits=plane.bits as u32;
+            let r=Reference::from_decimal_full_escape(re,im,bits,10000,radius).unwrap();
+            let q=r.error_radius(Some(u64::from(bits)),plane.c_re,plane.c_im);
+            writeln!(report,"camera|{name}|{re}|{im}|{bits}|{radius:.17e}").unwrap();
+            for (n,((&x,&y),&e)) in r.re.iter().zip(&r.im).zip(&q).enumerate() {
+                writeln!(report,"point|{n}|{x:.17e}|{y:.17e}|{e:.17e}").unwrap();
+            }
+        }
+        let path = std::path::Path::new(&path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, report).unwrap();
+        eprintln!(
+            "GPU-32 full-escape references/radii written: {}",
+            path.display()
+        );
     }
 }

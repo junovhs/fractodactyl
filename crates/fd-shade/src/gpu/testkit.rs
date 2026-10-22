@@ -65,8 +65,107 @@ pub fn dispatch(
     bindings: &[Binding],
     groups: (u32, u32),
 ) -> Result<(String, Vec<u8>), String> {
+    dispatch_inner(label, source, entry, bindings, groups, None)
+}
+
+/// A bounded1D dispatch: update the sample-base word between completed submissions.
+/// One device, pipeline and set of buffers are reused within this attempt.
+#[derive(Clone, Copy, Debug)]
+pub struct DispatchBatch {
+    pub groups_per_batch: u32,
+    pub invocations_per_group: u32,
+    pub offset_binding: usize,
+    pub offset_word: usize,
+}
+
+/// Dispatch bounded work submissions without changing the authored WGSL maths.
+/// Timeout/device/map/validation failures abort the attempt; this helper never retries.
+pub fn dispatch_batched(
+    label: &str,
+    source: &str,
+    entry: &str,
+    bindings: &[Binding],
+    groups: (u32, u32),
+    batch: DispatchBatch,
+) -> Result<(String, Vec<u8>), String> {
+    dispatch_inner(label, source, entry, bindings, groups, Some(batch))
+}
+
+fn dispatch_inner(
+    label: &str,
+    source: &str,
+    entry: &str,
+    bindings: &[Binding],
+    groups: (u32, u32),
+    batch: Option<DispatchBatch>,
+) -> Result<(String, Vec<u8>), String> {
+    if let Some(b) = batch {
+        if groups.1 != 1 || b.groups_per_batch == 0 || b.invocations_per_group == 0 {
+            return Err("bounded dispatch needs positive1D groups".into());
+        }
+        match bindings.get(b.offset_binding) {
+            Some(Binding::Read(bytes))
+                if (b.offset_word + 1)
+                    .checked_mul(4)
+                    .is_some_and(|n| n <= bytes.len()) => {}
+            _ => {
+                return Err("bounded dispatch sample-base word is outside its read binding".into())
+            }
+        }
+        groups
+            .0
+            .checked_mul(b.invocations_per_group)
+            .ok_or("bounded dispatch sample index overflow")?;
+    }
     let (name, device, queue) = open_device(label)?;
-    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut scopes = vec![device.push_error_scope(wgpu::ErrorFilter::Validation)];
+    let lost = std::sync::Arc::new(std::sync::Mutex::new(None));
+    if batch.is_some() {
+        scopes.push(device.push_error_scope(wgpu::ErrorFilter::OutOfMemory));
+        scopes.push(device.push_error_scope(wgpu::ErrorFilter::Internal));
+        let signal = lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            *signal.lock().unwrap() = Some(format!("{reason:?}: {message}"));
+        });
+        let limits = device.limits();
+        for binding in bindings {
+            let size = match binding {
+                Binding::Read(b) | Binding::Uniform(b) => b.len() as u64,
+                Binding::Out(n) => *n,
+            };
+            if size > limits.max_buffer_size
+                || (!matches!(binding, Binding::Uniform(_))
+                    && size > limits.max_storage_buffer_binding_size)
+            {
+                return Err(format!(
+                    "bounded dispatch buffer{size} exceeds device buffer/storage limits {}/{}",
+                    limits.max_buffer_size, limits.max_storage_buffer_binding_size
+                ));
+            }
+        }
+        if groups.0 > limits.max_compute_workgroups_per_dimension {
+            return Err("bounded dispatch total groups exceed supported1D index grid".into());
+        }
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+    let wait_submission = |submission| -> Result<(), String> {
+        let timeout = deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .min(std::time::Duration::from_secs(5));
+        if timeout.is_zero() {
+            return Err("bounded dispatch120s attempt deadline exceeded".into());
+        }
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(timeout),
+            })
+            .map_err(|e| format!("bounded dispatch submission completion: {e}"))?;
+        if let Some(why) = lost.lock().unwrap().as_ref() {
+            return Err(format!("bounded dispatch device lost: {why}"));
+        }
+        Ok(())
+    };
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -139,28 +238,65 @@ pub fn dispatch(
         layout: &pipeline.get_bind_group_layout(0),
         entries: &entries,
     });
+    if let Some(b) = batch {
+        let mut base = 0u32;
+        while base < groups.0 {
+            let n = b.groups_per_batch.min(groups.0 - base);
+            queue.write_buffer(
+                &buffers[b.offset_binding],
+                (b.offset_word * 4) as u64,
+                &(base * b.invocations_per_group).to_ne_bytes(),
+            );
+            let mut encoder = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(&pipeline);
+                pass.set_bind_group(0, &group, &[]);
+                pass.dispatch_workgroups(n, 1, 1);
+            }
+            let submission = queue.submit([encoder.finish()]);
+            wait_submission(submission)?;
+            base += n;
+        }
+    }
     let mut encoder = device.create_command_encoder(&Default::default());
-    {
+    if batch.is_none() {
         let mut pass = encoder.begin_compute_pass(&Default::default());
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &group, &[]);
         pass.dispatch_workgroups(groups.0, groups.1, 1);
     }
     encoder.copy_buffer_to_buffer(&buffers[out_index], 0, &staging, 0, staging.size());
-    queue.submit([encoder.finish()]);
+    let submission = queue.submit([encoder.finish()]);
+    if batch.is_some() {
+        wait_submission(submission)?;
+    }
     let (tx, rx) = mpsc::channel();
     staging.map_async(wgpu::MapMode::Read, .., move |r| {
         let _ = tx.send(r);
     });
     device
-        .poll(wgpu::PollType::wait_indefinitely())
+        .poll(if batch.is_some() {
+            wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_secs(5)),
+            }
+        } else {
+            wgpu::PollType::wait_indefinitely()
+        })
         .map_err(|e| format!("wgpu poll: {e}"))?;
-    rx.recv()
-        .map_err(|e| format!("wgpu map callback: {e}"))?
-        .map_err(|e| format!("wgpu map: {e}"))?;
-    if let Some(e) = pollster::block_on(scope.pop()) {
-        staging.unmap();
-        return Err(format!("wgpu {label} rejected: {e}"));
+    (if batch.is_some() {
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| format!("wgpu map callback: {e}"))
+    } else {
+        rx.recv().map_err(|e| format!("wgpu map callback: {e}"))
+    })?
+    .map_err(|e| format!("wgpu map: {e}"))?;
+    for scope in scopes.into_iter().rev() {
+        if let Some(e) = pollster::block_on(scope.pop()) {
+            staging.unmap();
+            return Err(format!("wgpu {label} rejected: {e}"));
+        }
     }
     let bytes = staging
         .get_mapped_range(..)
@@ -202,4 +338,41 @@ pub fn words(bytes: &[u8]) -> Vec<u32> {
         .chunks_exact(4)
         .map(|c| u32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
+}
+
+#[test]
+fn batched_dispatch_preserves_partial_chunk_ids() {
+    let shader = r#"
+@group(0) @binding(0) var<storage,read> args:array<u32>;
+@group(0) @binding(1) var<storage,read_write> result:array<vec4<u32>>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id:vec3<u32>){let i=id.x+args[1];if(i>=args[0]){return;}result[i]=vec4<u32>(i,i+1u,0x47505502u,0u);}
+"#;
+    let count = 67u32;
+    let args = bytes(&[count, 0]);
+    let Some((_, data)) = or_skip(
+        dispatch_batched(
+            "partial chunk IDs",
+            shader,
+            "main",
+            &[Binding::Read(&args), Binding::Out(u64::from(count) * 16)],
+            (2, 1),
+            DispatchBatch {
+                groups_per_batch: 1,
+                invocations_per_group: 64,
+                offset_binding: 0,
+                offset_word: 1,
+            },
+        ),
+        "partial chunk IDs",
+    ) else {
+        return;
+    };
+    let output = words(&data);
+    let mut iterations = 0u64;
+    for (i, row) in output.chunks_exact(4).enumerate() {
+        assert_eq!(row, [i as u32, i as u32 + 1, 0x47505502, 0]);
+        iterations += u64::from(row[1]);
+    }
+    assert_eq!(iterations, u64::from(count) * (u64::from(count) + 1) / 2);
 }

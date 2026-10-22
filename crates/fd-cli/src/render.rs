@@ -25,6 +25,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             "max-px",
             "zone",
             "gpu-kernel",
+            "gpu-perturb",
         ])
         .collect();
     let a = Args::parse(argv, &known)?;
@@ -37,6 +38,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     if kernel_flag.is_some() && a.str("zone").is_none() {
         return Err("--gpu-kernel requires --zone".into());
     }
+    let gpu_perturb = crate::perturb_gpu::enabled(a.str("gpu-perturb"))?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
     // `--orbit ID`: a stored reference orbit for this exact centre instead of computing it.
@@ -97,10 +99,27 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         }
         None => None,
     };
+    let perturb_frame = if gpu_perturb
+        && zone_frame.is_none()
+        && a.str("refine").is_none()
+        && table.is_none()
+        && a.str("zone").is_none()
+    {
+        Some(crate::perturb_gpu::render(&view, &p, orbit.clone())?)
+    } else {
+        if gpu_perturb {
+            eprintln!("fd gpu-perturb: explicit zone/BLA/refine route takes precedence");
+        }
+        None
+    };
     // `--refine B`: progressive refinement in B x B pixel blocks (docs/spec/LOD.md).
     let (header, samples, refined) = match (a.str("refine"), table) {
         _ if zone_frame.is_some() => {
             let (h, s) = zone_frame.unwrap();
+            (h, s, None)
+        }
+        _ if perturb_frame.is_some() => {
+            let (h, s, _) = perturb_frame.unwrap();
             (h, s, None)
         }
         (None, Some((orbit, table))) => {

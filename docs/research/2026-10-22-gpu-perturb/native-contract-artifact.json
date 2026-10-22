@@ -1,0 +1,29 @@
+{
+  "naga_version": "30.0.0",
+  "spirv_version": "0x10600",
+  "sha256": "3608571496d6eeb1996a216025128150c94fd071f1f59d3c728638e29252ca85",
+  "bytes": 31064,
+  "instructions": 2008,
+  "capabilities": [
+    [
+      1
+    ]
+  ],
+  "execution_modes": [
+    {
+      "opcode": 16,
+      "operands": [
+        1142,
+        17,
+        64,
+        1,
+        1
+      ]
+    }
+  ],
+  "NoContraction": 0,
+  "FPRoundingMode": 0,
+  "FPFastMathMode": 0,
+  "RTE": 0,
+  "DenormPreserve": 0
+}

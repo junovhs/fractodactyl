@@ -104,6 +104,66 @@ pub fn render_with(
     run(view, p, supplied, None, None, None).map(|(h, s, st, _)| (h, s, st))
 }
 
+/// An escaped state supplied by an externally guarded renderer. The caller owns
+/// its accuracy/escape proof; this type does not grant Bounded evidence (DEC-10).
+#[derive(Clone, Copy, Debug)]
+pub struct EscapedState {
+    pub n: u64,
+    pub z: (f64, f64),
+    pub derivative: (f64, f64),
+    pub derivative_exponent: i64,
+}
+
+/// Encode admitted escaped states through the CPU renderer's one column encoder.
+/// Other samples retain the zero-start CPU fallback values already in `samples`.
+/// Refused for Bound columns: these external states supply no certified radii.
+pub fn overlay_escaped(
+    view: &View,
+    p: &Params,
+    samples: &mut Samples,
+    states: &[Option<EscapedState>],
+) -> Result<(), String> {
+    if p.columns.has(Column::Bound)
+        || states.len() != samples.class.len()
+        || states.len() != p.nx as usize * p.ny as usize
+    {
+        return Err("escaped overlay needs matching unbounded sample grid".into());
+    }
+    let (plane, _) = setup(view, p)?;
+    let store = Store::new(&plane, p.ss);
+    for mut row in Row::split(samples, p.nx as usize) {
+        for i in 0..p.nx as usize {
+            if let Some(s) = states[row.j * p.nx as usize + i] {
+                if s.n > p.max_iter
+                    || !s.z.0.is_finite()
+                    || !s.z.1.is_finite()
+                    || s.z.0.hypot(s.z.1) <= p.escape_radius
+                    || !s.derivative.0.is_finite()
+                    || !s.derivative.1.is_finite()
+                    || s.derivative.0.hypot(s.derivative.1) == 0.0
+                {
+                    return Err("escaped overlay received an invalid state".into());
+                }
+                store.put(
+                    &mut row,
+                    i,
+                    Outcome::Escaped {
+                        n: s.n,
+                        zr: s.z.0,
+                        zi: s.z.1,
+                        dr: s.derivative.0,
+                        di: s.derivative.1,
+                        dexp: s.derivative_exponent,
+                        ez: f64::INFINITY,
+                        ed: f64::INFINITY,
+                    },
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// [`render_with`] computing only the samples whose `mask` entry (row-major over the
 /// sample grid) is true; the others are left unset (FILM-16 jet-AA passes).
 pub fn render_with_masked(

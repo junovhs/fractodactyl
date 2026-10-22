@@ -1,0 +1,426 @@
+[
+  {
+    "name": "seahorse",
+    "camera": [
+      "-0.7453",
+      "0.1127",
+      "0.0065"
+    ],
+    "bits": 53,
+    "reference_len": 80,
+    "first_reject_counts": {
+      "escape-ambiguous": 3347,
+      "derivative-bound": 298,
+      "orbit-displacement-bound": 5560,
+      "step-budget": 4,
+      "de-relative-bound": 7
+    },
+    "first_rebase_types": {
+      "cancellation": 9078,
+      "none": 138
+    },
+    "statuses": {
+      "1": 9212,
+      "0": 4
+    },
+    "rebased_before_budget": 9078,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      35.0,
+      4096.0
+    ],
+    "representatives": [
+      {
+        "reason": "escape-ambiguous",
+        "x": 0,
+        "y": 0,
+        "m": 2,
+        "n": 72,
+        "rebases": 7,
+        "first_rebase_n": 28,
+        "first_rebase_m": 28,
+        "first_rebase_type": 2,
+        "termination_code": 3,
+        "first_upload_radius": 1.1065615979077847e-08,
+        "error_before_first_rebase": 0.00016145272820722312,
+        "delta_before_first_rebase": 0.6448575854301453,
+        "propagated_rebase_contribution": 13419894784.0,
+        "az": 6253858524260.836,
+        "ez": 149208606703616.03,
+        "ad": 0.7819630913745936,
+        "ed": 19.481460571289062,
+        "derivative_exponent": 66
+      },
+      {
+        "reason": "derivative-bound",
+        "x": 3,
+        "y": 0,
+        "m": 1,
+        "n": 67,
+        "rebases": 3,
+        "first_rebase_n": 28,
+        "first_rebase_m": 28,
+        "first_rebase_type": 2,
+        "termination_code": 3,
+        "first_upload_radius": 1.1065615979077847e-08,
+        "error_before_first_rebase": 0.00014328735414892435,
+        "delta_before_first_rebase": 0.6079444885253906,
+        "propagated_rebase_contribution": 45750822109184.0,
+        "az": 8.351717843183009e+17,
+        "ez": 4.32129166595328e+17,
+        "ad": 0.8881707193239986,
+        "ed": 0.4757915735244751,
+        "derivative_exponent": 80
+      },
+      {
+        "reason": "orbit-displacement-bound",
+        "x": 15,
+        "y": 0,
+        "m": 1,
+        "n": 89,
+        "rebases": 5,
+        "first_rebase_n": 28,
+        "first_rebase_m": 28,
+        "first_rebase_type": 2,
+        "termination_code": 3,
+        "first_upload_radius": 1.1065615979077847e-08,
+        "error_before_first_rebase": 8.767429972067475e-05,
+        "delta_before_first_rebase": 0.47661256790161133,
+        "propagated_rebase_contribution": 149040128.0,
+        "az": 1941613456171.5293,
+        "ez": 846207975424.0042,
+        "ad": 0.5199127049816143,
+        "ed": 0.24170565605163574,
+        "derivative_exponent": 62
+      },
+      {
+        "reason": "step-budget",
+        "x": 125,
+        "y": 0,
+        "m": 19,
+        "n": 4096,
+        "rebases": 151,
+        "first_rebase_n": 27,
+        "first_rebase_m": 27,
+        "first_rebase_type": 2,
+        "termination_code": 0,
+        "first_upload_radius": 1.2971115737059336e-08,
+        "error_before_first_rebase": 1.9146174963680096e-05,
+        "delta_before_first_rebase": 0.15012165904045105,
+        "propagated_rebase_contribution": 3.575679130563003e-08,
+        "az": 0.6243541186522924,
+        "ez": 6.600686905888996e-05,
+        "ad": 0.5971106339258925,
+        "ed": 0.40909072756767273,
+        "derivative_exponent": 4
+      },
+      {
+        "reason": "de-relative-bound",
+        "x": 63,
+        "y": 34,
+        "m": 1,
+        "n": 77,
+        "rebases": 3,
+        "first_rebase_n": 73,
+        "first_rebase_m": 73,
+        "first_rebase_type": 2,
+        "termination_code": 3,
+        "first_upload_radius": 6.6467333859066e-09,
+        "error_before_first_rebase": 0.006078397389501333,
+        "delta_before_first_rebase": 2.463975667953491,
+        "propagated_rebase_contribution": 18936532.0,
+        "az": 1581328486099415.8,
+        "ez": 17545939648515.496,
+        "ad": 0.6720547115817332,
+        "ed": 0.008145825937390327,
+        "derivative_exponent": 70
+      }
+    ],
+    "derivative_relative_error_range": [
+      0.006733961761271465,
+      1.1348163418885181e+27
+    ]
+  },
+  {
+    "name": "cusp",
+    "camera": [
+      "0.25",
+      "0",
+      "1e-8"
+    ],
+    "bits": 53,
+    "reference_len": 4097,
+    "first_reject_counts": {
+      "step-budget": 9216
+    },
+    "first_rebase_types": {
+      "reference-end": 9216
+    },
+    "statuses": {
+      "0": 9216
+    },
+    "rebased_before_budget": 9216,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      4096.0,
+      4096.0
+    ],
+    "representatives": [
+      {
+        "reason": "step-budget",
+        "x": 0,
+        "y": 0,
+        "m": 0,
+        "n": 4096,
+        "rebases": 1,
+        "first_rebase_n": 4096,
+        "first_rebase_m": 4096,
+        "first_rebase_type": 1,
+        "termination_code": 0,
+        "first_upload_radius": 3.774429213621033e-09,
+        "error_before_first_rebase": 5.434196026499194e-08,
+        "delta_before_first_rebase": 7.73387546360027e-06,
+        "propagated_rebase_contribution": 3.774806689449406e-09,
+        "az": 0.4997496903083634,
+        "ez": 1.9650938165578564e-06,
+        "ad": 0.660867861401162,
+        "ed": 0.008363052271306515,
+        "derivative_exponent": 11
+      }
+    ],
+    "derivative_relative_error_range": [
+      0.012642964196398283,
+      0.012836924704285817
+    ]
+  },
+  {
+    "name": "seahorse-deep",
+    "camera": [
+      "-0.7453",
+      "0.1127",
+      "1e-14"
+    ],
+    "bits": 182,
+    "reference_len": 80,
+    "first_reject_counts": {
+      "orbit-displacement-bound": 9216
+    },
+    "first_rebase_types": {
+      "none": 9216
+    },
+    "statuses": {
+      "1": 9216
+    },
+    "rebased_before_budget": 0,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      79.0,
+      79.0
+    ],
+    "representatives": [
+      {
+        "reason": "orbit-displacement-bound",
+        "x": 0,
+        "y": 0,
+        "m": 79,
+        "n": 79,
+        "rebases": 0,
+        "first_rebase_n": 0,
+        "first_rebase_m": 0,
+        "first_rebase_type": 0,
+        "termination_code": 3,
+        "first_upload_radius": 0.0,
+        "error_before_first_rebase": 0.0,
+        "delta_before_first_rebase": 0.0,
+        "propagated_rebase_contribution": 0.0,
+        "az": 309201510658.19684,
+        "ez": 1.1799070778027752,
+        "ad": 0.6198489277865282,
+        "ed": 0.0003454461111687124,
+        "derivative_exponent": 60
+      }
+    ],
+    "derivative_relative_error_range": [
+      0.0005573069431648378,
+      0.0005573069431648378
+    ]
+  },
+  {
+    "name": "valley",
+    "camera": [
+      "-0.743643887037158704752191506114774",
+      "0.131825904205311970493132056385139",
+      "1e-28"
+    ],
+    "bits": 229,
+    "reference_len": 4097,
+    "first_reject_counts": {
+      "step-budget": 9216
+    },
+    "first_rebase_types": {
+      "reference-end": 9216
+    },
+    "statuses": {
+      "0": 9216
+    },
+    "rebased_before_budget": 9216,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      4096.0,
+      4096.0
+    ],
+    "representatives": [
+      {
+        "reason": "step-budget",
+        "x": 0,
+        "y": 0,
+        "m": 0,
+        "n": 4096,
+        "rebases": 1,
+        "first_rebase_n": 4096,
+        "first_rebase_m": 4096,
+        "first_rebase_type": 1,
+        "termination_code": 0,
+        "first_upload_radius": 4.8676462860441916e-09,
+        "error_before_first_rebase": 3.209672261439752e-26,
+        "delta_before_first_rebase": 1.05429563931842e-24,
+        "propagated_rebase_contribution": 4.868133007818187e-09,
+        "az": 0.7695497847073907,
+        "ez": 2.9413488409385102e-06,
+        "ad": 0.9056037197461169,
+        "ed": 0.054384563118219376,
+        "derivative_exponent": 14
+      }
+    ],
+    "derivative_relative_error_range": [
+      0.060053378682527844,
+      0.060053378682527844
+    ]
+  },
+  {
+    "name": "exterior",
+    "camera": [
+      "1",
+      "0.5",
+      "1e-8"
+    ],
+    "bits": 53,
+    "reference_len": 8,
+    "first_reject_counts": {
+      "orbit-displacement-bound": 8528,
+      "accepted": 688
+    },
+    "first_rebase_types": {
+      "none": 9216
+    },
+    "statuses": {
+      "1": 9216
+    },
+    "rebased_before_budget": 0,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      7.0,
+      7.0
+    ],
+    "representatives": [
+      {
+        "reason": "orbit-displacement-bound",
+        "x": 0,
+        "y": 0,
+        "m": 7,
+        "n": 7,
+        "rebases": 0,
+        "first_rebase_n": 0,
+        "first_rebase_m": 0,
+        "first_rebase_type": 0,
+        "termination_code": 3,
+        "first_upload_radius": 0.0,
+        "error_before_first_rebase": 0.0,
+        "delta_before_first_rebase": 0.0,
+        "propagated_rebase_contribution": 0.0,
+        "az": 2713860111729.549,
+        "ez": 16.420723437856164,
+        "ad": 0.7822373038741723,
+        "ed": 3.702533649629913e-05,
+        "derivative_exponent": 47
+      },
+      {
+        "reason": "accepted",
+        "x": 61,
+        "y": 21,
+        "m": 7,
+        "n": 7,
+        "rebases": 0,
+        "first_rebase_n": 0,
+        "first_rebase_m": 0,
+        "first_rebase_type": 0,
+        "termination_code": 3,
+        "first_upload_radius": 0.0,
+        "error_before_first_rebase": 0.0,
+        "delta_before_first_rebase": 0.0,
+        "propagated_rebase_contribution": 0.0,
+        "az": 2713860569357.548,
+        "ez": 3.567504168514686,
+        "ad": 0.782237460482661,
+        "ed": 3.7025347410235554e-05,
+        "derivative_exponent": 47
+      }
+    ],
+    "derivative_relative_error_range": [
+      4.733261016600111e-05,
+      4.733261905839432e-05
+    ]
+  },
+  {
+    "name": "tim-random",
+    "camera": [
+      "-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259",
+      "0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815",
+      "7.525118732e-81"
+    ],
+    "bits": 402,
+    "reference_len": 4097,
+    "first_reject_counts": {
+      "step-budget": 9216
+    },
+    "first_rebase_types": {
+      "reference-end": 9216
+    },
+    "statuses": {
+      "0": 9216
+    },
+    "rebased_before_budget": 9216,
+    "rebase_dominates_final_e": 0,
+    "n_range": [
+      4096.0,
+      4096.0
+    ],
+    "representatives": [
+      {
+        "reason": "step-budget",
+        "x": 0,
+        "y": 0,
+        "m": 0,
+        "n": 4096,
+        "rebases": 1,
+        "first_rebase_n": 4096,
+        "first_rebase_m": 4096,
+        "first_rebase_type": 1,
+        "termination_code": 0,
+        "first_upload_radius": 7.965936354992209e-09,
+        "error_before_first_rebase": 4.635830238947915e-60,
+        "delta_before_first_rebase": 6.084110314649069e-59,
+        "propagated_rebase_contribution": 7.96673305103468e-09,
+        "az": 0.44814621867861026,
+        "ez": 1.7180226459092117e-06,
+        "ad": 0.8340432536492092,
+        "ed": 0.08672316372394562,
+        "derivative_exponent": 74
+      }
+    ],
+    "derivative_relative_error_range": [
+      0.10397921611919252,
+      0.10397921611919252
+    ]
+  }
+]

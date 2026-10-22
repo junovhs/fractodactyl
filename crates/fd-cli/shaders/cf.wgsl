@@ -23,3 +23,8 @@ fn cf_scale(a: CF, s: f32) -> CF { return cf_norm(a.m * s, a.e); }
 fn cf_inv(a: CF) -> CF { return cf_norm(vec2<f32>(a.m.x, -a.m.y) / dot(a.m, a.m), -a.e); }
 fn cf_bad(a: CF) -> bool { return (bitcast<u32>(a.m.x) & 0x7f800000u) == 0x7f800000u || (bitcast<u32>(a.m.y) & 0x7f800000u) == 0x7f800000u; }
 
+
+// CPU sample.rs uses Euclidean magnitudes. A 1-norm at each step introduces
+// an artificial exponential loss. Normalized mantissas keep dot/sqrt in range;
+// inflation covers norm rounding without materializing tiny/huge physical values.
+fn cf_magnitude_upper(x: CF) -> CF { return cf_scale(cf_norm(vec2<f32>(length(x.m),0.0),x.e),1.0001); }

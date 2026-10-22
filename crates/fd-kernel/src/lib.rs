@@ -31,11 +31,13 @@ mod zone;
 
 pub use bla::{Bla, Block, EPS_MAX as BLA_EPS_MAX};
 pub use grid::{
-    bla_dc_max, reference, reference_bits, render, render_bla, render_bla_masked, render_series,
-    render_stats, render_with, render_with_masked, BlaStats, Params, Stats,
+    bla_dc_max, overlay_escaped, reference, reference_bits, render, render_bla, render_bla_masked,
+    render_series, render_stats, render_with, render_with_masked, BlaStats, EscapedState, Params,
+    Stats,
 };
 pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use series::{Series, SeriesConfig};
+pub use store::external_escape_ok;
 pub use view::{Plane, Tier};
 pub use zone::{zone_covers, Zone};

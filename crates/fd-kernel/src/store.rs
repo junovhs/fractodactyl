@@ -138,6 +138,54 @@ pub(crate) fn de_px(az: f64, log2z: f64, dr: f64, di: f64, dexp: i64, px_m: f64,
     (base * exp2i(k / 2) * exp2i(k - k / 2)) as f32
 }
 
+/// Guard an externally computed escaped state using this encoder's uncertainty and
+/// output-pixel definitions (DEC-10/17). Radii are in z units and derivative-mantissa
+/// units respectively. This does not confer certified evidence on external radii.
+pub fn external_escape_ok(
+    s: &crate::grid::EscapedState,
+    ez: f64,
+    ed: f64,
+    pixel: (f64, i64),
+) -> bool {
+    let az = s.z.0.hypot(s.z.1);
+    let ad = s.derivative.0.hypot(s.derivative.1);
+    if !(ez >= 0.0
+        && ed >= 0.0
+        && ez.is_finite()
+        && ed.is_finite()
+        && az.is_finite()
+        && ad.is_finite())
+    {
+        return false;
+    }
+    let Some((lo, bound)) = bounds(s.n, az, ez, ad, ed) else {
+        return false;
+    };
+    let de = f64::from(de_px(
+        az,
+        az.log2(),
+        s.derivative.0,
+        s.derivative.1,
+        s.derivative_exponent,
+        pixel.0,
+        pixel.1,
+    ));
+    let displacement = bound * de * lo * std::f64::consts::LN_2 / 2.0;
+    // Relative uncertainty in |z| ln|z| / |dz/dc|, the DE encoded above.
+    let base = az * az.ln();
+    let de_hi = (az + ez) * (az + ez).ln() / base * ad / (ad - ed);
+    let de_lo = (az - ez) * (az - ez).ln() / base * ad / (ad + ed);
+    let angle = (ez / az).asin() + (ed / ad).asin();
+    // Half fd compare/SAMPLES defaults: 1e-3 px, 0.2% DE, 0.2 degrees.
+    // Include f32 DE encoding and one normal quantization bin in this half budget.
+    displacement.is_finite()
+        && displacement <= 5e-4
+        && de.is_finite()
+        && de_hi - 1.0 + f64::from(f32::EPSILON) <= 1e-3
+        && 1.0 - de_lo + f64::from(f32::EPSILON) <= 1e-3
+        && angle + std::f64::consts::TAU / 65536.0 <= 0.1f64.to_radians()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

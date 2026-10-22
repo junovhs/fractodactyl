@@ -32,7 +32,7 @@ use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--zone FILE] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
+const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--zone FILE] [--gpu-perturb on|off] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation"];
@@ -49,6 +49,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             "bla",
             "zone",
             "gpu-kernel",
+            "gpu-perturb",
         ])
         .collect();
     let a = Args::parse(argv, &known)?;
@@ -56,6 +57,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         return Err(USAGE.into());
     };
     let p = params(&a)?;
+    crate::perturb_gpu::enabled(a.str("gpu-perturb"))?;
     let runs: usize = a.num("runs", 1)?;
     if runs == 0 {
         return Err("--runs must be at least 1".into());
@@ -155,6 +157,12 @@ fn frame(
             let (fr, own) = measure_per_frame_bla(view, p, runs)?;
             (fr, Some(own))
         }
+        None if crate::perturb_gpu::enabled(a.str("gpu-perturb"))? => (
+            crate::bench::measure_using(view, p, runs, || {
+                crate::perturb_gpu::render(view, p, None)
+            })?,
+            None,
+        ),
         None => (measure(view, p, runs)?, None),
     };
     let out = dir.map(|d| format!("{}/frame-{f:05}.fds", d.trim_end_matches('/')));

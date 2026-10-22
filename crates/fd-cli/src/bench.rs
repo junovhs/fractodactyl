@@ -113,12 +113,21 @@ pub(crate) struct AtlasWork {
 /// reset and the previous run's samples are already dropped, so run 1's peak is one
 /// render's (plus whatever the process already holds).
 pub(crate) fn measure<'a>(view: &'a View, p: &'a Params, runs: usize) -> Result<Frame<'a>, String> {
+    measure_using(view, p, runs, || render_stats(view, p))
+}
+
+pub(crate) fn measure_using<'a>(
+    view: &'a View,
+    p: &'a Params,
+    runs: usize,
+    mut render: impl FnMut() -> Result<(fd_samples::Header, Samples, Stats), String>,
+) -> Result<Frame<'a>, String> {
     let mut frame: Option<Frame> = None;
     let mut times = Vec::with_capacity(runs);
     for _ in 0..runs {
         let reset = reset_peak_rss();
         let t = Instant::now();
-        let (h, s, st) = render_stats(view, p)?;
+        let (h, s, st) = render()?;
         times.push((t.elapsed().as_secs_f64(), st.reference_seconds));
         let mut bytes = Vec::new();
         write(&mut bytes, &h, &s).map_err(|e| e.to_string())?;
