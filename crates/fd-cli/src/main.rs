@@ -17,6 +17,7 @@ mod lod;
 mod manifest;
 mod orbit;
 mod path;
+mod perturb_gpu;
 mod place;
 mod plan;
 mod play;

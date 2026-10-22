@@ -102,8 +102,9 @@ impl Kernel {
     fn mid_source(self) -> String {
         if self == Self::F32Only {
             return format!(
-                "{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}",
                 crate::zone_ff::FF,
+                crate::perturb_gpu::CF,
                 include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
                 include_str!("../shaders/zone32_lib.wgsl"),
                 include_str!("../shaders/zone_mid32.wgsl")
@@ -119,8 +120,9 @@ impl Kernel {
     fn source(self) -> String {
         if self == Self::F32Only {
             return format!(
-                "{}\n{}\n{}\n{}",
+                "{}\n{}\n{}\n{}\n{}",
                 crate::zone_ff::FF,
+                crate::perturb_gpu::CF,
                 include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
                 include_str!("../shaders/zone32_lib.wgsl"),
                 include_str!("../shaders/zone32.wgsl")
@@ -911,8 +913,9 @@ fn probe() {
 }
 "#;
         let source = format!(
-            "{}\n{}\n{}\n{entry}",
+            "{}\n{}\n{}\n{}\n{entry}",
             crate::zone_ff::FF,
+            crate::perturb_gpu::CF,
             include_str!("../../fd-shade/shaders/soft_f64.wgsl"),
             include_str!("../shaders/zone32_lib.wgsl").replace(
                 "override EXP_BASE: i32 = -1;",
