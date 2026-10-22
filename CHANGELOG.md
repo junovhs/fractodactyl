@@ -26,6 +26,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- README, project state and the public manual explain where general CPU, keyframe, shading and zone speedups apply, with measured limits and source-versus-release distinctions.
+
 - Zone generation instructions and the KERN-02 gates now use `fd zone`; the
   superseded research producers are frozen and their manual CI workflow is retired.
 
