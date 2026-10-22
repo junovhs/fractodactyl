@@ -27,6 +27,8 @@ jobs:
           components: clippy, rustfmt
       - name: Native report command parity and clean error behavior
         run: cargo test --locked -p fd-dev --release --test report -- --nocapture
+      - name: Native check worker bounds and fail-fast workflow
+        run: cargo test --locked -p fd-dev --release --test check -- --nocapture
       - name: Strict Clippy
         run: cargo clippy --locked -p fd-dev --all-targets -- -D warnings
       - name: Discoverable native developer command

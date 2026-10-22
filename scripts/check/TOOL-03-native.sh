@@ -7,6 +7,7 @@ import json,os,subprocess,time
 from pathlib import Path
 expected=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
 path=Path(os.environ['TOOL03_CI_RUN_FILE'])
+step=os.environ.get('FD_DEV_NATIVE_STEP','Native report command parity and clean error behavior')
 deadline=time.monotonic()+600
 while time.monotonic()<deadline:
  if path.exists():
@@ -22,8 +23,8 @@ while time.monotonic()<deadline:
     for name in ['report (ubuntu-latest)','report (windows-latest)']:
      j=jobs[name]
      assert j['conclusion']=='success',j
-     assert any(s['name']=='Native report command parity and clean error behavior' and s['conclusion']=='success' for s in j['steps']),j
-    print('TOOL-03 native Linux and Windows CLI parity/error/Clippy passed at',expected)
+     assert any(s['name']==step and s['conclusion']=='success' for s in j['steps']),j
+    print('Native Linux and Windows fd-dev proof passed:',step,'at',expected)
     break
  print('Waiting for actual native CI at',expected,flush=True)
  time.sleep(5)

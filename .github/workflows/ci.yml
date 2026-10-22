@@ -49,7 +49,7 @@ jobs:
       # The wgpu studio tests run on lavapipe here and must not skip (FIX-58); the
       # Windows job has no Vulkan adapter, so they skip there.
       - name: clippy + tests
-        run: FD_REQUIRE_GPU=1 JOBS=4 bash scripts/check.sh
+        run: FD_REQUIRE_GPU=1 JOBS=4 cargo run --locked -p fd-dev --release --jobs 4 -- check
 
   # DEC-27: Windows and Linux are first-class landing targets. Both check
   # jobs must pass fmt, check, clippy (warnings denied), and workspace tests.
