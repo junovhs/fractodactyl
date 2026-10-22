@@ -295,9 +295,9 @@ impl Opened {
             .filter(|a| {
                 let limits = a.limits();
                 let x = groups.min(u64::from(limits.max_compute_workgroups_per_dimension));
-                (mode == Kernel::F32Only || a.get_info().backend == wgpu::Backend::Vulkan)
-                    && (mode == Kernel::F32Only
-                        || a.get_info().device_type != wgpu::DeviceType::Cpu)
+                (mode == Kernel::F32Only
+                    || a.get_info().backend == wgpu::Backend::Vulkan
+                        && a.get_info().device_type != wgpu::DeviceType::Cpu)
                     && a.features().contains(required)
                     && x > 0
                     && groups.div_ceil(x) <= u64::from(limits.max_compute_workgroups_per_dimension)
