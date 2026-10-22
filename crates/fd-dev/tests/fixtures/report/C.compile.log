@@ -1,0 +1,308 @@
+frames 76
+fps 30
+path_seconds 2.533333
+log10_width.first 0.602060
+log10_width.last -20.000000
+decades 20.602060
+decades_per_second 8.240824
+frames.f64 45
+frames.fx 31
+frames.scaled 0
+precision_bits_max 198
+size 8x8
+ss 1
+iter 32
+tile_px 128
+workers 1
+policy slack
+lead_seconds 0
+bla_mode level
+bla_levels 1
+bla_skipped_frames 0
+frame 0 level 0 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l0 manifest 0ad083d34422c74c01fdd628a4efc2ed7e31e01dd3f11210efb1b3d94ba6d752
+frame 1 level 0 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l0 manifest 439d5fe6bfadf669d8f678f80700681fdc45c8d56d933989e25fc796ad985465
+frame 2 level 0 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l0 manifest ca2e764eab9c1992cd4ca8e054aebc1f257678fda171bffc3919362358304e1d
+frame 3 level 0 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l0 manifest b56628dcbed34deab31fd553c61f42ab94658a9a4d114261f2e3f8bf552c4b4f
+frame 4 level 0 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l0 manifest 3b9ec80a934359ef863ea1be450d617c729edd408c6b6602a0ea934480f256a3
+frame 5 level 1 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l1 manifest cf3f57cd73b8730060375920e940dd68e3170d74e6dc8c73af5fb662bcab6a2a
+frame 6 level 2 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l2 manifest 72ec9fc1aa4ba20c580566df5ef4ea5ae650c69e5d37208c4103bcdeb4495959
+frame 7 level 3 tiles 1 need_bits 53 orbit orbit.0 bla bla.g0.l3 manifest 093ddb2033bda5ec86538c30467858daa3ebb28665c1c595deed1f1efdce7fe2
+frame 8 level 4 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l4 manifest 8f8629c11a2c6dc980356f02564587c76edbd5c965ce5000e74957210caa3238
+frame 9 level 5 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l5 manifest 4beebe670b828580d3d04ddd3256791f2b6703fd606186b309dc7ae112d1975d
+frame 10 level 6 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l6 manifest 26cfec3fc8f9be0e52fce5cdde9d5e245e509261e2838506e4946ae613110d73
+frame 11 level 7 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l7 manifest 6455a5a22aa59e3417fe997b063f681ea77d11f5e7c9ea1993dd39206f1d8844
+frame 12 level 7 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l7 manifest e543b34379e58b9fdbf7cb307ad9c000d1faf10cb5cbdb4c629cc615121a0dcd
+frame 13 level 8 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l8 manifest 9c194dc230c87d135600bb2c5d1e71a15f950249c542104c3763d7c52cf54cc2
+frame 14 level 9 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l9 manifest af39da758e3d577dc703302e1c5e701d963fb260354d6ef808787763f71bbaef
+frame 15 level 10 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l10 manifest 01b9d262587b9a7b7b0086b009413a928dc3646d61330bdda33ee60678666055
+frame 16 level 11 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l11 manifest f8f35883729f8cc167b1e6fe7ba8a47283f080129fad603a0d639a6d7fc7ce8b
+frame 17 level 12 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l12 manifest 82c196781782a35f1d707d542bf22cdd30ba121a49e15aace63a486b19299eb1
+frame 18 level 13 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l13 manifest 09a98eb601e999aaf77be80ffb5410e048a39eab638477dddc114a06c831184c
+frame 19 level 14 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l14 manifest 12623f7202a9a72d48f0d3935eab461e4bde71ab5becd1a84353e560007d4d57
+frame 20 level 15 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l15 manifest 5cfd6c45d3380d5f2739236e232860914c2db72dfce519c99e70be024c4c75a7
+frame 21 level 16 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l16 manifest 141c96164afa590fb414c4e1564df9f98637b0f02a85f382fb4e351baf7984e3
+frame 22 level 17 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l17 manifest 594a0b9367e1cfbc20cbe5d627f8a5531af28a80537f899e21a021c9b34b7ed9
+frame 23 level 17 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l17 manifest 9d4c283d1da003cae725d1b481cf8636fdbc7bc05cd1b8274ed9f697c68f951c
+frame 24 level 18 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l18 manifest 4fe1956fdd324a3c0784377471cdabd080cebb0f241d7d20e8fb01803c91e518
+frame 25 level 19 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l19 manifest 448ebd9bbadbaa55efd43eebba72ac777a0d1a781279d087cf2759b39dca9618
+frame 26 level 20 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l20 manifest cc31ae2afd02fddd1e861599ff095de01627760c611e58c689604b5de05e8c5d
+frame 27 level 21 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l21 manifest da53a23748fc688be953e28893729da09f63722d5046052b2d8a1d48814e1bd7
+frame 28 level 22 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l22 manifest ae9dfc830113490f4c24fad6b4d94c963fde4609f0e79a6cf576381aeda0aff3
+frame 29 level 23 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l23 manifest 42def06cd6c1f287b2d97b2ef998c229b9b528888e95c0620912679837d5bf8b
+frame 30 level 24 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l24 manifest 24e680d7cca51dcd17c330743665ebd06cc6ad2bae5bdadbbe3fb54266ee26fc
+frame 31 level 25 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l25 manifest 244c80915d4d825b18bd09553cc79c9f84815c7c13c7803de0b666ea4b392f1f
+frame 32 level 26 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l26 manifest a72404c05fc5ba077a676d2dde3dcca977ac852af7a95a52202cf83bf0381fd0
+frame 33 level 27 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l27 manifest 2a017e3611c34760344159460f51e1525c4daeda425ac1014c10a71cb5548078
+frame 34 level 28 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l28 manifest 8b4d72b14c99180cb24284208622e0357c9afcff896fdc77f4484898e68f268a
+frame 35 level 28 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l28 manifest c19c9f55fcd8ffd59e2533b1bcf5290ca9c7d5d56575657eac9814cacb38aa30
+frame 36 level 29 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l29 manifest 96136218f19109854957ec51f90b2ed2019ebd9d371a39dec44629ef06d7f0d0
+frame 37 level 30 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l30 manifest 4b2f735a53ef0e705c0369ec8783c69406cf4bb272512effdd02475f7c541429
+frame 38 level 31 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l31 manifest 610301241dbab93b654285f8d13477fb3ec47f35def69dc259e6560d4b7bb66d
+frame 39 level 32 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l32 manifest 53f368571f1bc66fe7531376abe5c8c206624981df8833dd07e82adf258d1f54
+frame 40 level 33 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l33 manifest 33931732d1160b704c807a8f5ce64d7e6fd03d9c85f95d3d7d52a76c9c75ca0c
+frame 41 level 34 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l34 manifest bd5087d72a708b30ea5568c9346ff522e3dec3bf8e60f196124baa2100740576
+frame 42 level 35 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l35 manifest a479d295eea5fa4434c5592f93018218d97690d34dcc1fe71c529bbe3f1193e4
+frame 43 level 36 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l36 manifest b787277e902c31f72ba85b847e9cd63ddca4bd49285d30ccd3ae285d26f544d3
+frame 44 level 37 tiles 2 need_bits 53 orbit orbit.0 bla bla.g0.l37 manifest 0dca8affaf12e2736bed4e8f3cdf3edb5adfae717e0e572316b7bc4e1b56e18d
+frame 45 level 38 tiles 2 need_bits 171 orbit orbit.1 bla bla.g1.l38 manifest 4a31e07b9f47cda11f1e63fd9828c46671b58e6e6e1a896c2732b9a6d4325fb5
+frame 46 level 38 tiles 2 need_bits 171 orbit orbit.1 bla bla.g1.l38 manifest a38dfae188206d34acf101f3e4b00fb244816ce66d35b73c946298972578390d
+frame 47 level 39 tiles 2 need_bits 172 orbit orbit.1 bla bla.g1.l39 manifest 8b01a1218010aeb83e1b303ccadacd4fae4b7b73159cd28e8f61f8b83e6083d2
+frame 48 level 40 tiles 2 need_bits 173 orbit orbit.1 bla bla.g1.l40 manifest dfabdc7c1a596019b3f3f21747fe9ddc89d535fcaee67b7fa5a416bdb0257a99
+frame 49 level 41 tiles 2 need_bits 174 orbit orbit.1 bla bla.g1.l41 manifest 62c15a3b8bc66cf75058f5211a50637b37173f488d1b64c9b5b235c42eb6e286
+frame 50 level 42 tiles 2 need_bits 175 orbit orbit.1 bla bla.g1.l42 manifest 53f1a31cea7c929780e5d4991cfb72b6515fa0ee50ad447557b14d4a3cf3828c
+frame 51 level 43 tiles 2 need_bits 176 orbit orbit.1 bla bla.g1.l43 manifest a2d9fd4b0c345e25a208058f2406299d3ebb24fd1607901be2b79d814f39aef7
+frame 52 level 44 tiles 2 need_bits 177 orbit orbit.1 bla bla.g1.l44 manifest 43308d7fb6a23a51f400298042657c1a6d4d6e11c2cbc4fcccf61c8df37394af
+frame 53 level 45 tiles 2 need_bits 178 orbit orbit.1 bla bla.g1.l45 manifest e0c2c7c40375152a3c9435ad5c34abc61019686c295ffc1763c5c59619fd32a7
+frame 54 level 46 tiles 2 need_bits 179 orbit orbit.1 bla bla.g1.l46 manifest d1a6ff90217a933915ec5201813030a5dda96221b0e0b4ec7091cbc9c3b9f5bb
+frame 55 level 47 tiles 2 need_bits 180 orbit orbit.1 bla bla.g1.l47 manifest e0688024e07300c6f9e36e2d81e1c1fde13edd56970154c1a593c3c2d4aad7b2
+frame 56 level 48 tiles 2 need_bits 181 orbit orbit.1 bla bla.g1.l48 manifest 17d9938776e3ce04e17bd1b1b57b1abaf2fbc4cdd791965a93c095dbf2dd663e
+frame 57 level 49 tiles 2 need_bits 182 orbit orbit.1 bla bla.g1.l49 manifest b32f379efca5791439b1302745032f18e8c90b5962f4da1f24299aea2a267ae7
+frame 58 level 49 tiles 2 need_bits 182 orbit orbit.1 bla bla.g1.l49 manifest ee5645aa0026d94ee35d23b534a84cc40e90eb4245dba840119b59d254c95c53
+frame 59 level 50 tiles 2 need_bits 183 orbit orbit.1 bla bla.g1.l50 manifest 46232ee782db928fe79088c05403ca70f4b0109403af847c13ef9e4f4e99071e
+frame 60 level 51 tiles 2 need_bits 184 orbit orbit.1 bla bla.g1.l51 manifest 890257a825352f643937a35c0f657132ceef64e21f9537f0171c6d2aa6d2ed97
+frame 61 level 52 tiles 2 need_bits 185 orbit orbit.1 bla bla.g1.l52 manifest 69fc554ea486cfd859a5e64c91a7863a495829e2e73e93f812c91025d50d09d7
+frame 62 level 53 tiles 2 need_bits 186 orbit orbit.1 bla bla.g1.l53 manifest d134b955e254945dc50fa4e845e9a511363a097582920036562cd8008881cc26
+frame 63 level 54 tiles 2 need_bits 187 orbit orbit.1 bla bla.g1.l54 manifest 6e526e7c4ba9429f70b7fb7c18f6e219e6d240ef0ef64d8cf241635962cf836e
+frame 64 level 55 tiles 2 need_bits 188 orbit orbit.1 bla bla.g1.l55 manifest c6d46dc3ca9ebbcb7c994193670982a73bd5fabab7880143d3aaa4f353dc026f
+frame 65 level 56 tiles 2 need_bits 189 orbit orbit.1 bla bla.g1.l56 manifest 9935959df570b35c057f37b9438971fa164d28a1a414e7c522444d03326d443d
+frame 66 level 57 tiles 2 need_bits 190 orbit orbit.1 bla bla.g1.l57 manifest f97bfec54c27f6dbb6e04ed37cf335ba33be5ce5fa61bc679f855979a19172f0
+frame 67 level 58 tiles 2 need_bits 191 orbit orbit.1 bla bla.g1.l58 manifest e3853ed51cefcae46a365a69b75db5ce77c9baf8da7a75be424ef5d265c25c2f
+frame 68 level 59 tiles 2 need_bits 192 orbit orbit.1 bla bla.g1.l59 manifest f2a467aee08fe69f7ac371925a8c24ed33bf97c2d3e385a64064878ad6ad3129
+frame 69 level 59 tiles 2 need_bits 192 orbit orbit.1 bla bla.g1.l59 manifest 8c344f8c598092caa25c51acb8bcd94fa89f011e02b5140bb9ad970e99c8e6d7
+frame 70 level 60 tiles 2 need_bits 193 orbit orbit.1 bla bla.g1.l60 manifest b77c2d868cf997bee81afdfcac5c5c39e99e5af2ebd1c13ff7416be171e7ea89
+frame 71 level 61 tiles 2 need_bits 194 orbit orbit.1 bla bla.g1.l61 manifest d01c08ec6061108e12fb8b18e41df42cd5f4570fb111a24db65d5d6a3e7b95d6
+frame 72 level 62 tiles 2 need_bits 195 orbit orbit.1 bla bla.g1.l62 manifest e87157f00554d5f07b70f4b458011847d3cc804c312bea8fd66c14b34b6113d2
+frame 73 level 63 tiles 2 need_bits 196 orbit orbit.1 bla bla.g1.l63 manifest c5cce410f1f3666070a878c575f6f4b22a407477b8470ece4d0984f390501640
+frame 74 level 64 tiles 2 need_bits 197 orbit orbit.1 bla bla.g1.l64 manifest 8d9f4c0efd111c33cbbbdccf6be39b63e68d71526ea2788019c53293740fa482
+frame 75 level 65 tiles 2 need_bits 198 orbit orbit.1 bla bla.g1.l65 manifest 00f346e03dac1c775d8aeb9f43cee2d9add8f1f25799b7705c4c34d029e27e37
+job orbit.0 kind orbit deps - first_use 0 deadline 0.000000 effective -0.000941 est_seconds 0.001883 start 0.024531 slack_at_start -0.027355 finish 0.026639 actual_seconds 0.002109 est_error -0.107 slack -0.026639 ready no worker 0 points 33 est_bytes 720 bytes 672 chunk e9a5a83a9aa859dbaf8ad9634909a61e0385d3dafd0ff9c493f2e712881c0709
+job bla.g0.l0 kind bla deps orbit.0 first_use 0 deadline 0.000000 effective 0.000000 est_seconds 0.000941 start 0.026654 slack_at_start -0.027595 finish 0.027868 actual_seconds 0.001214 est_error -0.225 slack -0.027868 ready no worker 0 points 33 est_bytes 96 bytes 96 chunk 34ce846b92ce92abb8f70fdd5910d0db455b554f1641dd6770c3f057ba172a7d
+job bla.g0.l1 kind bla deps orbit.0 first_use 5 deadline 0.166667 effective 0.166667 est_seconds 0.000940 start 0.027877 slack_at_start 0.137850 finish 0.028866 actual_seconds 0.000990 est_error -0.050 slack 0.137800 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 798c676b5962e0c0a25716b96e011a756868903c0d53a1a38eae30f964c702f7
+job bla.g0.l2 kind bla deps orbit.0 first_use 6 deadline 0.200000 effective 0.200000 est_seconds 0.000940 start 0.028874 slack_at_start 0.170186 finish 0.029831 actual_seconds 0.000957 est_error -0.019 slack 0.170169 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 685106c10f952a86afe0e049ec17ff905401f398024aee2ab7192ecc5b70f664
+job bla.g0.l3 kind bla deps orbit.0 first_use 7 deadline 0.233333 effective 0.233333 est_seconds 0.000940 start 0.029838 slack_at_start 0.202555 finish 0.030939 actual_seconds 0.001100 est_error -0.146 slack 0.202395 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 974102f27fe1e90a318c1d8e64cb7e010afbad030eba9ab5f3e32230f9e70f22
+job bla.g0.l4 kind bla deps orbit.0 first_use 8 deadline 0.266667 effective 0.266667 est_seconds 0.000940 start 0.030946 slack_at_start 0.234781 finish 0.032002 actual_seconds 0.001056 est_error -0.110 slack 0.234665 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 6e3627da0e9609d7436900b6bc1fb97044c8854165e8913addb3a979390bfd6f
+job bla.g0.l5 kind bla deps orbit.0 first_use 9 deadline 0.300000 effective 0.300000 est_seconds 0.000940 start 0.032009 slack_at_start 0.267051 finish 0.033199 actual_seconds 0.001190 est_error -0.210 slack 0.266801 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 51824ad7366da1edac93fc10d71204a95513373b4ad4d1538aee4a29fa195b51
+job bla.g0.l6 kind bla deps orbit.0 first_use 10 deadline 0.333333 effective 0.333333 est_seconds 0.000940 start 0.033208 slack_at_start 0.299186 finish 0.034221 actual_seconds 0.001014 est_error -0.073 slack 0.299112 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk ce60f2ebccb6d6862e2fd5eb51e3eec3170ad6abc2787f2934d71b8da49b1ef8
+job bla.g0.l7 kind bla deps orbit.0 first_use 11 deadline 0.366667 effective 0.366667 est_seconds 0.000940 start 0.034231 slack_at_start 0.331496 finish 0.035271 actual_seconds 0.001040 est_error -0.096 slack 0.331396 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk b0420c44a2c6529c08ca7f3cf12e2f0eda5ab0e99ae34e63570a0505e4ef456f
+job bla.g0.l8 kind bla deps orbit.0 first_use 13 deadline 0.433333 effective 0.433333 est_seconds 0.000940 start 0.035278 slack_at_start 0.397116 finish 0.036256 actual_seconds 0.000979 est_error -0.040 slack 0.397077 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk f2806ad1ea37d3734218f181a89c4778a77e0f1ab3bf63f75f673a1660deb01b
+job bla.g0.l9 kind bla deps orbit.0 first_use 14 deadline 0.466667 effective 0.466667 est_seconds 0.000940 start 0.036264 slack_at_start 0.429463 finish 0.037276 actual_seconds 0.001013 est_error -0.072 slack 0.429390 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 2d961515b49ad64b92c12686a73a1f3f6ec789e840d8624a7f4ad20e45c51f22
+job bla.g0.l10 kind bla deps orbit.0 first_use 15 deadline 0.500000 effective 0.500000 est_seconds 0.000940 start 0.037284 slack_at_start 0.461776 finish 0.038264 actual_seconds 0.000980 est_error -0.041 slack 0.461736 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 9058e42e0d638810d773d3a10bc5e11b1345c0406aa37db0f793522879f10466
+job bla.g0.l11 kind bla deps orbit.0 first_use 16 deadline 0.533333 effective 0.533333 est_seconds 0.000940 start 0.038271 slack_at_start 0.494123 finish 0.039239 actual_seconds 0.000968 est_error -0.029 slack 0.494094 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 1ce63c4182218ba5d5fb1252722d20d52408254ae8a18d9f515910719bb8351f
+job bla.g0.l12 kind bla deps orbit.0 first_use 17 deadline 0.566667 effective 0.566667 est_seconds 0.000940 start 0.039245 slack_at_start 0.526482 finish 0.040185 actual_seconds 0.000940 est_error +0.000 slack 0.526482 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 4d329ad217a33d9e9243110bfd976a1a93df553370c334373b153ada58c44598
+job bla.g0.l13 kind bla deps orbit.0 first_use 18 deadline 0.600000 effective 0.600000 est_seconds 0.000940 start 0.040191 slack_at_start 0.558869 finish 0.041134 actual_seconds 0.000943 est_error -0.003 slack 0.558866 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 4ceb0be6c46e3f6b877b2239bac9486a7bb58067e5a00bc7e39337d3f8d92c78
+job bla.g0.l14 kind bla deps orbit.0 first_use 19 deadline 0.633333 effective 0.633333 est_seconds 0.000940 start 0.041140 slack_at_start 0.591254 finish 0.042098 actual_seconds 0.000958 est_error -0.019 slack 0.591236 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 32abb0b408593f589f37b285db5f385960416801eb93dddb5d25b6e0e5a2b703
+job bla.g0.l15 kind bla deps orbit.0 first_use 20 deadline 0.666667 effective 0.666667 est_seconds 0.000940 start 0.042106 slack_at_start 0.623621 finish 0.043072 actual_seconds 0.000966 est_error -0.027 slack 0.623595 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk aa1f7cc87c85f82d353e333d8653772e8084ac99facb9ead36cad47b1bb0771b
+job bla.g0.l16 kind bla deps orbit.0 first_use 21 deadline 0.700000 effective 0.700000 est_seconds 0.000940 start 0.043079 slack_at_start 0.655981 finish 0.044104 actual_seconds 0.001025 est_error -0.083 slack 0.655896 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk e320ebba0c7ff7dfbde9057bd71a6ebb35af890d2c9bb1ba50f8d3847ff6e39c
+job bla.g0.l17 kind bla deps orbit.0 first_use 22 deadline 0.733333 effective 0.733333 est_seconds 0.000940 start 0.044112 slack_at_start 0.688281 finish 0.045130 actual_seconds 0.001017 est_error -0.076 slack 0.688204 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 864244a1354a26940291df0b9f611e6b8138230d8c6c4752f320b82045a50c12
+job bla.g0.l18 kind bla deps orbit.0 first_use 24 deadline 0.800000 effective 0.800000 est_seconds 0.000940 start 0.045138 slack_at_start 0.753922 finish 0.046172 actual_seconds 0.001034 est_error -0.091 slack 0.753828 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk dd6d715ff7590cc27d234ad6102b35712fa92e0227a048295ce493a6d87fd139
+job bla.g0.l19 kind bla deps orbit.0 first_use 25 deadline 0.833333 effective 0.833333 est_seconds 0.000940 start 0.046181 slack_at_start 0.786212 finish 0.047181 actual_seconds 0.000999 est_error -0.060 slack 0.786153 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 2fd83ab68842813fd014d74960aff231ff615d58455ac8c3431627b721600846
+job bla.g0.l20 kind bla deps orbit.0 first_use 26 deadline 0.866667 effective 0.866667 est_seconds 0.000940 start 0.047190 slack_at_start 0.818537 finish 0.048163 actual_seconds 0.000974 est_error -0.035 slack 0.818503 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk acb1755db20b5b33aa13f13d30637c0358081d8fd2b38afb118db68761c6d346
+job bla.g0.l21 kind bla deps orbit.0 first_use 27 deadline 0.900000 effective 0.900000 est_seconds 0.000940 start 0.048172 slack_at_start 0.850888 finish 0.049121 actual_seconds 0.000949 est_error -0.010 slack 0.850879 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 06aa16d94cb8650c766e479ea373220ff474c27da52805a51e3148c2bea577d4
+job bla.g0.l22 kind bla deps orbit.0 first_use 28 deadline 0.933333 effective 0.933333 est_seconds 0.000940 start 0.049131 slack_at_start 0.883263 finish 0.050089 actual_seconds 0.000959 est_error -0.020 slack 0.883244 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 670eb212d37503b38c3d86a51ce07f4172e09f71be2e5c2d3df06cfffb61d8f4
+job bla.g0.l23 kind bla deps orbit.0 first_use 29 deadline 0.966667 effective 0.966667 est_seconds 0.000940 start 0.050098 slack_at_start 0.915629 finish 0.051043 actual_seconds 0.000945 est_error -0.005 slack 0.915624 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk ed82b34d7e5381aeb2430a2e11badf77ce4bf172256ac1afb35fa21aa71fb65f
+job bla.g0.l24 kind bla deps orbit.0 first_use 30 deadline 1.000000 effective 1.000000 est_seconds 0.000940 start 0.051051 slack_at_start 0.948009 finish 0.052017 actual_seconds 0.000966 est_error -0.027 slack 0.947983 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 9ca6ffee7c73e7e3e2e055a54e2749ec90635b4b6f13d1428289671473abe5f1
+job bla.g0.l25 kind bla deps orbit.0 first_use 31 deadline 1.033333 effective 1.033333 est_seconds 0.000940 start 0.052028 slack_at_start 0.980365 finish 0.053025 actual_seconds 0.000997 est_error -0.057 slack 0.980308 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 3d36872c6b1b7aa30711e7b9a1aa9718fd2bca3d23dda0c80265feff816f980b
+job bla.g0.l26 kind bla deps orbit.0 first_use 32 deadline 1.066667 effective 1.066667 est_seconds 0.000940 start 0.053033 slack_at_start 1.012694 finish 0.054139 actual_seconds 0.001106 est_error -0.150 slack 1.012528 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 19abb916e892ba14f3cf3995ddb21d9efdbd69bd67d63b55df1990ba3b8c4e05
+job bla.g0.l27 kind bla deps orbit.0 first_use 33 deadline 1.100000 effective 1.100000 est_seconds 0.000940 start 0.054148 slack_at_start 1.044912 finish 0.055133 actual_seconds 0.000986 est_error -0.047 slack 1.044867 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 4bf8a9ac6ffb947e93c8b77954cbc502f3200dd4032581a6f90748c9ad853a51
+job bla.g0.l28 kind bla deps orbit.0 first_use 34 deadline 1.133333 effective 1.133333 est_seconds 0.000940 start 0.055145 slack_at_start 1.077248 finish 0.056126 actual_seconds 0.000981 est_error -0.042 slack 1.077207 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 6f1e51f9390f4d49ab1bed8ba43ee63dbe488b5b050a8e90d75458aabcd7f5ed
+job bla.g0.l29 kind bla deps orbit.0 first_use 36 deadline 1.200000 effective 1.200000 est_seconds 0.000940 start 0.056136 slack_at_start 1.142924 finish 0.057078 actual_seconds 0.000942 est_error -0.002 slack 1.142922 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk ead1342830bfc765c87b77ad9d985fcb8d574c9c068d9ebe35ffe705da7032c6
+job bla.g0.l30 kind bla deps orbit.0 first_use 37 deadline 1.233333 effective 1.233333 est_seconds 0.000940 start 0.057090 slack_at_start 1.175303 finish 0.058068 actual_seconds 0.000977 est_error -0.038 slack 1.175266 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk d2945bfad19ff607e74450a51b299099e3bd383f9c92f6a48589cbcedf024de1
+job bla.g0.l31 kind bla deps orbit.0 first_use 38 deadline 1.266667 effective 1.266667 est_seconds 0.000940 start 0.058079 slack_at_start 1.207648 finish 0.059029 actual_seconds 0.000951 est_error -0.011 slack 1.207637 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 47d1bc0a5d220cf6289c20531bb2994a29cdf35febb9569cd216c9d4357b07cf
+job bla.g0.l32 kind bla deps orbit.0 first_use 39 deadline 1.300000 effective 1.300000 est_seconds 0.000940 start 0.059040 slack_at_start 1.240020 finish 0.059993 actual_seconds 0.000953 est_error -0.014 slack 1.240007 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 70af2018d0e3399d00f82d5c17c6452f2508e65bab32a7f1aaf21173b931a041
+job bla.g0.l33 kind bla deps orbit.0 first_use 40 deadline 1.333333 effective 1.333333 est_seconds 0.000940 start 0.060003 slack_at_start 1.272390 finish 0.060956 actual_seconds 0.000953 est_error -0.014 slack 1.272377 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk c61f657a6a5e7af64e4b1f768278e4f724aaafe77d9d48a38217df241a96e366
+job bla.g0.l34 kind bla deps orbit.0 first_use 41 deadline 1.366667 effective 1.366667 est_seconds 0.000940 start 0.060967 slack_at_start 1.304760 finish 0.061912 actual_seconds 0.000946 est_error -0.006 slack 1.304754 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 6d4f6c7f07a3094b9c3d31614eed774ec8761423c1600f0a2756601ced966d62
+job bla.g0.l35 kind bla deps orbit.0 first_use 42 deadline 1.400000 effective 1.400000 est_seconds 0.000940 start 0.061923 slack_at_start 1.337138 finish 0.062896 actual_seconds 0.000974 est_error -0.035 slack 1.337104 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 20252f8de9e33f357515f7de4e97e2cc8ddf0e80a17687db8854b41c66964fe7
+job bla.g0.l36 kind bla deps orbit.0 first_use 43 deadline 1.433333 effective 1.433333 est_seconds 0.000940 start 0.062905 slack_at_start 1.369489 finish 0.063898 actual_seconds 0.000993 est_error -0.054 slack 1.369436 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk f28aefc253202ee3a625e3508d7ff55a9d1d030b22e5a907fe9cdc327daf6c43
+job bla.g0.l37 kind bla deps orbit.0 first_use 44 deadline 1.466667 effective 1.466667 est_seconds 0.000940 start 0.063914 slack_at_start 1.401813 finish 0.064861 actual_seconds 0.000947 est_error -0.007 slack 1.401806 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk c54e20d480392f1c7dff83891f499f2fbefd39728ccb619524fab6f2220b120a
+job orbit.1 kind orbit deps - first_use 45 deadline 1.500000 effective 1.499060 est_seconds 0.001888 start 0.064872 slack_at_start 1.432300 finish 0.066758 actual_seconds 0.001886 est_error +0.001 slack 1.433242 ready yes worker 0 points 33 est_bytes 720 bytes 672 chunk ddd080f73b8ba8cd020e0bb8fd325663d17f47291c5899a04aa5a5c445c03587
+job bla.g1.l38 kind bla deps orbit.1 first_use 45 deadline 1.500000 effective 1.500000 est_seconds 0.000940 start 0.066769 slack_at_start 1.432291 finish 0.067750 actual_seconds 0.000980 est_error -0.041 slack 1.432250 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 670dd6a29be0ea05c9ee402c4478c0238a0b744856e22590682ec3a02ac2dd05
+job bla.g1.l39 kind bla deps orbit.1 first_use 47 deadline 1.566667 effective 1.566667 est_seconds 0.000940 start 0.067760 slack_at_start 1.497967 finish 0.068720 actual_seconds 0.000960 est_error -0.021 slack 1.497946 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 8ddb225e60459ee1a1c804784533cdf53190d8d88354f26b3e559d7d59695c39
+job bla.g1.l40 kind bla deps orbit.1 first_use 48 deadline 1.600000 effective 1.600000 est_seconds 0.000940 start 0.068731 slack_at_start 1.530329 finish 0.069686 actual_seconds 0.000955 est_error -0.016 slack 1.530314 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 5d0f7ff3fe881b0d0f6636e54cf8c65be7f14da93993b16bd46103a27fa89f16
+job bla.g1.l41 kind bla deps orbit.1 first_use 49 deadline 1.633333 effective 1.633333 est_seconds 0.000940 start 0.069697 slack_at_start 1.562697 finish 0.070665 actual_seconds 0.000969 est_error -0.030 slack 1.562668 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 3ac267789beb7122174c233037c4e590114b7c4850deabe976745f44361d3751
+job bla.g1.l42 kind bla deps orbit.1 first_use 50 deadline 1.666667 effective 1.666667 est_seconds 0.000940 start 0.070675 slack_at_start 1.595052 finish 0.071634 actual_seconds 0.000958 est_error -0.019 slack 1.595033 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk cf77cd766261ed2affb1179dd9f4594214b466892446b2ad28bd0ee5211970a7
+job bla.g1.l43 kind bla deps orbit.1 first_use 51 deadline 1.700000 effective 1.700000 est_seconds 0.000940 start 0.071644 slack_at_start 1.627416 finish 0.072628 actual_seconds 0.000984 est_error -0.045 slack 1.627372 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk e932e72f5fc365f3ab2c75a62342bab8349c12a26b3324caa16034146c20bfb7
+job bla.g1.l44 kind bla deps orbit.1 first_use 52 deadline 1.733333 effective 1.733333 est_seconds 0.000940 start 0.072638 slack_at_start 1.659755 finish 0.073600 actual_seconds 0.000962 est_error -0.023 slack 1.659733 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk b416d48c98a0ed10bf49f740270c76fdb86c1a58b2b48ff947a2a19f67861e99
+job bla.g1.l45 kind bla deps orbit.1 first_use 53 deadline 1.766667 effective 1.766667 est_seconds 0.000940 start 0.073608 slack_at_start 1.692119 finish 0.074561 actual_seconds 0.000953 est_error -0.014 slack 1.692106 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 955f790f02b021c2c4056d97e2fe3ede2f4d2b5057d2b59154f0e4c947dbdd2d
+job bla.g1.l46 kind bla deps orbit.1 first_use 54 deadline 1.800000 effective 1.800000 est_seconds 0.000940 start 0.074571 slack_at_start 1.724489 finish 0.075558 actual_seconds 0.000987 est_error -0.048 slack 1.724442 ready yes worker 0 points 33 est_bytes 96 bytes 96 chunk 6d60eb42b1c6f6b752b1a3d0ff635d8d93b1161e8ad2ac0a587afa89ac1f87cc
+job bla.g1.l47 kind bla deps orbit.1 first_use 55 deadline 1.833333 effective 1.833333 est_seconds 0.000944 start 0.075568 slack_at_start 1.756821 finish 0.076435 actual_seconds 0.000867 est_error +0.089 slack 1.756898 ready yes worker 0 points 33 est_bytes 936 bytes 936 chunk e6ccb66bf4a1dc4cf1d9aab56557a47fca96da1486f89010d0686abd0ba5d88d
+job bla.g1.l48 kind bla deps orbit.1 first_use 56 deadline 1.866667 effective 1.866667 est_seconds 0.000944 start 0.076445 slack_at_start 1.789278 finish 0.077418 actual_seconds 0.000973 est_error -0.030 slack 1.789249 ready yes worker 0 points 33 est_bytes 936 bytes 936 chunk 18fc9aa38a2cd11e2ca7b83b0c8c05de1e398cadf827b669654360429b160a67
+job bla.g1.l49 kind bla deps orbit.1 first_use 57 deadline 1.900000 effective 1.900000 est_seconds 0.000946 start 0.077427 slack_at_start 1.821627 finish 0.078406 actual_seconds 0.000978 est_error -0.033 slack 1.821594 ready yes worker 0 points 33 est_bytes 1328 bytes 1328 chunk 3e6ef9fd8f426604648693a8932d721bdafbf9c590c2c571f8c59490fd74af7d
+job bla.g1.l50 kind bla deps orbit.1 first_use 59 deadline 1.966667 effective 1.966667 est_seconds 0.000947 start 0.078416 slack_at_start 1.887304 finish 0.079383 actual_seconds 0.000968 est_error -0.022 slack 1.887283 ready yes worker 0 points 33 est_bytes 1496 bytes 1496 chunk 1e28c5d7a405fd872b819e685f695282637187986a5c67f8199c95b7c1eceded
+job bla.g1.l51 kind bla deps orbit.1 first_use 60 deadline 2.000000 effective 2.000000 est_seconds 0.000947 start 0.079393 slack_at_start 1.919660 finish 0.080362 actual_seconds 0.000969 est_error -0.023 slack 1.919638 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 5f498ca83877852871998f63d7f0456c0661276118e8738c0eae34d0c9ed6949
+job bla.g1.l52 kind bla deps orbit.1 first_use 61 deadline 2.033333 effective 2.033333 est_seconds 0.000946 start 0.080372 slack_at_start 1.952014 finish 0.081345 actual_seconds 0.000972 est_error -0.027 slack 1.951989 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk f554d8812f96c6d654cac2f91d83a35e690cf2e806fd736ca697697c010387a2
+job bla.g1.l53 kind bla deps orbit.1 first_use 62 deadline 2.066667 effective 2.066667 est_seconds 0.000946 start 0.081355 slack_at_start 1.984365 finish 0.082314 actual_seconds 0.000959 est_error -0.013 slack 1.984353 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk a4bc120ada54956f6c6a1307f4408fd829226b67dc6c1f278c748a52fe55c176
+job bla.g1.l54 kind bla deps orbit.1 first_use 63 deadline 2.100000 effective 2.100000 est_seconds 0.000946 start 0.082324 slack_at_start 2.016730 finish 0.083296 actual_seconds 0.000972 est_error -0.026 slack 2.016704 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 40208f0e0e46063aa92cc4d633d9c0306427d23af58f7b9243674fcd8230f4a6
+job bla.g1.l55 kind bla deps orbit.1 first_use 64 deadline 2.133333 effective 2.133333 est_seconds 0.000946 start 0.083304 slack_at_start 2.049083 finish 0.084280 actual_seconds 0.000976 est_error -0.031 slack 2.049053 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk d6b92c3addc25d77b0a31f400c47f6f940cfce9c901c79ca43856fd6d6fb0b28
+job bla.g1.l56 kind bla deps orbit.1 first_use 65 deadline 2.166667 effective 2.166667 est_seconds 0.000946 start 0.084288 slack_at_start 2.081432 finish 0.085248 actual_seconds 0.000960 est_error -0.014 slack 2.081418 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk b77a3ce7d1cade43fae2843e8ffa34beb142f78513b84be821df4c03f85d33ec
+job bla.g1.l57 kind bla deps orbit.1 first_use 66 deadline 2.200000 effective 2.200000 est_seconds 0.000946 start 0.085260 slack_at_start 2.113794 finish 0.086223 actual_seconds 0.000963 est_error -0.017 slack 2.113777 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 7b79e90696fdb26a56fca986ff182003ea0a88b4bf213ae915313a9aa25612a4
+job bla.g1.l58 kind bla deps orbit.1 first_use 67 deadline 2.233333 effective 2.233333 est_seconds 0.000946 start 0.086233 slack_at_start 2.146154 finish 0.087195 actual_seconds 0.000962 est_error -0.017 slack 2.146138 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 2ccc00082986904dd5cae9fe5f69ef668be0f65a14462f53d440e9348e10664d
+job bla.g1.l59 kind bla deps orbit.1 first_use 68 deadline 2.266667 effective 2.266667 est_seconds 0.000946 start 0.087205 slack_at_start 2.178515 finish 0.088185 actual_seconds 0.000980 est_error -0.034 slack 2.178482 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk d0beb51c689c34bab9f8afcf177c13cb20cffef74ee76624f384800ea63d7620
+job bla.g1.l60 kind bla deps orbit.1 first_use 70 deadline 2.333333 effective 2.333333 est_seconds 0.000946 start 0.088196 slack_at_start 2.244191 finish 0.089211 actual_seconds 0.001015 est_error -0.067 slack 2.244123 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 4de987a700ebc6bc0e83ce5720ab8f7f1e9a0c8d44265d965480272f792844b4
+job bla.g1.l61 kind bla deps orbit.1 first_use 71 deadline 2.366667 effective 2.366667 est_seconds 0.000946 start 0.089220 slack_at_start 2.276500 finish 0.090208 actual_seconds 0.000987 est_error -0.041 slack 2.276459 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 0ab0cd74a99caacaac81368e413e4d5938780c5ad60d4ea95647d4a888681042
+job bla.g1.l62 kind bla deps orbit.1 first_use 72 deadline 2.400000 effective 2.400000 est_seconds 0.000946 start 0.090216 slack_at_start 2.308838 finish 0.091371 actual_seconds 0.001155 est_error -0.181 slack 2.308629 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk e157d18c32f496c84ff7623396dc70bf362d1061ad1a9725e73ce478a859e064
+job bla.g1.l63 kind bla deps orbit.1 first_use 73 deadline 2.433333 effective 2.433333 est_seconds 0.000946 start 0.091382 slack_at_start 2.341005 finish 0.092439 actual_seconds 0.001057 est_error -0.104 slack 2.340894 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 2c4d21afeeba08be839ae93720c38a0fe15dc7c20bd7dfaf637a3aa68cbd16d9
+job bla.g1.l64 kind bla deps orbit.1 first_use 74 deadline 2.466667 effective 2.466667 est_seconds 0.000946 start 0.092448 slack_at_start 2.373272 finish 0.093520 actual_seconds 0.001071 est_error -0.116 slack 2.373147 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 84fcce9508f9c94865410f3b1f1f7f8721f014965f4ca9fed7d0960ba8a822b7
+job bla.g1.l65 kind bla deps orbit.1 first_use 75 deadline 2.500000 effective 2.500000 est_seconds 0.000946 start 0.093534 slack_at_start 2.405519 finish 0.094598 actual_seconds 0.001064 est_error -0.110 slack 2.405402 ready yes worker 0 points 33 est_bytes 1552 bytes 1552 chunk 5792bfea0745b99c0393cf6ffa6d21fd4d31d3f3929c070a056a34cb1a5ea179
+compare slack costs measured missed 2 max_lateness_seconds 0.027781 makespan_seconds 0.093886 min_lead_seconds 0.027781
+compare slack costs estimated missed 2 max_lateness_seconds 0.027282 makespan_seconds 0.090375 min_lead_seconds 0.027282
+compare edf costs measured missed 2 max_lateness_seconds 0.027781 makespan_seconds 0.093886 min_lead_seconds 0.027781
+compare edf costs estimated missed 2 max_lateness_seconds 0.027282 makespan_seconds 0.090375 min_lead_seconds 0.027282
+compare first-use costs measured missed 2 max_lateness_seconds 0.027781 makespan_seconds 0.093886 min_lead_seconds 0.027781
+compare first-use costs estimated missed 2 max_lateness_seconds 0.027282 makespan_seconds 0.090375 min_lead_seconds 0.027282
+orbit orbit.0 frames 45 points 33 precision 53 slabs 1 bytes 672 chunk e9a5a83a9aa859dbaf8ad9634909a61e0385d3dafd0ff9c493f2e712881c0709
+bla bla.g0.l0 frames 5 first_use 0 dc_max 2.8284271247461903e0 levels 0 valid_blocks 0 bytes 96 chunk 34ce846b92ce92abb8f70fdd5910d0db455b554f1641dd6770c3f057ba172a7d
+bla bla.g0.l1 frames 1 first_use 5 dc_max 1.1969479327857166e-1 levels 0 valid_blocks 0 bytes 96 chunk 798c676b5962e0c0a25716b96e011a756868903c0d53a1a38eae30f964c702f7
+bla bla.g0.l2 frames 1 first_use 6 dc_max 6.358876932922197e-2 levels 0 valid_blocks 0 bytes 96 chunk 685106c10f952a86afe0e049ec17ff905401f398024aee2ab7192ecc5b70f664
+bla bla.g0.l3 frames 1 first_use 7 dc_max 3.378202647118731e-2 levels 0 valid_blocks 0 bytes 96 chunk 974102f27fe1e90a318c1d8e64cb7e010afbad030eba9ab5f3e32230f9e70f22
+bla bla.g0.l4 frames 1 first_use 8 dc_max 1.7947006502617647e-2 levels 0 valid_blocks 0 bytes 96 chunk 6e3627da0e9609d7436900b6bc1fb97044c8854165e8913addb3a979390bfd6f
+bla bla.g0.l5 frames 1 first_use 9 dc_max 9.53448641616317e-3 levels 0 valid_blocks 0 bytes 96 chunk 51824ad7366da1edac93fc10d71204a95513373b4ad4d1538aee4a29fa195b51
+bla bla.g0.l6 frames 1 first_use 10 dc_max 5.065281645283903e-3 levels 0 valid_blocks 0 bytes 96 chunk ce60f2ebccb6d6862e2fd5eb51e3eec3170ad6abc2787f2934d71b8da49b1ef8
+bla bla.g0.l7 frames 2 first_use 11 dc_max 2.6909726375513375e-3 levels 0 valid_blocks 0 bytes 96 chunk b0420c44a2c6529c08ca7f3cf12e2f0eda5ab0e99ae34e63570a0505e4ef456f
+bla bla.g0.l8 frames 1 first_use 13 dc_max 7.59489251536847e-4 levels 0 valid_blocks 0 bytes 96 chunk f2806ad1ea37d3734218f181a89c4778a77e0f1ab3bf63f75f673a1660deb01b
+bla bla.g0.l9 frames 1 first_use 14 dc_max 4.034850288399807e-4 levels 0 valid_blocks 0 bytes 96 chunk 2d961515b49ad64b92c12686a73a1f3f6ec789e840d8624a7f4ad20e45c51f22
+bla bla.g0.l10 frames 1 first_use 15 dc_max 2.143544709692336e-4 levels 0 valid_blocks 0 bytes 96 chunk 9058e42e0d638810d773d3a10bc5e11b1345c0406aa37db0f793522879f10466
+bla bla.g0.l11 frames 1 first_use 16 dc_max 1.1387742578974991e-4 levels 0 valid_blocks 0 bytes 96 chunk 1ce63c4182218ba5d5fb1252722d20d52408254ae8a18d9f515910719bb8351f
+bla bla.g0.l12 frames 1 first_use 17 dc_max 6.0498500563402396e-5 levels 0 valid_blocks 0 bytes 96 chunk 4d329ad217a33d9e9243110bfd976a1a93df553370c334373b153ada58c44598
+bla bla.g0.l13 frames 1 first_use 18 dc_max 3.2140336657306505e-5 levels 0 valid_blocks 0 bytes 96 chunk 4ceb0be6c46e3f6b877b2239bac9486a7bb58067e5a00bc7e39337d3f8d92c78
+bla bla.g0.l14 frames 1 first_use 19 dc_max 1.7074860998702157e-5 levels 0 valid_blocks 0 bytes 96 chunk 32abb0b408593f589f37b285db5f385960416801eb93dddb5d25b6e0e5a2b703
+bla bla.g0.l15 frames 1 first_use 20 dc_max 9.071119342451625e-6 levels 0 valid_blocks 0 bytes 96 chunk aa1f7cc87c85f82d353e333d8653772e8084ac99facb9ead36cad47b1bb0771b
+bla bla.g0.l16 frames 1 first_use 21 dc_max 4.8191236326172426e-6 levels 0 valid_blocks 0 bytes 96 chunk e320ebba0c7ff7dfbde9057bd71a6ebb35af890d2c9bb1ba50f8d3847ff6e39c
+bla bla.g0.l17 frames 2 first_use 22 dc_max 2.5602003094386972e-6 levels 0 valid_blocks 0 bytes 96 chunk 864244a1354a26940291df0b9f611e6b8138230d8c6c4752f320b82045a50c12
+bla bla.g0.l18 frames 1 first_use 24 dc_max 7.225782775589092e-7 levels 0 valid_blocks 0 bytes 96 chunk dd6d715ff7590cc27d234ad6102b35712fa92e0227a048295ce493a6d87fd139
+bla bla.g0.l19 frames 1 first_use 25 dc_max 3.838769577976777e-7 levels 0 valid_blocks 0 bytes 96 chunk 2fd83ab68842813fd014d74960aff231ff615d58455ac8c3431627b721600846
+bla bla.g0.l20 frames 1 first_use 26 dc_max 2.0393737386879337e-7 levels 0 valid_blocks 0 bytes 96 chunk acb1755db20b5b33aa13f13d30637c0358081d8fd2b38afb118db68761c6d346
+bla bla.g0.l21 frames 1 first_use 27 dc_max 1.08343608120184e-7 levels 0 valid_blocks 0 bytes 96 chunk 06aa16d94cb8650c766e479ea373220ff474c27da52805a51e3148c2bea577d4
+bla bla.g0.l22 frames 1 first_use 28 dc_max 5.755849198858497e-8 levels 0 valid_blocks 0 bytes 96 chunk 670eb212d37503b38c3d86a51ce07f4172e09f71be2e5c2d3df06cfffb61d8f4
+bla bla.g0.l23 frames 1 first_use 29 dc_max 3.057840848834354e-8 levels 0 valid_blocks 0 bytes 96 chunk ed82b34d7e5381aeb2430a2e11badf77ce4bf172256ac1afb35fa21aa71fb65f
+bla bla.g0.l24 frames 1 first_use 30 dc_max 1.6245071190979745e-8 levels 0 valid_blocks 0 bytes 96 chunk 9ca6ffee7c73e7e3e2e055a54e2749ec90635b4b6f13d1428289671473abe5f1
+bla bla.g0.l25 frames 1 first_use 31 dc_max 8.630308975059932e-9 levels 0 valid_blocks 0 bytes 96 chunk 3d36872c6b1b7aa30711e7b9a1aa9718fd2bca3d23dda0c80265feff816f980b
+bla bla.g0.l26 frames 1 first_use 32 dc_max 4.584929866688257e-9 levels 0 valid_blocks 0 bytes 96 chunk 19abb916e892ba14f3cf3995ddb21d9efdbd69bd67d63b55df1990ba3b8c4e05
+bla bla.g0.l27 frames 1 first_use 33 dc_max 2.435784871288924e-9 levels 0 valid_blocks 0 bytes 96 chunk 4bf8a9ac6ffb947e93c8b77954cbc502f3200dd4032581a6f90748c9ad853a51
+bla bla.g0.l28 frames 2 first_use 34 dc_max 1.2940336938426295e-9 levels 0 valid_blocks 0 bytes 96 chunk 6f1e51f9390f4d49ab1bed8ba43ee63dbe488b5b050a8e90d75458aabcd7f5ed
+bla bla.g0.l29 frames 1 first_use 36 dc_max 3.65221359589633e-10 levels 0 valid_blocks 0 bytes 96 chunk ead1342830bfc765c87b77ad9d985fcb8d574c9c068d9ebe35ffe705da7032c6
+bla bla.g0.l30 frames 1 first_use 37 dc_max 1.9402727233046393e-10 levels 0 valid_blocks 0 bytes 96 chunk d2945bfad19ff607e74450a51b299099e3bd383f9c92f6a48589cbcedf024de1
+bla bla.g0.l31 frames 1 first_use 38 dc_max 1.0307849102746897e-10 levels 0 valid_blocks 0 bytes 96 chunk 47d1bc0a5d220cf6289c20531bb2994a29cdf35febb9569cd216c9d4357b07cf
+bla bla.g0.l32 frames 1 first_use 39 dc_max 5.476131898356723e-11 levels 0 valid_blocks 0 bytes 96 chunk 70af2018d0e3399d00f82d5c17c6452f2508e65bab32a7f1aaf21173b931a041
+bla bla.g0.l33 frames 1 first_use 40 dc_max 2.9092423587680007e-11 levels 0 valid_blocks 0 bytes 96 chunk c61f657a6a5e7af64e4b1f768278e4f724aaafe77d9d48a38217df241a96e366
+bla bla.g0.l34 frames 1 first_use 41 dc_max 1.5455586469784965e-11 levels 0 valid_blocks 0 bytes 96 chunk 6d4f6c7f07a3094b9c3d31614eed774ec8761423c1600f0a2756601ced966d62
+bla bla.g0.l35 frames 1 first_use 42 dc_max 8.210923943138191e-12 levels 0 valid_blocks 0 bytes 96 chunk 20252f8de9e33f357515f7de4e97e2cc8ddf0e80a17687db8854b41c66964fe7
+bla bla.g0.l36 frames 1 first_use 43 dc_max 4.362113448868565e-12 levels 0 valid_blocks 0 bytes 96 chunk f28aefc253202ee3a625e3508d7ff55a9d1d030b22e5a907fe9cdc327daf6c43
+bla bla.g0.l37 frames 1 first_use 44 dc_max 2.3174081250504843e-12 levels 0 valid_blocks 0 bytes 96 chunk c54e20d480392f1c7dff83891f499f2fbefd39728ccb619524fab6f2220b120a
+orbit orbit.1 frames 31 points 33 precision 198 slabs 1 bytes 672 chunk ddd080f73b8ba8cd020e0bb8fd325663d17f47291c5899a04aa5a5c445c03587
+bla bla.g1.l38 frames 2 first_use 45 dc_max 1.2311436167238978e-12 levels 0 valid_blocks 0 bytes 96 chunk 670dd6a29be0ea05c9ee402c4478c0238a0b744856e22590682ec3a02ac2dd05
+bla bla.g1.l39 frames 1 first_use 47 dc_max 3.4747297938185064e-13 levels 0 valid_blocks 0 bytes 96 chunk 8ddb225e60459ee1a1c804784533cdf53190d8d88354f26b3e559d7d59695c39
+bla bla.g1.l40 frames 1 first_use 48 dc_max 1.845980034033413e-13 levels 0 valid_blocks 0 bytes 96 chunk 5d0f7ff3fe881b0d0f6636e54cf8c65be7f14da93993b16bd46103a27fa89f16
+bla bla.g1.l41 frames 1 first_use 49 dc_max 9.806934658954348e-14 levels 0 valid_blocks 0 bytes 96 chunk 3ac267789beb7122174c233037c4e590114b7c4850deabe976745f44361d3751
+bla bla.g1.l42 frames 1 first_use 50 dc_max 5.210005190189354e-14 levels 0 valid_blocks 0 bytes 96 chunk cf77cd766261ed2affb1179dd9f4594214b466892446b2ad28bd0ee5211970a7
+bla bla.g1.l43 frames 1 first_use 51 dc_max 2.7678634289375623e-14 levels 0 valid_blocks 0 bytes 96 chunk e932e72f5fc365f3ab2c75a62342bab8349c12a26b3324caa16034146c20bfb7
+bla bla.g1.l44 frames 1 first_use 52 dc_max 1.4704497646808612e-14 levels 0 valid_blocks 0 bytes 96 chunk b416d48c98a0ed10bf49f740270c76fdb86c1a58b2b48ff947a2a19f67861e99
+bla bla.g1.l45 frames 1 first_use 53 dc_max 7.811903586514622e-15 levels 0 valid_blocks 0 bytes 96 chunk 955f790f02b021c2c4056d97e2fe3ede2f4d2b5057d2b59154f0e4c947dbdd2d
+bla bla.g1.l46 frames 1 first_use 54 dc_max 4.150129906936649e-15 levels 0 valid_blocks 0 bytes 96 chunk 6d60eb42b1c6f6b752b1a3d0ff635d8d93b1161e8ad2ac0a587afa89ac1f87cc
+bla bla.g1.l47 frames 1 first_use 55 dc_max 2.2047942990787147e-15 levels 1 valid_blocks 1 bytes 936 chunk e6ccb66bf4a1dc4cf1d9aab56557a47fca96da1486f89010d0686abd0ba5d88d
+bla bla.g1.l48 frames 1 first_use 56 dc_max 1.1713153119677042e-15 levels 1 valid_blocks 3 bytes 936 chunk 18fc9aa38a2cd11e2ca7b83b0c8c05de1e398cadf827b669654360429b160a67
+bla bla.g1.l49 frames 2 first_use 57 dc_max 6.222709380069104e-16 levels 2 valid_blocks 13 bytes 1328 chunk 3e6ef9fd8f426604648693a8932d721bdafbf9c590c2c571f8c59490fd74af7d
+bla bla.g1.l50 frames 1 first_use 59 dc_max 1.7562693967042756e-16 levels 3 valid_blocks 25 bytes 1496 chunk 1e28c5d7a405fd872b819e685f695282637187986a5c67f8199c95b7c1eceded
+bla bla.g1.l51 frames 1 first_use 60 dc_max 9.330344688434613e-17 levels 4 valid_blocks 26 bytes 1552 chunk 5f498ca83877852871998f63d7f0456c0661276118e8738c0eae34d0c9ed6949
+bla bla.g1.l52 frames 1 first_use 61 dc_max 4.956818536117698e-17 levels 4 valid_blocks 26 bytes 1552 chunk f554d8812f96c6d654cac2f91d83a35e690cf2e806fd736ca697697c010387a2
+bla bla.g1.l53 frames 1 first_use 62 dc_max 2.6333505059524456e-17 levels 4 valid_blocks 26 bytes 1552 chunk a4bc120ada54956f6c6a1307f4408fd829226b67dc6c1f278c748a52fe55c176
+bla bla.g1.l54 frames 1 first_use 63 dc_max 1.3989895533741487e-17 levels 4 valid_blocks 26 bytes 1552 chunk 40208f0e0e46063aa92cc4d633d9c0306427d23af58f7b9243674fcd8230f4a6
+bla bla.g1.l55 frames 1 first_use 64 dc_max 7.432257955695565e-18 levels 4 valid_blocks 26 bytes 1552 chunk d6b92c3addc25d77b0a31f400c47f6f940cfce9c901c79ca43856fd6d6fb0b28
+bla bla.g1.l56 frames 1 first_use 65 dc_max 3.9484489108066225e-18 levels 4 valid_blocks 26 bytes 1552 chunk b77a3ce7d1cade43fae2843e8ffa34beb142f78513b84be821df4c03f85d33ec
+bla bla.g1.l57 frames 1 first_use 66 dc_max 2.097646408525517e-18 levels 4 valid_blocks 26 bytes 1552 chunk 7b79e90696fdb26a56fca986ff182003ea0a88b4bf213ae915313a9aa25612a4
+bla bla.g1.l58 frames 1 first_use 67 dc_max 1.114393216082187e-18 levels 4 valid_blocks 26 bytes 1552 chunk 2ccc00082986904dd5cae9fe5f69ef668be0f65a14462f53d440e9348e10664d
+bla bla.g1.l59 frames 2 first_use 68 dc_max 5.920301022959053e-19 levels 4 valid_blocks 26 bytes 1552 chunk d0beb51c689c34bab9f8afcf177c13cb20cffef74ee76624f384800ea63d7620
+bla bla.g1.l60 frames 1 first_use 70 dc_max 1.6709216082150594e-19 levels 4 valid_blocks 26 bytes 1552 chunk 4de987a700ebc6bc0e83ce5720ab8f7f1e9a0c8d44265d965480272f792844b4
+bla bla.g1.l61 frames 1 first_use 71 dc_max 8.876877109659682e-20 levels 4 valid_blocks 26 bytes 1552 chunk 0ab0cd74a99caacaac81368e413e4d5938780c5ad60d4ea95647d4a888681042
+bla bla.g1.l62 frames 1 first_use 72 dc_max 4.715928468970877e-20 levels 4 valid_blocks 26 bytes 1552 chunk e157d18c32f496c84ff7623396dc70bf362d1061ad1a9725e73ce478a859e064
+bla bla.g1.l63 frames 1 first_use 73 dc_max 2.5053783206933044e-20 levels 4 valid_blocks 26 bytes 1552 chunk 2c4d21afeeba08be839ae93720c38a0fe15dc7c20bd7dfaf637a3aa68cbd16d9
+bla bla.g1.l64 frames 1 first_use 74 dc_max 1.3310012363630622e-20 levels 4 valid_blocks 26 bytes 1552 chunk 84fcce9508f9c94865410f3b1f1f7f8721f014965f4ca9fed7d0960ba8a822b7
+bla bla.g1.l65 frames 1 first_use 75 dc_max 7.071067811865475e-21 levels 4 valid_blocks 26 bytes 1552 chunk 5792bfea0745b99c0393cf6ffa6d21fd4d31d3f3929c070a056a34cb1a5ea179
+orbits 2
+bla_tables 66
+certificates 0
+reuse.frames_per_orbit.mean 38.000
+reuse.frames_per_orbit.max 45
+reuse.frames_per_bla.mean 1.152
+reuse.frames_per_bla.max 5
+reuse.frames_without_bla 0
+tiles 128
+tile_demand 144
+reuse.frames_per_tile.mean 1.125
+reuse.frames_per_tile.max 5
+reuse.tiles_shared 13
+tile_manifests 128
+tile_manifests.split 0
+frame_manifests 76
+frames.camera_exact 76
+atlas.chunks 274
+atlas.bytes 70600
+atlas.kind.orbit-slab 2 1152
+atlas.kind.bla 66 32488
+atlas.kind.tile-manifest 128 22528
+atlas.kind.frame-manifest 76 14240
+atlas.kind.orbit-manifest 2 192
+atlas.class.operators 33640
+atlas.class.evidence 0
+atlas.class.manifests 36960
+atlas.class.other 0
+atlas.bla_share 0.460170
+estimate.bytes 70696
+estimate.bytes.orbit 1440
+estimate.bytes.bla 32488
+estimate.bytes.manifests 36768
+dedup.logical_chunks 448
+dedup.logical_bytes 126728
+dedup.ratio.chunks 1.635
+dedup.ratio.bytes 1.795
+dedup.manifest_puts.stored 204
+dedup.manifest_puts.deduplicated 0
+walk.frames 76
+walk.tiles 128
+walk.math_chunks 70
+walk.math_bytes 33832
+walk.math_bytes_per_frame 87208
+walk.manifest_bytes 36768
+budget.target 2684354560
+budget.cap 3221225472
+budget.headroom 3221154872
+budget.over_target 0
+budget.within_cap 1
+jobs 68
+met 66
+missed 2
+max_lateness_seconds 0.027868
+makespan_seconds 0.094598
+min_lead_seconds 0.027868
+seconds.plan 0.000343
+seconds.estimate 0.024458
+seconds.build 0.070157
+seconds.reference 0.000026
+seconds.operator 0.000165
+seconds.certification 0
+seconds.manifests 0.228959
+seconds.verify 0.004329
+stored_bytes 70600
+peak_rss_bytes 8142848
+seconds.wall 0.331224
+atlas_bytes 70600
+over_target 0

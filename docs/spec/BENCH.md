@@ -211,7 +211,7 @@ fd control bench/path-atlas-v0.txt --size 960x540 --iter 100000 --threads 12 --b
 fd compile bench/path-atlas-v0.txt --store store --size 960x540 --iter 100000 --workers 12 > C.compile.log
 fd play C.compile.log --store store --threads 12 -o C --oracle tools/oracle.py --every 75 > C.jsonl
 fd compare A B > cmpAB.jsonl; fd compare A C > cmpAC.jsonl; fd compare B C > cmpBC.jsonl
-python3 tools/benc01.py RUN_DIR > bench/benc-01-results.json
+cargo run -p fd-dev --release -- bench report RUN_DIR > bench/benc-01-results.json
 ```
 
 Each command ran under `/usr/bin/time -v` (to `A.time`, and so on), with 1-minute load

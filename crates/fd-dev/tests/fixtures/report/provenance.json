@@ -1,0 +1,23 @@
+{
+  "kind": "fresh real tiny compatibility capture; not performance evidence",
+  "legacy_source_commit": "805f2262de1eb91cf8947b3b9161b42415af66ac",
+  "legacy_reporter_sha256": "8e1de36f0179c031fb95865b3ae01c784e368006cf3ea0571005e184298ab10c",
+  "files": {
+    "A.jsonl": "3ad8901388e632131174104e22005c56a297d7ef48d62495b299664f119f5b9b",
+    "A.time": "abdfe6929ed0a1aa9072a6b414ee41849723be2a7617bed6d8869a7e8786d261",
+    "B.jsonl": "22b6c9150f6af1457d0ab31ca53c0a0d811c9c870b13e352d1cf18a445c37a90",
+    "B.time": "411b618d2ff90a58cd1d9e62824f2ee0a894f998387a4f12405fa6fb74d1a7e2",
+    "C.compile.log": "8df7caf2886463588aa0124396ed6afd0f5bcee50f6ebacdb975c5f2fb841e28",
+    "C.compile.time": "4a1025d0569fb2be97843959f879a416ee81e06ada050920c50a10da6b67cd5f",
+    "C.jsonl": "bb8df12b3a198f3cd21099c52918c0521d261198ce9b73df7a72908449c2cf32",
+    "C.time": "8120ab6fe876aaef23d903cbb6a73967112a8b02ee42a62fafda80f425012738",
+    "capture.json": "3873a28b75d942f6d4a132042a99a38cc68dd4311a2ea3b3d4e4a2d438ae5ef7",
+    "cmpAB.jsonl": "8e89879d9196d5e4117cad4c34c3ec3d2250668ffc3d8457468add54f4c8a3e9",
+    "cmpAC.jsonl": "b59966a0e81e373f4a67c5b19c5b89804be6fed664f5c41629619517b035942d",
+    "cmpBC.jsonl": "327802eb8fe8fec6c9a246d1d66a357700b5b700959d89bb8cda3df98b241594",
+    "expected.json": "4faad0a05215dff286cb1396b6b282961bd348a950a284d2c9f92aa5eb57560b",
+    "load.log": "ca1588668b569476e66347282d67a1840a3addf212ca64f6a389048a52b951d6",
+    "path.txt": "20b435b7f5182803485d4ee5a42dc0d221b76fc5acc3b4406970c698b0ac4032",
+    "phases.log": "a9cf18ecbcb44e5d4068a6e8850bdd0c87a733eb392df39a7f1d42f68c96193d"
+  }
+}

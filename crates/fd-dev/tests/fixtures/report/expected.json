@@ -1,0 +1,450 @@
+{
+ "schema": "fd-benc01/1",
+ "path": "bench/path-atlas-v0.txt",
+ "settings": {
+  "size": "960x540",
+  "ss": 1,
+  "iter": 100000,
+  "columns": "nu,de,normal",
+  "kernel": "auto",
+  "threads": 12,
+  "compile_workers": 12
+ },
+ "machine": {
+  "cpu": "Ryzen 9 3900X, 12 cores / 24 threads",
+  "shared": true,
+  "load_1min": {
+   "min": 1.8994140625,
+   "max": 1.98779296875,
+   "mean": 1.9625418526785714,
+   "samples": 7
+  },
+  "phases": [
+   "1792657990.238567 A",
+   "1792657990.358198 B",
+   "1792657990.469292 C.compile",
+   "1792657990.806022 C",
+   "1792657990.930482 cmpAB",
+   "1792657990.934983 cmpAC",
+   "1792657990.938651 cmpBC"
+  ]
+ },
+ "arms": {
+  "A_independent_plain": {
+   "frames": 76,
+   "seconds_total": 0.0076369359999999996,
+   "seconds_per_frame": 0.000100486,
+   "iterations_executed": 143193,
+   "iterations_per_pixel": 29.43935032894737,
+   "fallback": {
+    "pixel_fraction": 1,
+    "iterations_per_pixel": 29.43935032894737,
+    "unresolved_fraction": 0.9064555921052632
+   },
+   "macro_operators_per_pixel": 0,
+   "peak_rss_bytes_per_frame_max": 5103616,
+   "classes": {
+    "escaped": 157,
+    "interior": 298,
+    "unresolved": 4409
+   },
+   "oracle": {
+    "frames": [
+     0,
+     75
+    ],
+    "passed": 2,
+    "failed_frames": [],
+    "class_mismatches": 0,
+    "failures": {}
+   },
+   "ok": true,
+   "error": null,
+   "cold_seconds_per_frame": 0.000100486,
+   "warm_seconds_per_frame": null,
+   "reference_seconds_total": 0.00034910200000000006,
+   "bytes_read": 0,
+   "operator_seconds_total": 0,
+   "iterations_equivalent": 143193,
+   "process": {
+    "wall_seconds": 0.11,
+    "process_peak_rss_bytes": 15757312,
+    "user_seconds": 0.08,
+    "system_seconds": 0.03,
+    "exit": 0
+   }
+  },
+  "B_independent_per_frame_bla": {
+   "frames": 76,
+   "seconds_total": 0.006395029,
+   "seconds_per_frame": 8.414511842105263e-05,
+   "iterations_executed": 120097,
+   "iterations_per_pixel": 24.690995065789473,
+   "fallback": {
+    "pixel_fraction": 0.7730263157894737,
+    "iterations_per_pixel": 23.38342927631579,
+    "unresolved_fraction": 0.9064555921052632
+   },
+   "macro_operators_per_pixel": 1.3075657894736843,
+   "peak_rss_bytes_per_frame_max": 5373952,
+   "classes": {
+    "escaped": 157,
+    "interior": 298,
+    "unresolved": 4409
+   },
+   "oracle": {
+    "frames": [
+     0,
+     75
+    ],
+    "passed": 2,
+    "failed_frames": [],
+    "class_mismatches": 0,
+    "failures": {}
+   },
+   "ok": true,
+   "error": null,
+   "cold_seconds_per_frame": 8.414511842105263e-05,
+   "warm_seconds_per_frame": null,
+   "reference_seconds_total": 0.00028140599999999994,
+   "bytes_read": 0,
+   "bla": {
+    "mode": "per-frame",
+    "eps": 8.881784197001252e-16,
+    "frames_used": 21,
+    "frames_empty_table_skipped": 55,
+    "frames_without_table": 0,
+    "operator_seconds": {
+     "total": 0.000146764,
+     "per_frame": 1.9311052631578947e-06
+    },
+    "render_seconds": 0.005959019,
+    "table_bytes": {
+     "total": 28840,
+     "max": 1456
+    },
+    "blocks": 6360,
+    "skipped_steps": 29456,
+    "iterations_equivalent": 143193,
+    "shift_px_max": 1.1377953634950052e-13
+   },
+   "operator_seconds_total": 0.000146764,
+   "iterations_equivalent": 143193,
+   "process": {
+    "wall_seconds": 0.1,
+    "process_peak_rss_bytes": 15937536,
+    "user_seconds": 0.08,
+    "system_seconds": 0.02,
+    "exit": 0
+   }
+  },
+  "C_atlas_play": {
+   "frames": 76,
+   "seconds_total": 0.009009178999999997,
+   "seconds_per_frame": 0.00011854182894736839,
+   "iterations_executed": 120189,
+   "iterations_per_pixel": 24.709909539473685,
+   "fallback": {
+    "pixel_fraction": 0.7754934210526315,
+    "iterations_per_pixel": 23.41796875,
+    "unresolved_fraction": 0.9064555921052632
+   },
+   "macro_operators_per_pixel": 1.2919407894736843,
+   "peak_rss_bytes_per_frame_max": 5705728,
+   "classes": {
+    "escaped": 157,
+    "interior": 298,
+    "unresolved": 4409
+   },
+   "oracle": {
+    "frames": [
+     0,
+     75
+    ],
+    "passed": 2,
+    "failed_frames": [],
+    "class_mismatches": 0,
+    "failures": {}
+   },
+   "ok": true,
+   "error": null,
+   "cold_seconds_per_frame": 0.00012161777272727268,
+   "cold_frames": 66,
+   "warm_seconds_per_frame": 9.824060000000001e-05,
+   "warm_frames": 10,
+   "load_seconds": {
+    "total": 0.0030445430000000002,
+    "per_frame": 4.0059776315789475e-05,
+    "cold_per_frame": 4.3640621212121215e-05,
+    "warm_per_frame": 1.64262e-05
+   },
+   "reference_seconds_total": 0,
+   "operator_seconds_total": 0,
+   "bytes_read": 70600,
+   "bytes": {
+    "fds_bytes": 80648,
+    "atlas_bytes_read": 70600,
+    "atlas_bytes_read_per_frame": 928.9473684210526,
+    "atlas_bytes_referenced": 126728,
+    "atlas_bytes_referenced_per_frame": 1667.4736842105262
+   },
+   "tiles_touched_per_frame": 1.894736842105263,
+   "bla": {
+    "frames_used": 21,
+    "frames_empty_table_skipped": 55,
+    "frames_without_table": 0,
+    "blocks": 6284,
+    "skipped_steps": 29288,
+    "shift_px_max": 1.1377953634950052e-13
+   },
+   "iterations_equivalent": 143193,
+   "process": {
+    "wall_seconds": 0.12,
+    "process_peak_rss_bytes": 15818752,
+    "user_seconds": 0.06,
+    "system_seconds": 0.07,
+    "exit": 0
+   }
+  }
+ },
+ "compile": {
+  "frames": 76,
+  "atlas.bytes": 70600,
+  "atlas.chunks": 274,
+  "atlas.bla_share": 0.46017,
+  "orbits": 2,
+  "bla_tables": 66,
+  "reuse.frames_per_orbit.mean": 38.0,
+  "reuse.frames_per_orbit.max": 45,
+  "reuse.frames_per_bla.mean": 1.152,
+  "reuse.frames_per_bla.max": 5,
+  "reuse.frames_without_bla": 0,
+  "tiles": 128,
+  "tile_demand": 144,
+  "reuse.frames_per_tile.mean": 1.125,
+  "reuse.frames_per_tile.max": 5,
+  "reuse.tiles_shared": 13,
+  "dedup.ratio.chunks": 1.635,
+  "dedup.ratio.bytes": 1.795,
+  "dedup.logical_bytes": 126728,
+  "budget.target": 2684354560,
+  "budget.cap": 3221225472,
+  "budget.headroom": 3221154872,
+  "budget.within_cap": 1,
+  "seconds.plan": 0.000343,
+  "seconds.estimate": 0.024458,
+  "seconds.build": 0.070157,
+  "seconds.reference": 2.6e-05,
+  "seconds.operator": 0.000165,
+  "seconds.certification": 0,
+  "seconds.manifests": 0.228959,
+  "seconds.verify": 0.004329,
+  "seconds.wall": 0.331224,
+  "peak_rss_bytes": 8142848,
+  "makespan_seconds": 0.094598,
+  "workers": 1,
+  "process": {
+   "wall_seconds": 0.33,
+   "process_peak_rss_bytes": 8142848,
+   "user_seconds": 0.02,
+   "system_seconds": 0.04,
+   "exit": 0
+  }
+ },
+ "speedup": {
+  "A_over_C": 0.8476839010524713,
+  "B_over_C": 0.7098348251266849,
+  "A_over_B": 1.1941988066043172
+ },
+ "break_even": {
+  "vs_A": {
+   "independent_path_seconds": 0.0076369359999999996,
+   "atlas_play_seconds": 0.009009178999999997,
+   "saving_per_play_seconds": -0.0013722429999999978,
+   "compile_seconds": 0.33,
+   "plays_to_break_even": null,
+   "first_play_break_even_frames": null,
+   "first_play_break_even_fraction": null
+  },
+  "vs_B": {
+   "independent_path_seconds": 0.006395029,
+   "atlas_play_seconds": 0.009009178999999997,
+   "saving_per_play_seconds": -0.0026141499999999974,
+   "compile_seconds": 0.33,
+   "plays_to_break_even": null,
+   "first_play_break_even_frames": null,
+   "first_play_break_even_fraction": null
+  }
+ },
+ "depth_bins": [
+  {
+   "frames": [
+    0,
+    75
+   ],
+   "log10_width": [
+    0.6,
+    -19.73
+   ],
+   "kernel_A": [
+    "pert-f64/1",
+    "pert-fx/1"
+   ],
+   "A_seconds_per_frame": 0.00010069365333333332,
+   "B_seconds_per_frame": 8.422503999999999e-05,
+   "C_seconds_per_frame": 0.00011863382666666663,
+   "B_frames_bla_used": 20,
+   "C_frames_bla_used": 20,
+   "A_over_C": 0.8487769143303368,
+   "B_over_C": 0.7099580479406831
+  },
+  {
+   "frames": [
+    75,
+    76
+   ],
+   "log10_width": [
+    -20,
+    -20
+   ],
+   "kernel_A": [
+    "pert-fx/1"
+   ],
+   "A_seconds_per_frame": 8.4912e-05,
+   "B_seconds_per_frame": 7.8151e-05,
+   "C_seconds_per_frame": 0.00011164200000000001,
+   "B_frames_bla_used": 1,
+   "C_frames_bla_used": 1,
+   "A_over_C": 0.7605739775353361,
+   "B_over_C": 0.7000143315239784
+  }
+ ],
+ "correctness": {
+  "AB": {
+   "frames": 76,
+   "errors": 0,
+   "frames_class_identical": 76,
+   "frames_bytes_identical": 55,
+   "frames_width_off": 0,
+   "samples": 4864,
+   "class_mismatches": 0,
+   "kinds": {
+    "escaped_to_interior": 0,
+    "escaped_to_unresolved": 0,
+    "interior_to_escaped": 0,
+    "interior_to_unresolved": 0,
+    "unresolved_to_escaped": 0,
+    "unresolved_to_interior": 0
+   },
+   "nu": {
+    "both_escaped": 157,
+    "equal": 157,
+    "abs_max": 0,
+    "px_max": 0,
+    "over_px": 0,
+    "escape_count_changed": 0
+   },
+   "px": 0.001,
+   "ok": true,
+   "frames_with_class_mismatch": [],
+   "worst_nu_px_frames": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     2,
+     0
+    ]
+   ]
+  },
+  "AC": {
+   "frames": 76,
+   "errors": 0,
+   "frames_class_identical": 76,
+   "frames_bytes_identical": 45,
+   "frames_width_off": 0,
+   "samples": 4864,
+   "class_mismatches": 0,
+   "kinds": {
+    "escaped_to_interior": 0,
+    "escaped_to_unresolved": 0,
+    "interior_to_escaped": 0,
+    "interior_to_unresolved": 0,
+    "unresolved_to_escaped": 0,
+    "unresolved_to_interior": 0
+   },
+   "nu": {
+    "both_escaped": 157,
+    "equal": 157,
+    "abs_max": 0,
+    "px_max": 0,
+    "over_px": 0,
+    "escape_count_changed": 0
+   },
+   "px": 0.001,
+   "ok": true,
+   "frames_with_class_mismatch": [],
+   "worst_nu_px_frames": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     2,
+     0
+    ]
+   ]
+  },
+  "BC": {
+   "frames": 76,
+   "errors": 0,
+   "frames_class_identical": 76,
+   "frames_bytes_identical": 46,
+   "frames_width_off": 0,
+   "samples": 4864,
+   "class_mismatches": 0,
+   "kinds": {
+    "escaped_to_interior": 0,
+    "escaped_to_unresolved": 0,
+    "interior_to_escaped": 0,
+    "interior_to_unresolved": 0,
+    "unresolved_to_escaped": 0,
+    "unresolved_to_interior": 0
+   },
+   "nu": {
+    "both_escaped": 157,
+    "equal": 157,
+    "abs_max": 0,
+    "px_max": 0,
+    "over_px": 0,
+    "escape_count_changed": 0
+   },
+   "px": 0.001,
+   "ok": true,
+   "frames_with_class_mismatch": [],
+   "worst_nu_px_frames": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0
+    ],
+    [
+     2,
+     0
+    ]
+   ]
+  }
+ }
+}

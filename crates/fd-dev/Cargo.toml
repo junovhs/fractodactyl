@@ -1,0 +1,10 @@
+[package]
+name = "fd-dev"
+description = "Native development workflows for Fractodactyl (not distributed)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }

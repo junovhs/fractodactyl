@@ -1,0 +1,33 @@
+name: fd-dev
+on:
+  push:
+    paths:
+      - 'crates/fd-dev/**'
+      - '.github/workflows/fd-dev.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  report:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    env:
+      CARGO_BUILD_JOBS: 2
+      RUST_TEST_THREADS: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: clippy, rustfmt
+      - name: Native report command parity and clean error behavior
+        run: cargo test --locked -p fd-dev --release --test report -- --nocapture
+      - name: Strict Clippy
+        run: cargo clippy --locked -p fd-dev --all-targets -- -D warnings
+      - name: Discoverable native developer command
+        run: cargo run --locked -p fd-dev --release -- --help
