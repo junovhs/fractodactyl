@@ -5,14 +5,6 @@ available eight-worker lease. No scheduler or per-pixel maths was changed.
 The original 24-thread investigation remains open. PERF-07 adds observability,
 not a speedup or a claim that the original occupancy target was achieved.
 
-The user clarified that Tim selected an arbitrary personal saved place accidentally
-included in a release. It is a general-location fallback/robustness case, not a
-privileged nucleus to tune for. Generic perturbation, BLA and guarded series can
-apply at arbitrary locations; a zone requires separate applicable coverage.
-The historical notes also describe a separate approximate nucleus experiment.
-Its ~20-decimal coordinates cannot identify the intended view at widths 1e-25 or
-3e-31. Those literal coordinates remain diagnostics, not deep-nucleus acceptance.
-
 ## Fixed workloads and observed results
 
 Ryzen 9 3900X, Linux; eight renderer workers, CPU affinity 0–7. Reference and BLA
@@ -25,8 +17,7 @@ The four exact views are indices **0, 10, 17, 23** of
 measurements, at 480×270, ss1, cap100000, nu/de/normal columns. Plain and per-frame
 BLA control processes average **93.3–99.1%** of eight workers. Deepest plain:
 14.817037 wall seconds / 117.471678 CPU seconds = 7.928 busy threads; BLA:
-1.560651 / 12.121270 = 7.767. The three original approximate-centre diagnostics
-(1e-15, 1e-25, 3e-31) similarly average 97.4–98.1%. These are eight-worker
+1.560651 / 12.121270 = 7.767. These are eight-worker
 observations, not evidence about a 24-thread run.
 
 Actual single-output-frame `fd film` runs on the four exact views use automatic
@@ -55,7 +46,7 @@ so their denominators must not be mixed with the kernel records.
 
 Run through a positive Ishoo lane lease. `perf03-before` runs
 `tools/research/cpu-occupancy.py`, which builds the exact snapshot before the
-seven-view plain/BLA census. `perf07-surface` runs `scripts/check/PERF-07.py`,
+four-view plain/BLA census. `perf07-surface` runs `scripts/check/PERF-07.py`,
 which builds the exact snapshot, checks actual direct/keyframe JSON and stderr,
 compares two decoded films and four exact-view `.fds` files byte for byte against
 the preserved old fd, and records four actual automatic-film views.

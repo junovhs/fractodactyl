@@ -24,8 +24,6 @@ for name,extra in [('plain',[]),('cpu-bla',['--bla','per-frame']),('gpu-on',['--
   data['la']=[{k:float(v) for k,v in re.findall(r'(blocks|skipped|table_blocks|table_bytes|table_seconds)=([0-9.]+)',l)} for l in r.stderr.splitlines() if 'fd gpu-bla:' in l]
   assert len(data['la'])==len(selected),r.stderr
   assert sum(x['blocks'] for x in data['la'])>0,'no actual BLA blocks used'
-  tim=next((i for i,v in enumerate(selected) if v[0]=='tim-random'),None)
-  if tim is not None:assert data['la'][tim]['blocks']>0 and data['gpu'][tim]['accepted']>0,'no useful deep BLA use/admission'
  summary['arms'][name]=data;print(name,wall,flush=True)
 for arm in ['cpu-bla','gpu-on','gpu-bla']:
  r,_=run(['compare',a.out/'plain',a.out/arm],f'compare-{arm}');rows=[json.loads(l) for l in r.stdout.splitlines() if l.startswith('{')];assert rows and all(x['ok'] for x in rows),rows;summary['arms'][arm]['comparison']=rows

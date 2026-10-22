@@ -35,11 +35,8 @@ out.mkdir(parents=True, exist_ok=True)
 shutil.copy2(fd, out / 'fd')
 frozen = [l for l in (root / 'docs/2026-10-20/series-frames/results/frames.txt').read_text().splitlines()
           if l and not l.startswith('#')]
-# Exact real-film frames; the original issue's approximate Tim coordinates are
-# retained as diagnostics, not asserted to locate his nucleus at deep widths.
+# Exact real-film frames.
 frames = [(f'prob22-{i}', frozen[i]) for i in (0, 10, 17, 23)]
-frames += [(f'tim-approx-{w}', f'-0.74499578497689141180 0.11310171741105477952 {w}')
-           for w in ('1e-15', '1e-25', '3e-31')]
 meta = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
         'cpu_affinity': cpus, 'workers': a.workers, 'frames': frames,
         'cpu_scope': 'child process user+system including startup and serialization'}

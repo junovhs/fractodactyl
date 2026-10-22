@@ -84,60 +84,6 @@
       "cpu_seconds": 12.121269999999976,
       "busy_threads": 7.766801754136476,
       "utilization": 0.9708502192670595
-    },
-    {
-      "frame": "tim-approx-1e-15",
-      "mode": "none",
-      "run": 0,
-      "wall_seconds": 0.42956551600946113,
-      "cpu_seconds": 3.350916999999998,
-      "busy_threads": 7.800712289778388,
-      "utilization": 0.9750890362222985
-    },
-    {
-      "frame": "tim-approx-1e-15",
-      "mode": "per-frame",
-      "run": 0,
-      "wall_seconds": 0.6377783979987726,
-      "cpu_seconds": 4.994047,
-      "busy_threads": 7.830379667405436,
-      "utilization": 0.9787974584256794
-    },
-    {
-      "frame": "tim-approx-1e-25",
-      "mode": "none",
-      "run": 0,
-      "wall_seconds": 0.6946875819994602,
-      "cpu_seconds": 5.449745999999999,
-      "busy_threads": 7.8448876030207115,
-      "utilization": 0.9806109503775889
-    },
-    {
-      "frame": "tim-approx-1e-25",
-      "mode": "per-frame",
-      "run": 0,
-      "wall_seconds": 0.6490214539808221,
-      "cpu_seconds": 5.067294000000007,
-      "busy_threads": 7.807590903073198,
-      "utilization": 0.9759488628841497
-    },
-    {
-      "frame": "tim-approx-3e-31",
-      "mode": "none",
-      "run": 0,
-      "wall_seconds": 0.6331435499887448,
-      "cpu_seconds": 4.970643999999981,
-      "busy_threads": 7.8507377988583205,
-      "utilization": 0.9813422248572901
-    },
-    {
-      "frame": "tim-approx-3e-31",
-      "mode": "per-frame",
-      "run": 0,
-      "wall_seconds": 0.3817168459936511,
-      "cpu_seconds": 2.973877000000004,
-      "busy_threads": 7.790793178798997,
-      "utilization": 0.9738491473498746
     }
   ],
   "actual_films": [

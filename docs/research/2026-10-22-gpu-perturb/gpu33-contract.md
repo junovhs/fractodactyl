@@ -60,7 +60,6 @@ cargo test --jobs 8 -p fd-kernel --release guarded_bla_direct_derivative_windows
 cargo test --jobs 8 -p fd-cli --release gpu_perturb -- --include-ignored --nocapture
 cargo build --jobs 8 -p fd-cli --release
 python3 scripts/check/GPU-33.py --fd target/release/fd --out target/gpu33-six
-python3 scripts/check/GPU-33.py --fd target/release/fd --size 1280x720 --indices 5 --out target/gpu33-tim720
 ```
 
 Run under a positive verification lease; recorded tests used8CPU workers and RX5700XT
@@ -72,16 +71,8 @@ harness incorrectly used a compile-time FF seed; checks802/803 caught f32-like l
 Runtime storage seed (same as production) restores the intended reassociation guard.
 
 Whole-frame805/810 use the same six cameras frozen in GPU-32.py; no tuning/fixture
-change. Tim's accidental arbitrary save is not a special nucleus. Tim gains real
-BLA use and admission; cusp/deep-seahorse/valley still fall back and that is reported.
-Check806 timing snapshot `aacef61a44d1efb834f958f96cc3c3ef2bd483d7` precedes the endpoint
-review fix; its full costs/counters and comparison diagnostics are preserved in
-[gpu33-evidence.json](gpu33-evidence.json). Complete matched720p control process:
-GPU BLA2.584519s, CPU BLA1.519553s, no-LA GPU9.628019s, plain7.296106s. GPU BLA uses
-51,667,176blocks replacing5,707,109,104steps; table981808bytes/.002257s,
-GPUsetup/dispatch/readback1.553744s, original plain CPU fallback.610268s.
-865232/921600samples admitted,56368fallback. This is faster than the prior GPU path,
-**slower than CPU BLA**, and not an optimal GPU ratio. Series/film timing has a different
+change. Cusp/deep-seahorse/valley still fall back and that is reported.
+GPU BLA is faster than the prior GPU path, **slower than CPU BLA**. Series/film timing has a different
 pipeline/output boundary and is not a denominator here. Fresh corrected whole-frame
 gates are required for landing; parentGPU11 still needs resident/profitability/film,
 ≥4× and two-device proof. No release is implied.

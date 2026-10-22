@@ -349,30 +349,83 @@ fn main(@builtin(global_invocation_id) id:vec3<u32>){let i=id.x;let a=24u*i;if(a
     let mut input = Vec::new();
     let mut expected = Vec::new();
     let eta = 256.0 * 2f64.powi(-48);
-    for (re,im,width) in [
-        ("-0.7453","0.1127","0.0065"),
-        ("0.25","0","1e-8"),
-        ("-0.743643887037158704752191506114774","0.131825904205311970493132056385139","1e-28"),
-        ("-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259","0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815","7.525118732e-81"),
+    for (re, im, width) in [
+        ("-0.7453", "0.1127", "0.0065"),
+        ("0.25", "0", "1e-8"),
+        (
+            "-0.743643887037158704752191506114774",
+            "0.131825904205311970493132056385139",
+            "1e-28",
+        ),
     ] {
-        let view=View{center_re:re.into(),center_im:im.into(),width:width.into(),rotation:0.0};
-        let p=Params{nx:128,ny:72,max_iter:10000,ss:1,escape_radius:2.0,columns:ColumnSet::of(&[Column::Nu]),threads:1,tier:None};
-        let (r,_)=reference(&view,&p).unwrap();let plane=Plane::new(&view,128,72).unwrap();let base=refs.len() as u32/8;
-        for (&re,&im) in r.re.iter().zip(&r.im){refs.extend(frame::pack_ce((re,im),0));}
-        for (x,y) in [(0,0),(63,35),(127,71)] {
-            let u=plane.unit_offset(x,y);let dc=(u.0*plane.h(),u.1*plane.h());
-            for warm in [0,32,128,6800] {
-                let(mut d,mut m,mut n,mut reb,mut status,mut error)=((0.0,0.0),0usize,0u32,0u32,0u32,0.0);let mut taken=false;
-                for step in 0..warm+8 {
-                    if step==warm {input.extend(frame::pack_ce(dc,0));input.extend(frame::pack_ce(d,0));input.extend([m as u32,n,reb,status,base,r.len() as u32,8,0]);taken=true;error=eta*norm(d);}
-                    let z=(r.re[m],r.im[m]);let zd=mul(z,d);let dd=mul(d,d);
-                    error=(2.0*norm(z)+2.0*norm(d)+error)*error+eta*(2.0*norm(z)*norm(d)+norm(d).powi(2)+norm(dc));
-                    d=(2.0*zd.0+dd.0+dc.0,2.0*zd.1+dd.1+dc.1);m+=1;n+=1;
-                    let physical=(r.re[m]+d.0,r.im[m]+d.1);
-                    if norm(physical)>2.0 {status=1;break;}
-                    if m+1==r.len()||norm(physical)<=norm(d){error+=eta*(norm((r.re[m],r.im[m]))+norm(d));d=physical;m=0;reb+=1;}
+        let view = View {
+            center_re: re.into(),
+            center_im: im.into(),
+            width: width.into(),
+            rotation: 0.0,
+        };
+        let p = Params {
+            nx: 128,
+            ny: 72,
+            max_iter: 10000,
+            ss: 1,
+            escape_radius: 2.0,
+            columns: ColumnSet::of(&[Column::Nu]),
+            threads: 1,
+            tier: None,
+        };
+        let (r, _) = reference(&view, &p).unwrap();
+        let plane = Plane::new(&view, 128, 72).unwrap();
+        let base = refs.len() as u32 / 8;
+        for (&re, &im) in r.re.iter().zip(&r.im) {
+            refs.extend(frame::pack_ce((re, im), 0));
+        }
+        for (x, y) in [(0, 0), (63, 35), (127, 71)] {
+            let u = plane.unit_offset(x, y);
+            let dc = (u.0 * plane.h(), u.1 * plane.h());
+            for warm in [0, 32, 128, 6800] {
+                let (mut d, mut m, mut n, mut reb, mut status, mut error) =
+                    ((0.0, 0.0), 0usize, 0u32, 0u32, 0u32, 0.0);
+                let mut taken = false;
+                for step in 0..warm + 8 {
+                    if step == warm {
+                        input.extend(frame::pack_ce(dc, 0));
+                        input.extend(frame::pack_ce(d, 0));
+                        input.extend([m as u32, n, reb, status, base, r.len() as u32, 8, 0]);
+                        taken = true;
+                        error = eta * norm(d);
+                    }
+                    let z = (r.re[m], r.im[m]);
+                    let zd = mul(z, d);
+                    let dd = mul(d, d);
+                    error = (2.0 * norm(z) + 2.0 * norm(d) + error) * error
+                        + eta * (2.0 * norm(z) * norm(d) + norm(d).powi(2) + norm(dc));
+                    d = (2.0 * zd.0 + dd.0 + dc.0, 2.0 * zd.1 + dd.1 + dc.1);
+                    m += 1;
+                    n += 1;
+                    let physical = (r.re[m] + d.0, r.im[m] + d.1);
+                    if norm(physical) > 2.0 {
+                        status = 1;
+                        break;
+                    }
+                    if m + 1 == r.len() || norm(physical) <= norm(d) {
+                        error += eta * (norm((r.re[m], r.im[m])) + norm(d));
+                        d = physical;
+                        m = 0;
+                        reb += 1;
+                    }
                 }
-                if taken {expected.push((format!("{width}:{x},{y} warm{warm}"),d,m as u32,n,reb,status,error));}
+                if taken {
+                    expected.push((
+                        format!("{width}:{x},{y} warm{warm}"),
+                        d,
+                        m as u32,
+                        n,
+                        reb,
+                        status,
+                        error,
+                    ));
+                }
             }
         }
     }

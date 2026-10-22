@@ -6,7 +6,7 @@ Admitted output is **Heuristic**. Runtime FF capability tests, orbit/derivative/
 
 ## Reproduce
 
-Run under the repository's positive verification lease (the recorded machine used8 CPU workers). Exact six cameras are frozen in the script, including Tim's arbitrary accidental save; no special nucleus assumption is made.
+Run under the repository's positive verification lease (the recorded machine used8 CPU workers). Exact six cameras are frozen in the script.
 
 ```sh
 cargo build --jobs 8 -p fd-cli --release
@@ -24,11 +24,10 @@ The timing script includes plain, landed BLA and GPU complete control processes 
 ## Recorded evidence (RX5700XT, RADV25.1.5)
 
 - Check780:5 shared CF/CE/norm/negative tests pass;42 CE windows plus8 exponent/invalid states, worst error/model ratio0.0019804. Actual incomplete-output negative logs completed=0/64,entered_only=64, discards the entire attempt, and proves byte-identical original CPU restart after diagnostic kernel-name normalization. Corruption and runtime capability negatives also restart.
-- Check774: six128×72 frames (55,296 samples),0 comparator failures. GPU acceptance: seahorse8193, cusp0, deep seahorse0, valley0, exterior9216, Tim8033. Guards are unchanged; zero coverage is reported rather than hidden. Later final surface check also asserts actual Heuristic bytes and bound refusal.
+- Check774: six128×72 frames (55,296 samples),0 comparator failures. GPU acceptance: seahorse8193, cusp0, deep seahorse0, valley0, exterior9216. Guards are unchanged; zero coverage is reported rather than hidden. Later final surface check also asserts actual Heuristic bytes and bound refusal.
 - Check778: partial final chunk67 samples preserves every original index and sums completed iterations2278.
-- Check779: actual1280×720 Tim has921,600 completed samples,803,150 admitted and118,450 original CPU fallbacks,0 invalid/unfinished. Whole-frame comparison to original plain CPU has0 class/nu/DE/normal failures; maxnu1.2551e-10, displacement7.1781e-10px, scored DErelative1.1392e-7, normal0. Near-boundary samples also have zero DE/normal difference versus plain. Landed BLA comparison passes standard gates, but BLA itself differs at near-boundary samples; do not attribute those raw BLA differences to GPU error.
-- Complete cold process costs: plain7.093279s, landed BLA1.484947s (check775), batched GPU9.661005s (check779). GPU setup/batches/readback8.264363s, CPU fallback1.024411s, total reported frame9.597544s. One cold run per arm,8 CPU workers; this is a clear slowdown, not a speed claim. Separate existing series film compute.101234s / complete filmprocess.248408s (776) has a different boundary and is context only.
+- GPU is slower than landed CPU BLA; not a speed claim. Separate existing series film compute.101234s / complete filmprocess.248408s (776) has a different boundary and is context only.
 - Original unbatched720p long dispatch returned unwritten output despite successful validation/map;777 proved buffers/groups under device limits and working trivial/short/prefix controls. A watchdog cause was **not proven**. Batching plus explicit entered/completed markers fixes silent unusable output, not shader numerical thresholds.
-- Check705 independently validated26,916 Float reference points/radii. Earlier stopped prototypes, including2 Float-fallback nu errors and failed CF/no-coverage attempts, remain in checkpoint JSON and research notes. Attribution invalidated the early rebase hypothesis: accumulated f32 error dominated. CE addresses mantissa precision, not a fitted tolerance.
+- Check705 independently validated26,916 Float reference points/radii. Earlier stopped prototypes had2 Float-fallback nu errors and failed CF/no-coverage attempts; accumulated f32 error, not rebasing, dominated. CE addresses mantissa precision, not a fitted tolerance.
 
-Raw logs and frames are recorded by Ishoo checks774–780 and referenced in issue comments; checked-in scripts regenerate every final surface/camera. Historical diagnostic scripts/patch and JSON preserve the failed experiments. GPU-11 still needs GPU LA, resident/film integration, profitability and ≥4×/two-device evidence. No release follows this foundation alone.
+Raw logs and frames are recorded by Ishoo checks774–780 and referenced in issue comments; checked-in scripts regenerate every final surface/camera. GPU-11 still needs GPU LA, resident/film integration, profitability and ≥4×/two-device evidence. No release follows this foundation alone.

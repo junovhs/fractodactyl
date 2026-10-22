@@ -18,14 +18,12 @@ propagates accumulated error and encloses storage rounding into f64. Unsupported
 precision/centre/radius inputs decline; independent oracle agreement alone is
 not the justification for this bound.
 
-Check705 compares every point with independent mpmath at b+768 bits. Five cases
-(seahorse, valley, actual arbitrary Tim save, large escape and zero) total26,916
+Check705 compares every point with independent mpmath at b+768 bits. Recorded cases
+(seahorse, valley, large escape and zero and one since-removed camera) total26,916
 points; all radii finite, worst actual-error/radius0.49524. Domain rejection also
 passes. This supports the derivation but does not establish a useful GPU route.
 
 Actual unchanged six-view CLI corpus703 still admits zero representative deep
 GPU samples (688 exterior samples only). It also has two nu-displacement failures
 on seahorse1e−14, maximum0.0014433px, entirely in CPU fallback using the changed
-reference; classes, DE and normals pass. This route is NOT ready to land. Detailed
-coverage/timings are in gpu32-float-checkpoint.json; prior694 slowdown data remains
-in gpu32-checkpoint.json. No additional tuning or promotion was attempted.
+reference; classes, DE and normals pass. This route is NOT ready to land. No additional tuning or promotion was attempted.

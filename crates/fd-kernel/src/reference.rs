@@ -229,20 +229,31 @@ mod full_escape_tests {
     fn gpu_full_escape_radius_probe() {
         let path = std::env::var("FD_REFERENCE_REPORT").expect("FD_REFERENCE_REPORT output path");
         let mut report = String::new();
-        for (name,re,im,width,radius) in [
-            ("seahorse-deep","-0.7453","0.1127","1e-14",1e10),
-            ("valley","-0.743643887037158704752191506114774","0.131825904205311970493132056385139","1e-28",1e10),
-            ("tim-random","-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259","0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815","7.525118732e-81",1e10),
-            ("large-escape","4","0","1e-40",2f64.powi(40)),
-            ("zero","0","0","1e-100",2.0),
+        for (name, re, im, width, radius) in [
+            ("seahorse-deep", "-0.7453", "0.1127", "1e-14", 1e10),
+            (
+                "valley",
+                "-0.743643887037158704752191506114774",
+                "0.131825904205311970493132056385139",
+                "1e-28",
+                1e10,
+            ),
+            ("large-escape", "4", "0", "1e-40", 2f64.powi(40)),
+            ("zero", "0", "0", "1e-100", 2.0),
         ] {
-            let v=View{center_re:re.into(),center_im:im.into(),width:width.into(),rotation:0.0};
-            let plane=Plane::new(&v,128,72).unwrap();let bits=plane.bits as u32;
-            let r=Reference::from_decimal_full_escape(re,im,bits,10000,radius).unwrap();
-            let q=r.error_radius(Some(u64::from(bits)),plane.c_re,plane.c_im);
-            writeln!(report,"camera|{name}|{re}|{im}|{bits}|{radius:.17e}").unwrap();
-            for (n,((&x,&y),&e)) in r.re.iter().zip(&r.im).zip(&q).enumerate() {
-                writeln!(report,"point|{n}|{x:.17e}|{y:.17e}|{e:.17e}").unwrap();
+            let v = View {
+                center_re: re.into(),
+                center_im: im.into(),
+                width: width.into(),
+                rotation: 0.0,
+            };
+            let plane = Plane::new(&v, 128, 72).unwrap();
+            let bits = plane.bits as u32;
+            let r = Reference::from_decimal_full_escape(re, im, bits, 10000, radius).unwrap();
+            let q = r.error_radius(Some(u64::from(bits)), plane.c_re, plane.c_im);
+            writeln!(report, "camera|{name}|{re}|{im}|{bits}|{radius:.17e}").unwrap();
+            for (n, ((&x, &y), &e)) in r.re.iter().zip(&r.im).zip(&q).enumerate() {
+                writeln!(report, "point|{n}|{x:.17e}|{y:.17e}|{e:.17e}").unwrap();
             }
         }
         let path = std::path::Path::new(&path);

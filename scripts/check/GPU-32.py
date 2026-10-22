@@ -27,14 +27,14 @@ help_result,_=run(['--help'],'help')
 assert all(t in help_result.stdout for t in ['experimental Heuristic','default off','currently slower'])
 
 # Fixed before results: mixed shallow seahorse, cusp, exact deep valley, exterior
-# control at 1e-8, and Tim's arbitrary accidental save. No zone files or tuning.
+# control at 1e-8, and PROB-22 film frame 23. No zone files or tuning.
 views=[
  ('seahorse','-0.7453','0.1127','0.0065'),
  ('cusp','0.25','0','1e-8'),
  ('seahorse-deep','-0.7453','0.1127','1e-14'),
  ('valley','-0.743643887037158704752191506114774','0.131825904205311970493132056385139','1e-28'),
  ('exterior','1','0.5','1e-8'),
- ('tim-random','-0.7449957849768914097013508516695329601992504503817333820820614512666859653217413600265431778259','0.1131017174110547789487122873194959374622379389335835800810637158519657546173176784189464264815','7.525118732e-81'),
+ ('prob22-23','-0.8296874999999996981089858669738646984522311568651036619209','0.1859374999999989417838556112859064221737945709381783514212','2.3713737e-29'),
 ]
 path=a.out/'fixed.path';path.write_text('\n'.join(f'{re_} {im} {width} 0' for _,re_,im,width in views)+'\n')
 common=['control',path,'--size','128x72','--ss','1','--iter','10000','--columns','nu,de,normal','--threads','8']
