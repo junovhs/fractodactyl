@@ -20,5 +20,8 @@ fd-shade = { path = "../fd-shade" }
 pollster = "0.4"
 wgpu = { version = "=30.0.1", default-features = false, features = ["std", "vulkan", "dx12", "static-dxc", "wgsl"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 naga = { version = "=30.0.0", features = ["wgsl-in"] }

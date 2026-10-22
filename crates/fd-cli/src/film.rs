@@ -116,6 +116,8 @@ impl Used {
 /// Observes builds without retaining or reusing mathematical products.
 #[derive(Default)]
 pub(crate) struct BuildTimings {
+    /// One successful actual kernel call, not one interpolated output frame.
+    process_cpu_frames: Vec<String>,
     reference_seconds: f64,
     bla_seconds: f64,
     reference_builds: usize,
@@ -129,6 +131,26 @@ pub(crate) struct BuildTimings {
 }
 
 impl BuildTimings {
+    pub(crate) fn process_cpu_frame(
+        &mut self,
+        view: &View,
+        p: &Params,
+        used: Used,
+        wall: f64,
+        cpu: Option<f64>,
+    ) {
+        let number = |v: Option<f64>| v.map_or("null".into(), |v| v.to_string());
+        let busy = cpu.filter(|_| wall > 0.0).map(|cpu| cpu / wall);
+        let cpu = number(cpu);
+        let busy = number(busy);
+        self.process_cpu_frames.push(format!(
+            "{{\"width\":{},\"route\":{},\"requested_threads\":{},\"wall_seconds\":{wall},\"process_cpu_seconds\":{cpu},\"average_process_busy_threads\":{busy}}}",
+            crate::bench::q(&view.width), crate::bench::q(used.name()), p.threads
+        ));
+        eprintln!("  kernel process CPU: width {} route {} wall_seconds={wall} process_cpu_seconds={cpu} average_process_busy_threads={busy} requested_threads={}",
+            view.width, used.name(), p.threads);
+    }
+
     fn reference_key(view: &View, p: &Params, bits: u32) -> String {
         format!(
             "{}|{}|{bits}|{}|{}",
@@ -667,6 +689,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             continue;
         }
         let t = Instant::now();
+        let process_cpu = crate::process_cpu::now();
         let (hd, mut s, used) = if jet_aa {
             let (hd, s, used, computed, st) =
                 render_frame_jet(view, &p, zone.as_ref(), &mut frame_gpu, &mut builds)?;
@@ -677,6 +700,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         } else {
             render_frame_profiled(view, &p, zone.as_ref(), &mut frame_gpu, &mut builds)?
         };
+        let cpu = crate::process_cpu::elapsed(process_cpu);
+        builds.process_cpu_frame(view, &p, used, t.elapsed().as_secs_f64(), cpu);
         // Light turns with the fractal, as in keyframe films: express normals in the
         // unrotated screen axes before shading (owner, FILM-14).
         if let Some(normal) = s.normal.as_mut().filter(|_| view.rotation != 0.0) {
@@ -1402,9 +1427,13 @@ impl Report {
             b.repeated_blas,
             b.repeated_bla_seconds
         );
+        let cpu_frames = b.process_cpu_frames.join(",");
+        let cpu = format!(
+            "\"kernel_frame_process_cpu_scope\":\"actual kernel call including setup, chooser probes and retries; excludes following shade/encode; process CPU includes all overlapping threads in fd, excludes encoder child processes; not worker-specific utilization; unsupported clocks are null\",\"kernel_frame_process_cpu\":[{cpu_frames}],"
+        );
 
         format!(
-            "{{\"schema\":\"fd-film/1\",{stages}\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
+            "{{\"schema\":\"fd-film/1\",{stages}{cpu}\"mp4\":{},\"frames\":{n},\"fps\":{fps},\"film_seconds\":{},\"wall_seconds\":{wall},\
              \"render\":{{\"zone\":{{\"frames\":{},\"seconds\":{}}},\"bla\":{{\"frames\":{},\"seconds\":{}}},\"perturbation\":{{\"frames\":{},\"seconds\":{}}},\"total_seconds\":{render}}},\
              \"shade_seconds\":{},\"shade_seconds_per_frame\":{},\"gpu_device\":{},\"zone_readback_bytes\":{},\"keyframes\":{},\"keyframe_stages\":{{\"prepare_seconds\":{},\"sample_shade_seconds\":{},\"resample_seconds\":{}}},\"encode_wait_seconds\":{},\"jet_aa_samples_per_pixel\":{},\"jet_aa_stage_seconds\":[{},{},{}],\
              \"zone_vs_bla\":{{\"compared_frames\":{},\"zone_seconds\":{zs},\"bla_seconds\":{bs},\"speedup\":{ratio},\"estimated_render_seconds_without_zone\":{est}}}}}",
@@ -1441,6 +1470,34 @@ impl Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_process_clock_is_unknown_not_idle() {
+        let view = View {
+            center_re: "0".into(),
+            center_im: "0".into(),
+            width: "1e-30".into(),
+            rotation: 0.0,
+        };
+        let p = Params {
+            nx: 1,
+            ny: 1,
+            ss: 1,
+            max_iter: 100,
+            escape_radius: 1e10,
+            columns: fd_samples::ColumnSet::default(),
+            threads: 1,
+            tier: None,
+        };
+        let mut report = Report::default();
+        report
+            .builds
+            .process_cpu_frame(&view, &p, Used::Plain, 1.0, None);
+        let json = report.json("example.mp4", 1, 1.0, 1.0);
+        assert!(json.contains("\"process_cpu_seconds\":null"));
+        assert!(json.contains("\"average_process_busy_threads\":null"));
+        assert_eq!(crate::process_cpu::elapsed(None), None);
+    }
 
     #[test]
     fn film_frame_selection_bounds() {

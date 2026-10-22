@@ -20,6 +20,7 @@ mod path;
 mod place;
 mod plan;
 mod play;
+mod process_cpu;
 mod render;
 mod reuse;
 mod schedule;

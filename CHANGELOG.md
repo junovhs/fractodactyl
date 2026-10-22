@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Film reports now include process CPU seconds and average busy threads for each actual kernel frame, including setup and retries, with explicit measurement boundaries and unavailable-clock handling.
+
 ### Added
 
 - `fd zone -o` now writes the v0 ladder's mid-depth constants and reference orbit

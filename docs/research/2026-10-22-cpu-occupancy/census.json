@@ -1,0 +1,201 @@
+{
+  "baseline_job": 642,
+  "film_job": 647,
+  "baseline_tree": "db513df7a5fe02806c4aab551b3b5f07b94aebe4",
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "control": [
+    {
+      "frame": "prob22-0",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 0.39563753400580026,
+      "cpu_seconds": 2.9535890000000036,
+      "busy_threads": 7.465391289080025,
+      "utilization": 0.9331739111350031
+    },
+    {
+      "frame": "prob22-0",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 0.395936589979101,
+      "cpu_seconds": 2.9622800000000025,
+      "busy_threads": 7.4817030680502725,
+      "utilization": 0.9352128835062841
+    },
+    {
+      "frame": "prob22-10",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 0.6982879809802398,
+      "cpu_seconds": 5.39428499999999,
+      "busy_threads": 7.72501481756513,
+      "utilization": 0.9656268521956413
+    },
+    {
+      "frame": "prob22-10",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 0.693336765980348,
+      "cpu_seconds": 5.270310000000002,
+      "busy_threads": 7.601371019966052,
+      "utilization": 0.9501713774957565
+    },
+    {
+      "frame": "prob22-17",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 1.4407760119938757,
+      "cpu_seconds": 11.238700000000003,
+      "busy_threads": 7.8004491374387035,
+      "utilization": 0.9750561421798379
+    },
+    {
+      "frame": "prob22-17",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 1.160244820988737,
+      "cpu_seconds": 8.974638000000002,
+      "busy_threads": 7.73512437862209,
+      "utilization": 0.9668905473277613
+    },
+    {
+      "frame": "prob22-23",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 14.817037036991678,
+      "cpu_seconds": 117.471678,
+      "busy_threads": 7.928149042667873,
+      "utilization": 0.9910186303334841
+    },
+    {
+      "frame": "prob22-23",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 1.560651395993773,
+      "cpu_seconds": 12.121269999999976,
+      "busy_threads": 7.766801754136476,
+      "utilization": 0.9708502192670595
+    },
+    {
+      "frame": "tim-approx-1e-15",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 0.42956551600946113,
+      "cpu_seconds": 3.350916999999998,
+      "busy_threads": 7.800712289778388,
+      "utilization": 0.9750890362222985
+    },
+    {
+      "frame": "tim-approx-1e-15",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 0.6377783979987726,
+      "cpu_seconds": 4.994047,
+      "busy_threads": 7.830379667405436,
+      "utilization": 0.9787974584256794
+    },
+    {
+      "frame": "tim-approx-1e-25",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 0.6946875819994602,
+      "cpu_seconds": 5.449745999999999,
+      "busy_threads": 7.8448876030207115,
+      "utilization": 0.9806109503775889
+    },
+    {
+      "frame": "tim-approx-1e-25",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 0.6490214539808221,
+      "cpu_seconds": 5.067294000000007,
+      "busy_threads": 7.807590903073198,
+      "utilization": 0.9759488628841497
+    },
+    {
+      "frame": "tim-approx-3e-31",
+      "mode": "none",
+      "run": 0,
+      "wall_seconds": 0.6331435499887448,
+      "cpu_seconds": 4.970643999999981,
+      "busy_threads": 7.8507377988583205,
+      "utilization": 0.9813422248572901
+    },
+    {
+      "frame": "tim-approx-3e-31",
+      "mode": "per-frame",
+      "run": 0,
+      "wall_seconds": 0.3817168459936511,
+      "cpu_seconds": 2.973877000000004,
+      "busy_threads": 7.790793178798997,
+      "utilization": 0.9738491473498746
+    }
+  ],
+  "actual_films": [
+    {
+      "frozen_index": 0,
+      "old_process_wall_seconds": 0.17234873300185427,
+      "new_process_wall_seconds": 0.16700312998727895,
+      "new_process_tree_cpu_seconds": 0.6418880000000131,
+      "kernel": {
+        "width": "5.01187e-15",
+        "route": "series-perturbation",
+        "requested_threads": 8,
+        "wall_seconds": 0.087714326,
+        "process_cpu_seconds": 0.530363,
+        "average_process_busy_threads": 6.046480936306802
+      }
+    },
+    {
+      "frozen_index": 10,
+      "old_process_wall_seconds": 0.3488167739997152,
+      "new_process_wall_seconds": 0.3542160280048847,
+      "new_process_tree_cpu_seconds": 2.0071540000000043,
+      "kernel": {
+        "width": "5.01187e-21",
+        "route": "series-perturbation",
+        "requested_threads": 8,
+        "wall_seconds": 0.274136079,
+        "process_cpu_seconds": 1.89362988,
+        "average_process_busy_threads": 6.907627361227415
+      }
+    },
+    {
+      "frozen_index": 17,
+      "old_process_wall_seconds": 1.2513342110032681,
+      "new_process_wall_seconds": 1.2510134449985344,
+      "new_process_tree_cpu_seconds": 9.143709000000001,
+      "kernel": {
+        "width": "3.16228e-25",
+        "route": "bla",
+        "requested_threads": 8,
+        "wall_seconds": 1.171026317,
+        "process_cpu_seconds": 9.030809528,
+        "average_process_busy_threads": 7.711875810900329
+      }
+    },
+    {
+      "frozen_index": 23,
+      "old_process_wall_seconds": 1.608913163014222,
+      "new_process_wall_seconds": 1.6314406470046379,
+      "new_process_tree_cpu_seconds": 12.000579999999996,
+      "kernel": {
+        "width": "2.37137e-29",
+        "route": "bla",
+        "requested_threads": 8,
+        "wall_seconds": 1.5514193189999999,
+        "process_cpu_seconds": 11.886333598,
+        "average_process_busy_threads": 7.661586685449803
+      }
+    }
+  ]
+}

@@ -188,6 +188,7 @@ impl<'a> Keyframes<'a> {
             rotation: 0.0,
         };
         let t = std::time::Instant::now();
+        let process_cpu = crate::process_cpu::now();
         let covered = match (self.zone, self.zone_renderer.as_ref()) {
             (Some(zone), Some(renderer)) if zone_covers(&view, &self.p, zone)? => {
                 // A keyframe no GPU stage takes renders with the perturbation kernel; the
@@ -209,6 +210,14 @@ impl<'a> Keyframes<'a> {
                 Ok(Some(h)) => {
                     // Only the validity word came back; the samples stay on the device.
                     self.zone_readback_bytes += 4;
+                    let cpu = crate::process_cpu::elapsed(process_cpu);
+                    self.builds.process_cpu_frame(
+                        &view,
+                        &self.p,
+                        Used::zone(&h),
+                        t.elapsed().as_secs_f64(),
+                        cpu,
+                    );
                     self.rendered
                         .push((j, t.elapsed().as_secs_f64(), Used::zone(&h)));
                     self.cache.push((j, self.width(j), h, Samples::default()));
@@ -225,6 +234,9 @@ impl<'a> Keyframes<'a> {
             self.zone_readback_bytes += 4;
             let (h, s, used) =
                 render_frame_profiled(&view, &self.p, self.zone, &mut None, &mut self.builds)?;
+            let cpu = crate::process_cpu::elapsed(process_cpu);
+            self.builds
+                .process_cpu_frame(&view, &self.p, used, t.elapsed().as_secs_f64(), cpu);
             self.rendered.push((j, t.elapsed().as_secs_f64(), used));
             self.cache.push((j, self.width(j), h, s));
             return Ok(());
@@ -246,6 +258,9 @@ impl<'a> Keyframes<'a> {
             }
             None => render_frame_profiled(&view, &self.p, self.zone, &mut None, &mut self.builds)?,
         };
+        let cpu = crate::process_cpu::elapsed(process_cpu);
+        self.builds
+            .process_cpu_frame(&view, &self.p, used, t.elapsed().as_secs_f64(), cpu);
         self.rendered.push((j, t.elapsed().as_secs_f64(), used));
         self.cache.push((j, self.width(j), h, s));
         Ok(())

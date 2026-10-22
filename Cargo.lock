@@ -1403,6 +1403,7 @@ dependencies = [
  "fd-kernel",
  "fd-samples",
  "fd-shade",
+ "libc",
  "naga",
  "pollster",
  "wgpu",
