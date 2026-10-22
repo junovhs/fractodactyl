@@ -2,7 +2,7 @@
 
 Kneading sequence, formal triod (majority vote) map and median closure, after Bruin, Kaffl and
 Schleicher, "Existence of quadratic Hubbard trees" (Fund. Math. 2009), Proposition 3.5.
-Written by ChatGPT (web mode, gpt/PROB-21 round 2); exact, rational-angle combinatorics only.
+Written by ChatGPT (PROB-21 round 2); exact, rational-angle combinatorics only.
 """
 from fractions import Fraction
 from itertools import combinations

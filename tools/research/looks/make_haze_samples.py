@@ -31,7 +31,7 @@ def main():
     render("dense", *frames[720])
     # Wide Mandelbrot: an ordinary frame with sparse fine-band fringe only.
     render("ordinary", "-0.75", "0", "3")
-    print("Commit these two .fds files to gpt/FX-07, then run haze_check.py", flush=True)
+    print("Commit these two .fds files, then run haze_check.py", flush=True)
 
 
 if __name__ == "__main__":

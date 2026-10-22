@@ -15,7 +15,7 @@ test ! -e .github/workflows/koenigs-bench.yml
 while IFS= read -r path; do
     case "$path" in
         docs/spec/METHOD.md|scripts/check/CLEA-02.sh|crates/fd-cli/tests/fixtures/zones/*.zone) ;;
-        docs/spec/WEB-MODE.md|docs/research/10-10-26/gpu-precision-work-queues/README.md|docs/research/10-10-26/gpu-precision-work-queues/REPORT.md|docs/research/10-9-26/HANDOFF-mid-band-jump.md|docs/research/10-8-26/misiurewicz-frame-transfer.md)
+        docs/research/10-10-26/gpu-precision-work-queues/README.md|docs/research/10-10-26/gpu-precision-work-queues/REPORT.md|docs/research/10-9-26/HANDOFF-mid-band-jump.md|docs/research/10-8-26/misiurewicz-frame-transfer.md)
             rg -q 'Historical research record.*frozen prototypes|Historical research record' "$path" ;;
         *) echo "unclassified retired-producer reference: $path" >&2; exit 1 ;;
     esac
