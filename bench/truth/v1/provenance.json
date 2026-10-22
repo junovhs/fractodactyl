@@ -1,0 +1,11 @@
+{
+  "escape_radius": "1e10",
+  "generator_sha256": "817e1b0de7a2179fd7439319e457c90d08d0e89115574f734d66c5ce2b8b6635",
+  "guard_bits": 160,
+  "mpmath": "1.3.0",
+  "oracle_sha256": "caee1cd0cf91e2d45667a5eaa4da57801133098da145c34bf21a74095b9b4b9f",
+  "python": "3.10.12",
+  "rotation": 0,
+  "schema": "fd-truth/1",
+  "ss": 1
+}
