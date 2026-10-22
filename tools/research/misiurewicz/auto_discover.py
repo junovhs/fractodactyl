@@ -327,7 +327,10 @@ def high_precision_spotcheck(re, im, width, nx, ny, rot, maxiter, fd, ours, indi
 def write_native_model(k, path, width, nx, re, im):
     """Keep the exact decimal centre and binary-scaled sample offset (DEC-21)."""
     def pair(z):
-        return f"{z.real:.17g} {z.imag:.17g}"
+        # Native coefficients are binary64; camera strings and scaled bias below
+        # retain their high precision (DEC-21). mpmath phases may be real mpf.
+        z = mp.mpc(z)
+        return f"{float(z.real):.17g} {float(z.imag):.17g}"
 
     def scaled(z):
         size = max(abs(mp.re(z)), abs(mp.im(z)))
@@ -424,14 +427,25 @@ def main():
     path=out/"path.txt"
     path.write_text(f"{a.re} {a.im} {a.width} {a.rotation}\n")
     t=time.perf_counter()
-    k,info=discover(a.re,a.im,a.width,a.iter)
-    result=dict(info,frame_pixels=nx*ny)
-    if k is not None:
-        started=time.perf_counter()
-        write_native_model(k,out/"model.txt",a.width,nx,a.re,a.im)
-        info["build_seconds"]+=time.perf_counter()-started
-        result["build_seconds"]=info["build_seconds"]
-        result.update(estimate_cost(info,nx,ny))
+    stage="discovery"
+    try:
+        k,info=discover(a.re,a.im,a.width,a.iter)
+        result=dict(info,frame_pixels=nx*ny)
+        if k is not None:
+            stage="build"
+            started=time.perf_counter()
+            write_native_model(k,out/"model.txt",a.width,nx,a.re,a.im)
+            info["build_seconds"]+=time.perf_counter()-started
+            result["build_seconds"]=info["build_seconds"]
+            result.update(estimate_cost(info,nx,ny))
+    except Exception as error:
+        # DEC-19: failure to construct an operator is an abstention, never permission
+        # to accelerate. Native/render/compare failures below remain hard failures.
+        k=None
+        result={"decision":"decline", "frame_pixels":nx*ny,
+                "error_stage":stage,
+                "reason":f"{stage} failed: {type(error).__name__}: {error}",
+                "discovery_seconds":time.perf_counter()-t}
     result["pre_render_decision"]="decline"
     if k is None:
         pass
