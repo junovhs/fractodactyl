@@ -17,12 +17,18 @@ pub use guarded::{GuardedBla, GuardedBlock};
 pub const EPS_MAX: f64 = 1.0 / (1u64 << 41) as f64;
 const _: () = assert!(2.0 * EPS_MAX <= RESOLVABLE * (1.0 - 2.0 * EPS_MAX));
 
-/// Refuse an `eps` outside `(0, EPS_MAX]` or a bad `dc_max`.
+/// Largest `eps` a table may be built with, `2^-24` (the tolerance fraktaler-3 uses).
+/// Above [`EPS_MAX`] a block may cover an iterate the plain kernel would judge for
+/// periodicity, so classes may differ from plain iteration: film mode only (DEC-29,
+/// PERF-09), never exact mode.
+pub const EPS_LIMIT: f64 = 1.0 / (1u64 << 24) as f64;
+
+/// Refuse an `eps` outside `(0, EPS_LIMIT]` or a bad `dc_max`.
 fn check(eps: f64, dc_max: f64) -> Result<(), String> {
-    if eps > 0.0 && eps <= EPS_MAX && dc_max > 0.0 && dc_max.is_finite() {
+    if eps > 0.0 && eps <= EPS_LIMIT && dc_max > 0.0 && dc_max.is_finite() {
         Ok(())
     } else {
-        Err(format!("BLA needs 0 < eps <= 2^-41 ({EPS_MAX:e}, so blocks never cover a periodicity-judged iterate) and a finite dc_max > 0; got eps {eps:e}, dc_max {dc_max:e}"))
+        Err(format!("BLA needs 0 < eps <= 2^-24 ({EPS_LIMIT:e}; up to 2^-41 blocks never cover a periodicity-judged iterate) and a finite dc_max > 0; got eps {eps:e}, dc_max {dc_max:e}"))
     }
 }
 
@@ -351,9 +357,10 @@ mod tests {
         bad[1].pop();
         assert!(Bla::new(t.eps, t.dc_max, t.points, bad).is_err());
         assert!(Bla::new(0.0, 1.0, t.points, vec![]).is_err());
-        // eps above the periodicity threshold's cap is refused by build and new alike.
-        assert!(Bla::new(2.0 * EPS_MAX, 1.0, t.points, vec![]).is_err());
-        assert!(Bla::build(&r, 2.0 * EPS_MAX, 1e-20).is_err());
+        // eps above the film limit is refused by build and new alike.
+        assert!(Bla::new(2.0 * EPS_LIMIT, 1.0, t.points, vec![]).is_err());
+        assert!(Bla::build(&r, 2.0 * EPS_LIMIT, 1e-20).is_err());
+        assert!(Bla::build(&r, EPS_LIMIT, 1e-20).is_ok());
         assert!(Bla::new(EPS_MAX, 1.0, t.points, vec![]).is_ok());
         // A tiny delta at index 1 takes the longest valid block; index 0 (Z_0 = 0) and
         // even indices (odd k) never skip, nor does a budget under 2 steps.

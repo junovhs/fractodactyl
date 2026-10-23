@@ -32,7 +32,7 @@ use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
 use std::time::Instant;
 
-const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--zone FILE] [--gpu-perturb on|off] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
+const USAGE: &str = "usage: fd control PATH [render flags without --re/--im/--width/--rotation] [--bla none|per-frame] [--bla-eps E (exact 2^-50; film 1.4901161193847656e-8)] [--zone FILE] [--gpu-perturb on|off] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K] [--python P]]";
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let view_flags = ["re", "im", "width", "rotation"];
@@ -47,6 +47,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             "k",
             "python",
             "bla",
+            "bla-eps",
             "zone",
             "gpu-kernel",
             "gpu-perturb",
@@ -72,6 +73,11 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             ))
         }
     };
+    let eps: f64 = a.num("bla-eps", EPS)?;
+    if !(eps > 0.0 && eps <= fd_kernel::BLA_EPS_LIMIT) {
+        return Err(format!("--bla-eps must be in (0, 2^-24]; got {eps:e}"));
+    }
+    let _ = BLA_EPS.set(eps);
     let every: usize = a.num("every", 1)?;
     if every == 0 {
         return Err("--every must be at least 1".into());
@@ -279,6 +285,14 @@ impl TableUse {
     }
 }
 
+/// `--bla-eps` (one per process): the per-frame BLA tolerance, exact [`EPS`] by default;
+/// film mode's [`crate::orbit::FILM_EPS`] reproduces fd film's tables (PERF-09).
+static BLA_EPS: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+
+fn bla_eps() -> f64 {
+    BLA_EPS.get().copied().unwrap_or(EPS)
+}
+
 /// Run 1's per-frame BLA work: its own reference, its own table, the render.
 struct OwnBla {
     table_use: TableUse,
@@ -300,10 +314,11 @@ impl OwnBla {
         let b = self.stats.unwrap_or_default();
         let _ = write!(
             j,
-            ",\"bla\":{{\"mode\":\"per-frame\",\"use\":\"{}\",\"eps\":{EPS:e},\"dc_max\":{},\"dc_exp\":{},\"levels\":{},\"valid_blocks\":{},\"table_bytes\":{},\
+            ",\"bla\":{{\"mode\":\"per-frame\",\"use\":\"{}\",\"eps\":{:e},\"dc_max\":{},\"dc_exp\":{},\"levels\":{},\"valid_blocks\":{},\"table_bytes\":{},\
              \"reference_seconds\":{},\"operator_seconds\":{},\"render_seconds\":{},\"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\
              \"fallback_samples\":{},\"closed_form_samples\":{},\"shift_px_max\":{}}}",
             self.table_use.name(),
+            bla_eps(),
             self.dc_max.map_or("null".into(), |d| format!("{d:e}")),
             self.dc_exp,
             self.levels,
@@ -341,7 +356,7 @@ fn measure_per_frame_bla<'a>(
         let op = Instant::now();
         // FIX-03: the scaled tier's |dc| bound carries an exponent.
         let table = match bla_dc_bound(view, p) {
-            Ok((dc, e)) => Some((dc, Bla::build_scaled(&orbit, EPS, dc, e)?)),
+            Ok((dc, e)) => Some((dc, Bla::build_scaled(&orbit, bla_eps(), dc, e)?)),
             Err(_) => None,
         };
         let operator_seconds = op.elapsed().as_secs_f64();
@@ -538,9 +553,10 @@ fn totals(file: &str, runs: usize, per_frame: bool, t: &Totals, error: Option<&s
     if per_frame {
         let _ = write!(
             j,
-            ",\"bla\":{{\"mode\":\"per-frame\",\"eps\":{EPS:e},\"frames_used\":{},\"frames_empty_table_skipped\":{},\"frames_without_table\":{},\
+            ",\"bla\":{{\"mode\":\"per-frame\",\"eps\":{:e},\"frames_used\":{},\"frames_empty_table_skipped\":{},\"frames_without_table\":{},\
              \"operator_seconds\":{{\"total\":{},\"per_frame\":{}}},\"render_seconds\":{},\"table_bytes\":{{\"total\":{},\"max\":{}}},\
              \"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\"shift_px_max\":{}}}",
+            bla_eps(),
             t.bla_use[TableUse::Used as usize],
             t.bla_use[TableUse::Empty as usize],
             t.bla_use[TableUse::None as usize],

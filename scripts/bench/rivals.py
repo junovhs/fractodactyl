@@ -62,7 +62,10 @@ def f3_arm(name, it, re_, im, w):
     return timed([str(a.f3.resolve()), '--batch', '-P', '-w', 'wisdom.toml', toml.name], d)
 
 arms = [('fd plain', lambda *f: fd_arm('plain', ['--bla', 'none'], *f)),
-        ('fd bla', lambda *f: fd_arm('bla', ['--bla', 'per-frame'], *f))]
+        ('fd bla', lambda *f: fd_arm('bla', ['--bla', 'per-frame'], *f)),
+        # PERF-09: fd film's tolerance (2^-26), the fair arm against a perceptual rival.
+        ('fd bla film', lambda *f: fd_arm('bla-film', ['--bla', 'per-frame', '--bla-eps',
+                                                       '1.4901161193847656e-08'], *f))]
 zone = root / 'bench/zones/v0-core.zone'
 arms.append(('fd zone', lambda n, *f: fd_arm('zone', ['--bla', 'per-frame', '--zone', str(zone)], n, *f)
              if n.startswith('v0-') else (None, 'n/a')))

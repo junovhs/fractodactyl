@@ -15,6 +15,12 @@ use std::time::Instant;
 /// a few f64 roundings, so BLA adds error of the order the plain kernel's own rounding.
 pub(crate) const EPS: f64 = 1.0 / 1125899906842624.0;
 
+/// Film-mode BLA tolerance, 2^-26 (PERF-09, DEC-29): fd film, previews and the viewer
+/// build their per-frame tables with it. Measured to pass `fd filmcheck` against the
+/// exact tolerance on seahorse-valley and PROB-22 slices while running several times
+/// faster; exact mode (`fd control`, stills) keeps [`EPS`].
+pub(crate) const FILM_EPS: f64 = 1.0 / (1u64 << 26) as f64;
+
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let rest = argv.get(1..).unwrap_or_default();
     match argv.first().map(String::as_str) {

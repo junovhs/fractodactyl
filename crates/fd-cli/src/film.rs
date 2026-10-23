@@ -12,7 +12,7 @@
 //! the end. `--compare-every K` also times fd's per-frame BLA render on every K-th
 //! zone frame, so the report can state the speed-up against it.
 use crate::args::Args;
-use crate::orbit::EPS;
+use crate::orbit::FILM_EPS;
 use crate::path::sig6;
 use crate::render::{columns, size};
 use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
@@ -31,7 +31,7 @@ const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
 [--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames N|A..B|A..=B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
-[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
+[--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [--bla-eps E (2^-26 film tolerance; 8.881784197001252e-16 = exact)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
 /// Normalize film frame selection to the half-open interval used by the renderer.
 fn frame_selection(r: &str, count: usize) -> Result<(usize, usize), String> {
@@ -113,9 +113,10 @@ impl Used {
     }
 }
 
-/// Observes builds without retaining or reusing mathematical products.
-#[derive(Default)]
+/// Observes builds without retaining or reusing mathematical products, and carries the
+/// BLA tolerance they use (`eps`, default [`FILM_EPS`]; `fd film --bla-eps`).
 pub(crate) struct BuildTimings {
+    pub(crate) eps: f64,
     /// One successful actual kernel call, not one interpolated output frame.
     process_cpu_frames: Vec<String>,
     reference_seconds: f64,
@@ -128,6 +129,25 @@ pub(crate) struct BuildTimings {
     repeated_bla_seconds: f64,
     references: std::collections::HashSet<String>,
     blas: std::collections::HashSet<String>,
+}
+
+impl Default for BuildTimings {
+    fn default() -> Self {
+        BuildTimings {
+            eps: FILM_EPS,
+            process_cpu_frames: Vec::new(),
+            reference_seconds: 0.0,
+            bla_seconds: 0.0,
+            reference_builds: 0,
+            repeated_references: 0,
+            repeated_reference_seconds: 0.0,
+            bla_builds: 0,
+            repeated_blas: 0,
+            repeated_bla_seconds: 0.0,
+            references: Default::default(),
+            blas: Default::default(),
+        }
+    }
 }
 
 impl BuildTimings {
@@ -174,8 +194,8 @@ impl BuildTimings {
         self.bla_seconds += seconds;
         self.bla_builds += 1;
         // No rounding/bucketing is used by today's builder: its exact dc_max bits
-        // and EPS are part of the build input, not merely a potential reuse radius.
-        let key = format!("{key}|{}|{}", EPS.to_bits(), dc.to_bits());
+        // and eps are part of the build input, not merely a potential reuse radius.
+        let key = format!("{key}|{}|{}", self.eps.to_bits(), dc.to_bits());
         if !self.blas.insert(key) {
             self.repeated_blas += 1;
             self.repeated_bla_seconds += seconds;
@@ -227,6 +247,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "spin",
         "spins",
         "keyframes",
+        "bla-eps",
         "ease-out",
         "offset",
         "t0",
@@ -532,6 +553,15 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             Some(keys)
         }
     };
+    // PERF-09: film-mode BLA tolerance (default FILM_EPS); the exact 2^-50 renders the
+    // reference a film is checked against.
+    let bla_eps: f64 = a.num("bla-eps", FILM_EPS)?;
+    if !(bla_eps > 0.0 && bla_eps <= fd_kernel::BLA_EPS_LIMIT) {
+        return Err(format!("--bla-eps must be in (0, 2^-24]; got {bla_eps:e}"));
+    }
+    if let Some(k) = keys.as_mut() {
+        k.builds.eps = bla_eps;
+    }
     if let (Some(mode), Some(k)) = (zone_kernel, keys.as_mut()) {
         k.enable_zone_kernel(mode);
     }
@@ -632,7 +662,10 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         keyframes,
         ..Report::default()
     };
-    let mut builds = BuildTimings::default();
+    let mut builds = BuildTimings {
+        eps: bla_eps,
+        ..BuildTimings::default()
+    };
     for (f, view) in views.iter().enumerate().take(to).skip(from) {
         if let Some(k) = keys.as_mut() {
             let t = Instant::now();
@@ -1249,7 +1282,7 @@ pub(crate) fn render_frame_profiled(
     let table = match bla_dc_bound(view, p) {
         Ok((dc, e)) => {
             let t = Instant::now();
-            let table = Bla::build_scaled(r, EPS, dc, e)?;
+            let table = Bla::build_scaled(r, builds.eps, dc, e)?;
             builds.bla(&format!("{key}|{e}"), dc, t.elapsed().as_secs_f64());
             Some(table).filter(|t| !t.levels.is_empty())
         }
@@ -1326,7 +1359,7 @@ pub(crate) fn render_frame_jet(
     let table = match bla_dc_bound(view, p) {
         Ok((dc, e)) => {
             let t = Instant::now();
-            let table = Bla::build_scaled(&o, EPS, dc, e)?;
+            let table = Bla::build_scaled(&o, builds.eps, dc, e)?;
             builds.bla(&format!("{key}|{e}"), dc, t.elapsed().as_secs_f64());
             Some(table).filter(|t| !t.levels.is_empty())
         }

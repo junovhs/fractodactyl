@@ -244,9 +244,12 @@ and stops at the first failure. Odd `k` (and `m = 0`, where `Z_0 = 0`) take a pl
   `EPS_MAX = 2^-41` so that this stays at most the `RESOLVABLE |z| = 1e-12 |z|` from which
   the plain kernel judges periodicity (one shared constant in `sample.rs`, checked by a
   compile-time assert in `bla.rs`): a block never covers a periodicity-judged iterate,
-  so blocks run only where the plain kernel judges nothing either. Larger `eps` is
-  refused when a table is built (`fd orbit bla --eps`) and when one is loaded
-  (`Bla::new`, which every decoded table goes through). The default is `eps = 2^-50`.
+  so blocks run only where the plain kernel judges nothing either (for `eps <= EPS_MAX`). `eps`
+  above `EPS_LIMIT` is refused when a table is built (`fd orbit bla --eps`) and when one is loaded
+  (`Bla::new`, which every decoded table goes through). The default is `eps = 2^-50`. Film mode
+  (PERF-09, DEC-29) builds per-frame tables at `eps = 2^-26` (`fd film --bla-eps`, also the
+  viewer); tables up to `EPS_LIMIT = 2^-24` are accepted, and above `EPS_MAX` a block may cover
+  a judgeable iterate, so periodicity judgements (and classes) may differ from plain iteration.
   A block also ends at the next Brent save point at the latest (its length is capped at
   `chk - n`), so BLA saves exactly the iterates the plain kernel saves and judges
   periodicity at the same iterates against the same save points: classes match the plain
