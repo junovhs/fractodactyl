@@ -154,15 +154,14 @@ fn stored_bla_skips_iterations_within_contract() {
         assert!(escaped > 0);
     }
 
-    // Outside the contract: a shallower frame (larger |dc|), the bound column, the
-    // scaled tier, another centre (the table's orbit is bound to its exact centre),
+    // Outside the contract: a shallower frame (larger |dc|), the bound column, another
+    // centre (the table's orbit is bound to its exact centre),
     // progressive refinement.
     let out = dir.join("refused.fds");
     let o = out.to_str().unwrap();
     for (extra, why) in [
         (&["--width", "1e-16"][..], "dc_max"),
         (&["--columns", "nu,bound"][..], "bound"),
-        (&["--kernel", "scaled"][..], "scaled"),
         (
             &["--re", "-0.743643887037158704752191506114775"][..],
             "centre",
@@ -185,18 +184,23 @@ fn stored_bla_skips_iterations_within_contract() {
             String::from_utf8_lossy(&r.stderr)
         );
     }
-    // No table is built for the scaled tier.
-    let r = fd(&[&build[..], &["--kernel", "scaled"]].concat());
-    assert!(!r.status.success() && String::from_utf8_lossy(&r.stderr).contains("scaled"));
-    // eps above 2^-41 would let a block cover an iterate the plain kernel judges for
-    // periodicity (|delta| > 1e-12 |z|): refused; 2^-41 itself is accepted.
-    let r = fd(&[&build[..], &["--eps", "1e-12"]].concat());
+    // The scaled tier is served too (FIX-03): the table's dc bound is compared in
+    // exponent form.
+    let scaled = [&["render"][..], &view("1e-20")[..], &["--kernel", "scaled"]].concat();
+    ok(&[
+        &scaled[..],
+        &["--store", st, "--bla", bla.as_str(), "-o", o],
+    ]
+    .concat());
+    // eps above 2^-24 (EPS_LIMIT, the film tolerance ceiling) is refused; 2^-24 itself
+    // is accepted.
+    let r = fd(&[&build[..], &["--eps", "1e-7"]].concat());
     assert!(
         !r.status.success() && String::from_utf8_lossy(&r.stderr).contains("eps"),
         "{}",
         String::from_utf8_lossy(&r.stderr)
     );
-    ok(&[&build[..], &["--eps", "4.547473508864641e-13"]].concat());
+    ok(&[&build[..], &["--eps", "5.960464477539063e-8"]].concat());
 
     // Samples settled by the closed-form main-cardioid test are neither BLA nor
     // fallback work: counted apart, and left out of fallback.sample_fraction.
