@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-22
+
 - Films render deep non-zone stretches several times faster: `fd film` builds its per-frame BLA tables at a film tolerance (2^-26) that still passes the film check against the exact tolerance (a seahorse-valley slice: 27 s to 6 s). `--bla-eps E` on `fd film` and `fd control` chooses the tolerance; `fd control` keeps the exact 2^-50 by default.
 
 - BLA now works beyond 1e-270 (the deepest, exponent-carrying tier): `fd control --bla per-frame` and film keyframes skip iterations there instead of falling back to plain iteration (the published 5e-433 deep-mini frame at 960x540: over 30 s to 3.4 s).
