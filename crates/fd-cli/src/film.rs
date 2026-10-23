@@ -17,7 +17,7 @@ use crate::path::sig6;
 use crate::render::{columns, size};
 use crate::shade::{appearance, passes, APPEARANCE_FLAGS, LOOK_FLAGS};
 use fd_kernel::{
-    bla_dc_max, render_bla, render_bla_masked, render_with, render_with_masked, zone_covers, Bla,
+    bla_dc_bound, render_bla, render_bla_masked, render_with, render_with_masked, zone_covers, Bla,
     Params, Series, Zone,
 };
 use fd_samples::{Header, Samples, View};
@@ -1246,11 +1246,11 @@ pub(crate) fn render_frame_profiled(
     let key = BuildTimings::reference_key(view, p, orbit.1);
     builds.reference(&key, t.elapsed().as_secs_f64());
     let (r, bits) = (&orbit.0, orbit.1);
-    let table = match bla_dc_max(view, p) {
-        Ok(dc) => {
+    let table = match bla_dc_bound(view, p) {
+        Ok((dc, e)) => {
             let t = Instant::now();
-            let table = Bla::build(r, EPS, dc)?;
-            builds.bla(&key, dc, t.elapsed().as_secs_f64());
+            let table = Bla::build_scaled(r, EPS, dc, e)?;
+            builds.bla(&format!("{key}|{e}"), dc, t.elapsed().as_secs_f64());
             Some(table).filter(|t| !t.levels.is_empty())
         }
         Err(_) => None,
@@ -1323,11 +1323,11 @@ pub(crate) fn render_frame_jet(
     let (o, bits) = fd_kernel::reference(view, p)?;
     let key = BuildTimings::reference_key(view, p, bits);
     builds.reference(&key, t.elapsed().as_secs_f64());
-    let table = match bla_dc_max(view, p) {
-        Ok(dc) => {
+    let table = match bla_dc_bound(view, p) {
+        Ok((dc, e)) => {
             let t = Instant::now();
-            let table = Bla::build(&o, EPS, dc)?;
-            builds.bla(&key, dc, t.elapsed().as_secs_f64());
+            let table = Bla::build_scaled(&o, EPS, dc, e)?;
+            builds.bla(&format!("{key}|{e}"), dc, t.elapsed().as_secs_f64());
             Some(table).filter(|t| !t.levels.is_empty())
         }
         Err(_) => None,

@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- BLA now works beyond 1e-270 (the deepest, exponent-carrying tier): `fd control --bla per-frame` and film keyframes skip iterations there instead of falling back to plain iteration (the published 5e-433 deep-mini frame at 960x540: over 30 s to 3.4 s).
+
 - Frames inside deep minibrots now finish fast: points that settle onto an attracting cycle are recognised as interior after a few cycles instead of being iterated to the iteration cap (a 1e-29 PROB-22 frame: 3.0 s to 0.4 s).
 
 - Experimental `--gpu-perturb bla` applies shared guarded BLA blocks with derivative uncertainty and reports actual skipped work. It remains default-off, Heuristic and currently slower than CPU BLA; original plain CPU restart and unchanged output admission remain.

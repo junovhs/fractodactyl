@@ -1,6 +1,6 @@
 //! Reusable frozen-oracle loader/comparison for development probes, not a renderer.
 use fd_kernel::{
-    bla_dc_max, reference, render_bla, render_with, Bla, Params, Plane, Tier, BLA_EPS_MAX,
+    bla_dc_bound, reference, render_bla, render_with, Bla, Params, Plane, Tier, BLA_EPS_MAX,
 };
 use fd_samples::{Column, ColumnSet, Kind, Samples, View};
 use std::path::Path;
@@ -357,30 +357,15 @@ fn run_routes(case: &Case, edges: &[Edge]) -> Result<Vec<RouteScore>, String> {
         0,
         compare(case, &plain, edges),
     )];
-    match bla_dc_max(&case.view, &case.params) {
-        Ok(radius) => {
-            let bla = Bla::build(&orbit.0, BLA_EPS_MAX, radius)?;
-            let (header, samples, _, stats) = render_bla(&case.view, &case.params, orbit, &bla)?;
-            rows.push((
-                "bla",
-                header.kernel,
-                stats.blocks,
-                compare(case, &samples, edges),
-            ));
-        }
-        Err(reason) => {
-            // The scaled tier has no BLA implementation yet (FIX-03); do not
-            // silently turn other preparation errors into successful fallback.
-            if !reason.contains("not available on the scaled tier") {
-                return Err(reason);
-            }
-            rows.push((
-                "bla-unavailable-plain-fallback",
-                header.kernel,
-                0,
-                compare(case, &plain, edges),
-            ));
-        }
-    }
+    // FIX-03: every tier has a BLA route (the scaled tier's |dc| bound carries an exponent).
+    let (radius, exp) = bla_dc_bound(&case.view, &case.params)?;
+    let bla = Bla::build_scaled(&orbit.0, BLA_EPS_MAX, radius, exp)?;
+    let (header, samples, _, stats) = render_bla(&case.view, &case.params, orbit, &bla)?;
+    rows.push((
+        "bla",
+        header.kernel,
+        stats.blocks,
+        compare(case, &samples, edges),
+    ));
     Ok(rows)
 }

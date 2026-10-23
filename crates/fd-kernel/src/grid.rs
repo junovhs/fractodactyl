@@ -177,7 +177,7 @@ pub fn render_with_masked(
 
 /// [`render_with`] a supplied orbit and a BLA table built over it (ACC-01): valid blocks
 /// replace runs of perturbation steps; every other step is the plain kernel (the
-/// fallback). Refused on the scaled tier, with the `Bound` column (BLA remainders are
+/// fallback). Refused with the `Bound` column (BLA remainders are
 /// not certified, ACC-02), for a table built over another orbit length, or when the
 /// view's largest `|dc|` exceeds the table's `dc_max`. The header's kernel id gains
 /// ` bla/1`.
@@ -371,9 +371,6 @@ impl Series {
 /// [`render_bla`]'s refusals.
 fn bla_checks(view: &View, p: &Params, orbit: &(Reference, u32), bla: &Bla) -> Result<(), String> {
     let (plane, tier) = setup(view, p)?;
-    if tier == Tier::Scaled {
-        return Err("BLA tables need f64 deltas: not available on the scaled tier".into());
-    }
     if p.columns.has(Column::Bound) {
         return Err(
             "--columns bound certifies every step; BLA remainders are not certified (ACC-02)"
@@ -393,14 +390,37 @@ fn bla_checks(view: &View, p: &Params, orbit: &(Reference, u32), bla: &Bla) -> R
             p.escape_radius
         ));
     }
-    let dc = dc_max(&plane, p);
-    if dc.is_nan() || dc > bla.dc_max {
+    let (dc, e) = dc_bound(&plane, tier, p);
+    // dc 2^e against dc_max 2^dc_exp, without leaving f64's range.
+    let over = if e == bla.dc_exp {
+        dc > bla.dc_max
+    } else {
+        dc.log2() + e as f64 > bla.dc_max.log2() + bla.dc_exp as f64
+    };
+    if dc.is_nan() || over {
         return Err(format!(
-            "view reaches |dc| = {dc:e}, beyond the BLA table's dc_max {:e}",
-            bla.dc_max
+            "view reaches |dc| = {dc:e} 2^{e}, beyond the BLA table's dc_max {:e} 2^{}",
+            bla.dc_max, bla.dc_exp
         ));
     }
     Ok(())
+}
+
+/// Upper bound `m 2^e` on `|dc|` over the samples of a view, on every tier (`e = 0`
+/// except on the scaled tier, whose `|dc|` lies below f64's range): what
+/// [`fd_kernel::Bla::build_scaled`] takes (FIX-03).
+pub fn bla_dc_bound(view: &View, p: &Params) -> Result<(f64, i64), String> {
+    let (plane, tier) = setup(view, p)?;
+    Ok(dc_bound(&plane, tier, p))
+}
+
+fn dc_bound(plane: &Plane, tier: Tier, p: &Params) -> (f64, i64) {
+    let half = (f64::from(p.nx) / 2.0).hypot(f64::from(p.ny) / 2.0);
+    if tier == Tier::Scaled {
+        (plane.h_m * half, plane.h_e)
+    } else {
+        (dc_max(plane, p), 0)
+    }
 }
 
 /// Upper bound on `|dc|` over the samples of a view; refused on the scaled tier, which
@@ -677,10 +697,10 @@ impl<'a> Job<'a> {
                 self.nucleus,
                 start(ux * h, uy * h),
             ),
-            Tier::Scaled => iterate::<Binary64Exponent, D, false, false>(
+            Tier::Scaled => iterate::<Binary64Exponent, D, false, L>(
                 self.r,
                 &[],
-                None,
+                self.bla,
                 skip,
                 None,
                 ux * pl.h_m,

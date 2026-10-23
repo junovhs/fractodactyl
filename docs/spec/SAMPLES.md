@@ -92,7 +92,7 @@ invalid class bytes.
 |---|---|
 | `pert-f64/1` | Perturbation with rebasing against one f64 reference orbit at the f64-rounded centre (at most 2^20 points; past the end a sample rebases to `Z_0`). Used only while rounding the centre moves it by under 1/1024 of a sample. Interior: closed-form main cardioid/period-2 bulb test, then a Brent near-return check. A save point that falls where the delta is below `RESOLVABLE |z|` (inside a deep minibrot only the iterates just after a rebase are judgeable) is taken at the next judgeable iterate. A near-return (within 1e-3) over which the tracked return multiplier `mu = dz_n/dz_s` (each step's `2z`, each BLA block's `A`) has `|mu| < 1` gives a Newton prediction of the cycle point; two consecutive returns of the same period predicting it to within 1e-2 of the Newton step make the sample Interior (PERF-08). An exterior orbit shadowing a repelling cycle expands (FIX-02), and one drifting past a near-parabolic ghost cycle gives wandering predictions. |
 | `pert-fx/1 bits=B` | Same perturbation, but the reference orbit is iterated in `B`-bit fixed point from the exact decimal centre (`B` = 128 + depth in bits). f64 deltas; used down to sample spacings of 2^-900. No closed-form shortcut (f64 cannot place the sample). |
-| `pert-fx-scaled/1 bits=B` | Fixed-point reference; the delta and `dz/dc` are f64 values times exact powers of two, so no depth underflows. Interior only by exact cycle return (no Newton yet): deep interior samples may stay `Unresolved`. |
+| `pert-fx-scaled/1 bits=B` | Fixed-point reference; the delta and `dz/dc` are f64 values times exact powers of two, so no depth underflows. Interior only by exact cycle return (no Newton yet): deep interior samples may stay `Unresolved`. BLA blocks apply here too (FIX-03): the table's `dc_max` carries an exponent, the radius test uses the physical delta, and the delta and `dz/dc` are renormalised around each block. |
 | `... bla/1` | `pert-f64/1` or `pert-fx/1` with a stored BLA table (`fd render --bla`, ATLAS.md "BLA tables"): affine blocks replace runs of steps where their validity radius holds; a block never jumps over an escape or rebase; values differ from plain perturbation by the stated remainder. `Heuristic` evidence. |
 
 All three write `Heuristic` evidence. Periodicity checks run only once a sample's
@@ -181,9 +181,10 @@ for the frame's own largest `|dc|` (`Bla::build` with `eps = 2^-50`, every level
 the first with no valid block: the `fd compile --bla frame` contract), and renders with
 it (`render_bla`). A table with no valid block is skipped and the frame renders with its
 orbit alone, as `fd play` skips one (so those frames are byte-identical to plain
-control); the scaled tier has no BLA and builds none. Nothing is kept for the next frame.
+control). On the scaled tier the table is built for `|dc| <= dc_max 2^dc_exp` (FIX-03: the
+bound is below f64's range there) and blocks apply in the delta's own units. Nothing is kept for the next frame.
 Each frame record gains `"bla":{"mode":"per-frame","use":"used|skipped_empty|none",
-"eps","dc_max","levels","valid_blocks","table_bytes","reference_seconds",
+"eps","dc_max","dc_exp","levels","valid_blocks","table_bytes","reference_seconds",
 "operator_seconds","render_seconds","blocks","skipped_steps","iterations_equivalent",
 "fallback_samples","closed_form_samples","shift_px_max"}`; `fallback` and
 `atlas_work.macro_operators_per_pixel` then count the applied blocks as `fd play` does

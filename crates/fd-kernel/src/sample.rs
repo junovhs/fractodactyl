@@ -176,7 +176,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     nucleus: Option<usize>,
     start: Start,
 ) -> Outcome {
-    debug_assert!(!A::EXTENDED || (!B && !L && c.is_none()));
+    debug_assert!(!A::EXTENDED || (!B && c.is_none()));
     debug_assert!(start.n == 0 || (!A::EXTENDED && !B && (start.n as usize) < r.len() - 1));
     if c.is_some_and(|c| in_main_components(c.0, c.1)) {
         return Outcome::Interior { n: 0 };
@@ -230,9 +230,14 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         let block = match bla {
             // At phase zero A=0; use the actual pixel's 2z rather than that
             // reference-only derivative when measuring a nucleus return.
+            // FIX-03: on the extended tier the radius test uses the physical delta.
             Some(t) if L && !B && (nucleus.is_none() || m != 0) => t.find(
                 m,
-                xr * xr + xi * xi,
+                if A::EXTENDED {
+                    (xr * xr + xi * xi) * scale * scale
+                } else {
+                    xr * xr + xi * xi
+                },
                 max_iter
                     .min(if hold > 0 {
                         sn + hold
@@ -242,7 +247,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                         chk
                     })
                     .min(nucleus.map_or(u64::MAX, |p| if n == 0 { 1 } else { p as u64 + 1 }))
-                    - n,
+                    .saturating_sub(n),
             ),
             _ => None,
         };
@@ -255,16 +260,41 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             if !A::EXTENDED && hold > 0 {
                 mu.multiply(a_r, a_i);
             }
-            if D {
-                let t = a_r * dr - a_i * di + b_r;
-                di = a_r * di + a_i * dr + b_i;
-                dr = t;
-                skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc)
-                    / (dr * dr + di * di).sqrt();
+            if A::EXTENDED {
+                // The map is linear, so it applies in the delta's own units (dc is held
+                // in them too); bring the mantissas near 1 first so |A| < 2^1024 cannot
+                // overflow them (FIX-03).
+                (xr, xi, delta_exp) = normalise(xr, xi, delta_exp, 0);
+                if D {
+                    (dr, di, derivative_exp) = normalise(dr, di, derivative_exp, i64::MAX / 4);
+                    inverse = exp2i(-derivative_exp);
+                }
+                scale = exp2i(delta_exp);
+                let factor = exp2i(offset_exp - delta_exp);
+                (dc_r, dc_i) = (ar * factor, ai * factor);
             }
-            let t = a_r * xr - a_i * xi + b_r * ar - b_i * ai;
-            xi = a_r * xi + a_i * xr + b_r * ai + b_i * ar;
+            if D {
+                let t = a_r * dr - a_i * di + b_r * inverse;
+                di = a_r * di + a_i * dr + b_i * inverse;
+                dr = t;
+                if !A::EXTENDED {
+                    skip.shift += (b.alpha * (xr * xr + xi * xi).sqrt() + b.beta * adc)
+                        / (dr * dr + di * di).sqrt();
+                }
+            }
+            let t = a_r * xr - a_i * xi + b_r * dc_r - b_i * dc_i;
+            xi = a_r * xi + a_i * xr + b_r * dc_i + b_i * dc_r;
             xr = t;
+            if A::EXTENDED {
+                (xr, xi, delta_exp) = normalise(xr, xi, delta_exp, 0);
+                if D {
+                    (dr, di, derivative_exp) = normalise(dr, di, derivative_exp, i64::MAX / 4);
+                    inverse = exp2i(-derivative_exp);
+                }
+                scale = exp2i(delta_exp);
+                let factor = exp2i(offset_exp - delta_exp);
+                (dc_r, dc_i) = (ar * factor, ai * factor);
+            }
             m += len;
             n += len as u64;
             skip.blocks += 1;
@@ -490,6 +520,20 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         }
     }
     Outcome::Unresolved
+}
+
+/// `(re, im) 2^e` rescaled so the larger mantissa is in `[1, 2)`, the exponent never
+/// rising above `max_e` (the extended delta stays `<= 2^0` scaled). Zero and non-finite
+/// values are returned unchanged.
+fn normalise(re: f64, im: f64, e: i64, max_e: i64) -> (f64, f64, i64) {
+    let a = re.abs().max(im.abs());
+    if a == 0.0 || !a.is_finite() {
+        return (re, im, e);
+    }
+    let k = (a.log2().floor() as i64).min(max_e.saturating_sub(e));
+    // Two factors: 2^-k alone overflows for subnormal mantissas.
+    let (h, l) = (exp2i(-(k / 2)), exp2i(-(k - k / 2)));
+    (re * h * l, im * h * l, e + k)
 }
 
 /// Running complex product (the return multiplier) whose binary exponent is only

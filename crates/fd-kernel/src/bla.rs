@@ -78,17 +78,18 @@ impl Block {
         }
     }
 
-    /// `x` then `y` for any `|dc| <= c`. With `Ahat = |A_x| + alpha_x` and `Bhat = |B_x| +
-    /// beta_x`, the true `|delta|` after `x` is at most `Ahat |delta_m| + Bhat |dc|`, so
-    /// `r = min(r_x, (r_y - Bhat c) / Ahat)` keeps it inside `y`'s radius.
-    fn merge(x: &Block, y: &Block, c: f64) -> Block {
+    /// `x` then `y` for any `|dc| <= c 2^ce`. With `Ahat = |A_x| + alpha_x` and `Bhat =
+    /// |B_x| + beta_x`, the true `|delta|` after `x` is at most `Ahat |delta_m| + Bhat |dc|`,
+    /// so `r = min(r_x, (r_y - Bhat c 2^ce) / Ahat)` keeps it inside `y`'s radius. FIX-03:
+    /// the exponent `ce` lets `|dc|` lie below f64's range (the scaled tier).
+    fn merge(x: &Block, y: &Block, c: f64, ce: i64) -> Block {
         if x.r == 0.0 || y.r == 0.0 {
             return Block::default();
         }
         let (ax, ay) = (x.a.0.hypot(x.a.1), y.a.0.hypot(y.a.1));
         let ahat = ax + x.alpha;
         let bhat = x.b.0.hypot(x.b.1) + x.beta;
-        let r = x.r.min((y.r - bhat * c) / ahat);
+        let r = x.r.min((y.r - times_exp2(bhat * c, ce)) / ahat);
         let z = Block {
             a: affine(x.a, y.a, (0.0, 0.0)),
             b: affine(x.b, y.a, y.b),
@@ -101,6 +102,15 @@ impl Block {
         } else {
             Block::default()
         }
+    }
+}
+
+/// `v 2^e`, for `e` far below f64's exponent range (rounds to 0 when the result does).
+fn times_exp2(v: f64, e: i64) -> f64 {
+    if e >= -1022 {
+        v * fd_fixed::exp2i(e)
+    } else {
+        v * fd_fixed::exp2i(-1022) * fd_fixed::exp2i(e + 1022)
     }
 }
 
@@ -121,8 +131,10 @@ fn affine(x: (f64, f64), a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
 pub struct Bla {
     /// Relative tolerance of each dropped quadratic term.
     pub eps: f64,
-    /// Largest `|dc|` the radii were built for.
+    /// Largest `|dc|` the radii were built for, as `dc_max 2^dc_exp` (`dc_exp` is 0
+    /// except on the scaled tier, FIX-03).
     pub dc_max: f64,
+    pub dc_exp: i64,
     /// Length of the reference orbit the table was built over.
     pub points: u64,
     /// Levels 1, 2, ...; ends before the first level with no valid block.
@@ -135,11 +147,17 @@ pub struct Bla {
 impl Bla {
     /// Build the table over `r` for samples with `|dc| <= dc_max`.
     pub fn build(r: &Reference, eps: f64, dc_max: f64) -> Result<Bla, String> {
+        Bla::build_scaled(r, eps, dc_max, 0)
+    }
+
+    /// [`Bla::build`] for `|dc| <= dc_max 2^dc_exp` (FIX-03: the scaled tier, where `|dc|`
+    /// is below f64's range). The blocks hold the same f64 coefficients.
+    pub fn build_scaled(r: &Reference, eps: f64, dc_max: f64, dc_exp: i64) -> Result<Bla, String> {
         check(eps, dc_max)?;
         let steps = r.len().saturating_sub(2);
         let merge = |l: &[Block]| -> Vec<Block> {
             (0..l.len() / 2)
-                .map(|i| Block::merge(&l[2 * i], &l[2 * i + 1], dc_max))
+                .map(|i| Block::merge(&l[2 * i], &l[2 * i + 1], dc_max, dc_exp))
                 .collect()
         };
         let singles: Vec<Block> = (1..=steps)
@@ -151,7 +169,9 @@ impl Bla {
             let up = merge(&next);
             levels.push(std::mem::replace(&mut next, up));
         }
-        Bla::new(eps, dc_max, r.len() as u64, levels)
+        let mut t = Bla::new(eps, dc_max, r.len() as u64, levels)?;
+        t.dc_exp = dc_exp;
+        Ok(t)
     }
 
     /// Assemble a table (e.g. decoded from the atlas), checking its shape and values.
@@ -182,6 +202,7 @@ impl Bla {
         Ok(Bla {
             eps,
             dc_max,
+            dc_exp: 0,
             points,
             levels,
             r2,

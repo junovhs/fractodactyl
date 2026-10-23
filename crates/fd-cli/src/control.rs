@@ -26,7 +26,7 @@ use crate::orbit::EPS;
 use crate::plan::read_path;
 use crate::render::{params, FLAGS};
 use fd_kernel::{
-    bla_dc_max, reference_bits, render_bla, render_with, zone_covers, Bla, BlaStats, Params, Zone,
+    bla_dc_bound, reference_bits, render_bla, render_with, zone_covers, Bla, BlaStats, Params, Zone,
 };
 use fd_samples::{write, Kind, View};
 use std::fmt::Write as _;
@@ -283,6 +283,8 @@ impl TableUse {
 struct OwnBla {
     table_use: TableUse,
     dc_max: Option<f64>,
+    /// `dc_max` is `dc_max 2^dc_exp` (non-zero only on the scaled tier, FIX-03).
+    dc_exp: i64,
     levels: usize,
     valid_blocks: usize,
     /// In-memory table size: 7 f64 per stored block (the `bla` chunk payload).
@@ -298,11 +300,12 @@ impl OwnBla {
         let b = self.stats.unwrap_or_default();
         let _ = write!(
             j,
-            ",\"bla\":{{\"mode\":\"per-frame\",\"use\":\"{}\",\"eps\":{EPS:e},\"dc_max\":{},\"levels\":{},\"valid_blocks\":{},\"table_bytes\":{},\
+            ",\"bla\":{{\"mode\":\"per-frame\",\"use\":\"{}\",\"eps\":{EPS:e},\"dc_max\":{},\"dc_exp\":{},\"levels\":{},\"valid_blocks\":{},\"table_bytes\":{},\
              \"reference_seconds\":{},\"operator_seconds\":{},\"render_seconds\":{},\"blocks\":{},\"skipped_steps\":{},\"iterations_equivalent\":{},\
              \"fallback_samples\":{},\"closed_form_samples\":{},\"shift_px_max\":{}}}",
             self.table_use.name(),
             self.dc_max.map_or("null".into(), |d| format!("{d:e}")),
+            self.dc_exp,
             self.levels,
             self.valid_blocks,
             self.table_bytes,
@@ -336,9 +339,9 @@ fn measure_per_frame_bla<'a>(
         let (orbit, bits) = fd_kernel::reference(view, p)?;
         let reference_seconds = t.elapsed().as_secs_f64();
         let op = Instant::now();
-        // The scaled tier has no BLA (f64 deltas only): no table, as `fd compile`.
-        let table = match bla_dc_max(view, p) {
-            Ok(dc) => Some((dc, Bla::build(&orbit, EPS, dc)?)),
+        // FIX-03: the scaled tier's |dc| bound carries an exponent.
+        let table = match bla_dc_bound(view, p) {
+            Ok((dc, e)) => Some((dc, Bla::build_scaled(&orbit, EPS, dc, e)?)),
             Err(_) => None,
         };
         let operator_seconds = op.elapsed().as_secs_f64();
@@ -372,6 +375,7 @@ fn measure_per_frame_bla<'a>(
                 let own = OwnBla {
                     table_use,
                     dc_max: table.as_ref().map(|(d, _)| *d),
+                    dc_exp: table.as_ref().map_or(0, |(_, b)| b.dc_exp),
                     levels: table.as_ref().map_or(0, |(_, b)| b.levels.len()),
                     valid_blocks: valid,
                     table_bytes: all as u64 * 56,
