@@ -1,9 +1,10 @@
 //! One sample: perturbed iteration with rebasing (Zhuoran), Brent periodicity check
-//! confirmed by Newton, and the derivative only when a column needs it. With `B`, also a
+//! confirmed by Newton (PERF-08: two consistent Newton predictions from the tracked
+//! return multiplier), and the derivative only when a column needs it. With `B`, also a
 //! rigorous running error radius on `z` and `dz/dc` (Bounded evidence, docs/spec/LOD.md).
 //! With a BLA table, valid blocks replace runs of steps (ACC-01, not with `B`).
 use crate::bla::Bla;
-use crate::interior::{attracting, contracting, in_main_components};
+use crate::interior::{contracting, in_main_components};
 pub(crate) use crate::number::Binary64Exponent;
 use crate::number::{Arithmetic, Binary64};
 use crate::reference::Reference;
@@ -189,6 +190,10 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     let (mut derivative_exp, mut inverse) = (0i64, 1.0f64);
     let (mut m, mut n) = (start.n as usize, start.n);
     // Brent: compare against the point saved (at iterate `sn`) at the last power of two.
+    // Ordinary tier (PERF-08): a save point that is not judgeable (delta below
+    // RESOLVABLE |z|, e.g. inside a deep minibrot, where only the iterates just after a
+    // rebase are) is taken at the next judgeable iterate instead (`pending`), so near-returns
+    // are compared against a point the orbit can actually be told apart from.
     let (mut sr, mut si, mut chk, mut sn) =
         (0.0f64, 0.0f64, 16u64, if A::EXTENDED { 0u64 } else { 8u64 });
     if n > 0 {
@@ -200,7 +205,14 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             (n + 1).next_power_of_two().max(16),
         );
     }
-    let (mut newton_at, mut tries, mut returns) = (64u64, 0, 0);
+    let mut returns = 0;
+    let mut pending = false;
+    // Ordinary tier: `hold` is the period of a near-return being confirmed (0: none).
+    // Only then is `mu = d z_n / d z_sn` tracked from the save; `(qr, qi)` is the cycle
+    // point Newton predicted at the previous return (when `predicted`), `qstep` its step.
+    let mut mu = Multiplier::default();
+    let (mut hold, mut predicted) = (0u64, false);
+    let (mut qr, mut qi, mut qstep) = (0.0f64, 0.0f64, 0.0f64);
     // Error radii (B): e >= |z_exact - (A_m + delta)| with A the exact reference orbit,
     // ed on dz/dc. rc: the f64 offset's distance from the exact sample position.
     let (mut e, mut ed) = (0.0f64, 0.0f64);
@@ -211,21 +223,26 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     let mut nucleus = if B || n > 0 { None } else { nucleus };
     let mut contraction = Contraction::default();
     while n < max_iter {
-        // A block ends at the next Brent save point at the latest, so BLA saves (and so
-        // judges periodicity against) exactly the iterates the plain kernel does.
+        // A block ends at the next Brent save point (or the return being confirmed) at the
+        // latest, so BLA saves (and so judges periodicity against) exactly the iterates the
+        // plain kernel does: blocks never cover a judgeable iterate (`EPS_MAX`), so a
+        // deferred save lands on the same iterate in both.
         let block = match bla {
             // At phase zero A=0; use the actual pixel's 2z rather than that
             // reference-only derivative when measuring a nucleus return.
             Some(t) if L && !B && (nucleus.is_none() || m != 0) => t.find(
                 m,
                 xr * xr + xi * xi,
-                max_iter.min(chk).min(nucleus.map_or(u64::MAX, |p| {
-                    if n == 0 {
-                        1
+                max_iter
+                    .min(if hold > 0 {
+                        sn + hold
+                    } else if pending {
+                        u64::MAX
                     } else {
-                        p as u64 + 1
-                    }
-                })) - n,
+                        chk
+                    })
+                    .min(nucleus.map_or(u64::MAX, |p| if n == 0 { 1 } else { p as u64 + 1 }))
+                    - n,
             ),
             _ => None,
         };
@@ -234,6 +251,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
             if nucleus.is_some() && n >= 1 {
                 contraction.multiply(a_r, a_i, 0);
+            }
+            if !A::EXTENDED && hold > 0 {
+                mu.multiply(a_r, a_i);
             }
             if D {
                 let t = a_r * dr - a_i * di + b_r;
@@ -253,6 +273,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             let (fr, fi) = (zr[m] + scale * xr, zi[m] + scale * xi);
             if nucleus.is_some() && n >= 1 {
                 contraction.multiply(2.0 * fr, 2.0 * fi, 0);
+            }
+            if !A::EXTENDED && hold > 0 {
+                mu.multiply(2.0 * fr, 2.0 * fi);
             }
             if B {
                 let af = (fr * fr + fi * fi).sqrt() * (1.0 + 4.0 * U) + 1e-150; // >= |f|, f = z as computed
@@ -378,39 +401,152 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             resolvable(check_r, check_i, f2)
         };
         if !judge_cycle {
-            if n == chk || (A::EXTENDED && n > chk) {
-                (sr, si, sn, chk) = (fr, fi, n, chk * 2);
+            if A::EXTENDED {
+                if n >= chk {
+                    (sr, si, sn, chk) = (fr, fi, n, chk * 2);
+                }
+            } else if hold > 0 {
+                if n >= sn + hold {
+                    (hold, predicted, pending) = (0, false, true); // the return never came
+                }
+            } else if n >= chk {
+                pending = true;
             }
             continue;
         }
         let dist = (fr - sr).abs() + (fi - si).abs();
         let size = sr.abs() + si.abs();
-        if returns < 4 && dist < 1e-13 * size + 1e-300 {
+        if A::EXTENDED && returns < 4 && dist < 1e-13 * size + 1e-300 {
             // A near-exact return is interior only if the orbit contracts over it (a
             // settled attracting cycle): an exterior orbit shadowing a repelling cycle
             // (near a minibrot) returns as closely, but expands (FIX-02).
-            let dc_scale = if A::EXTENDED { exp2i(offset_exp) } else { 1.0 };
-            if contracting(r, m, check_r, check_i, ar * dc_scale, ai * dc_scale, n - sn) {
-                return if A::EXTENDED {
-                    Outcome::Unresolved
-                } else {
-                    Outcome::Interior { n }
-                };
+            // Extended only: on the ordinary tier deferred saves reach such returns far
+            // more often, and this one-period test classed escaping samples Interior
+            // (PERF-08: 74 on the PROB-22 frames); the ordinary tier confirms below.
+            if contracting(
+                r,
+                m,
+                check_r,
+                check_i,
+                ar * exp2i(offset_exp),
+                ai * exp2i(offset_exp),
+                n - sn,
+            ) {
+                return Outcome::Unresolved;
             }
             returns += 1;
         }
-        if !A::EXTENDED && tries < 4 && n >= newton_at && dist < 1e-3 * size {
-            if attracting(r, m, xr, xi, ar, ai, n - sn) {
-                return Outcome::Interior { n };
+        if !A::EXTENDED {
+            if dist < 1e-3 * size {
+                // A near-return. The save moves here and the next return of the same
+                // period measures the return map F's derivative mu along the way. If the
+                // orbit contracts over it, Newton on g(z) = F(z) - z predicts the cycle
+                // point from the saved one; Interior once two consecutive predictions agree:
+                // an attracting cycle pins it (the error shrinks quadratically), while an
+                // exterior orbit drifting past a ghost cycle (near-parabolic, |mu| < 1 but no
+                // fixed point) gives wandering predictions. An orbit settled to f64
+                // rounding agrees within that rounding.
+                let period = n - sn;
+                if hold == period && mu.below_one() {
+                    let (mr, mi) = mu.value();
+                    let (gr, gi) = (fr - sr, fi - si);
+                    let (er, ei) = (mr - 1.0, mi);
+                    let den = er * er + ei * ei;
+                    let (pr, pi) = (
+                        sr - (gr * er + gi * ei) / den,
+                        si - (gi * er - gr * ei) / den,
+                    );
+                    // Near a parabolic point a ghost's predictions drift by about
+                    // |1 - mu| / 2 of a step per return, so the tolerance scales with
+                    // |1 - mu|; a true attracting cycle's error keeps shrinking below it.
+                    let tol = (0.1 * den.sqrt()).min(1e-2) * qstep + 16.0 * U * size;
+                    if predicted && (pr - qr).abs() + (pi - qi).abs() <= tol {
+                        return Outcome::Interior { n };
+                    }
+                    (qr, qi, qstep) = (pr, pi, (gr.abs() + gi.abs()) / den.sqrt());
+                    predicted = true;
+                } else {
+                    predicted = false;
+                }
+                hold = period;
+                (sr, si, sn, pending) = (fr, fi, n, false);
+                mu = Multiplier::default();
+                continue;
             }
-            tries += 1;
-            newton_at = 4 * n;
+            if hold > 0 {
+                if n < sn + hold {
+                    continue;
+                }
+                (hold, predicted, pending) = (0, false, true); // the return never came
+            }
+            if pending || n >= chk {
+                chk = chk.max((n + 1).next_power_of_two());
+                (sr, si, sn, pending) = (fr, fi, n, false);
+            }
+            continue;
         }
         if n == chk || (A::EXTENDED && n > chk) {
             (sr, si, sn, chk) = (fr, fi, n, chk * 2);
         }
     }
     Outcome::Unresolved
+}
+
+/// Running complex product (the return multiplier) whose binary exponent is only
+/// renormalised when the f64 product leaves `[1e-120, 1e120]`: a few flops per step.
+#[derive(Clone, Copy)]
+struct Multiplier {
+    re: f64,
+    im: f64,
+    exp: i64,
+}
+
+impl Default for Multiplier {
+    fn default() -> Self {
+        Multiplier {
+            re: 1.0,
+            im: 0.0,
+            exp: 0,
+        }
+    }
+}
+
+impl Multiplier {
+    #[inline(always)]
+    fn multiply(&mut self, re: f64, im: f64) {
+        (self.re, self.im) = (self.re * re - self.im * im, self.re * im + self.im * re);
+        let a = self.re.abs().max(self.im.abs());
+        if !(a > 1e-120 && a < 1e120) {
+            self.renormalise(a);
+        }
+    }
+
+    #[cold]
+    fn renormalise(&mut self, a: f64) {
+        if a > 0.0 && a.is_finite() {
+            let e = a.log2().floor() as i64;
+            let scale = exp2i(-e);
+            (self.re, self.im, self.exp) = (self.re * scale, self.im * scale, self.exp + e);
+        }
+    }
+
+    /// The product as f64 (0 below the f64 range).
+    fn value(&self) -> (f64, f64) {
+        let scale = if self.exp < -1000 {
+            0.0
+        } else {
+            exp2i(self.exp.min(1000))
+        };
+        (self.re * scale, self.im * scale)
+    }
+
+    fn below_one(&self) -> bool {
+        self.re.is_finite()
+            && self.im.is_finite()
+            && (self.exp < -64
+                || (self.exp <= 64
+                    && (self.re * self.re + self.im * self.im) * exp2i(2 * self.exp) < 1.0))
+    }
 }
 
 /// Derivative of one nucleus return with respect to its initial state (not c).
@@ -655,7 +791,8 @@ mod tests {
         // could class a sample differently. Here (reference at the period-3 nucleus,
         // deltas tiny for thousands of steps) BLA said Interior at n = 36 where plain
         // iteration stays Unresolved. Blocks now end at the save points: the same
-        // judgements at the same iterates, so the same outcome.
+        // judgements at the same iterates, so the same outcome. (PERF-08: both now confirm
+        // the attracting 3-cycle at the same iterate instead of running to the cap.)
         let (cr, ci) = (-1.7548776662466927, 0.0);
         let r = Reference::new(cr, ci, 100_000, 1e10);
         for e in [1e-16, 1e-18] {
@@ -679,7 +816,11 @@ mod tests {
                     r.nucleus_period(),
                 );
                 assert_eq!(plain, fast, "{e} {k}");
-                assert!(skip.skipped > 10_000, "{e} {k}: {skip:?}");
+                assert!(
+                    matches!(plain, Outcome::Interior { .. }),
+                    "{e} {k}: {plain:?}"
+                );
+                assert!(skip.skipped > 0, "{e} {k}: {skip:?}");
             }
         }
         // The frame-749 sample (324, 10) of the v0 path (width 2e-49), which BLA classed

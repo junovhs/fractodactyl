@@ -64,51 +64,6 @@ pub(crate) fn contracting(
     map(r, m0, x0r, x0i, ar, ai, period).is_some_and(|(_, _, _, dr, di)| dr * dr + di * di < 1.0)
 }
 
-/// Newton for a period-`period` cycle point starting from the orbit point at reference
-/// phase `m0` with delta `(x0r, x0i)`. True iff it converges to a cycle whose
-/// multiplier has modulus < 1: an attracting cycle exists only for interior `c`.
-/// Converges in a few steps even where the orbit would take thousands of periods to settle.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn attracting(
-    r: &Reference,
-    m0: usize,
-    mut x0r: f64,
-    mut x0i: f64,
-    ar: f64,
-    ai: f64,
-    period: u64,
-) -> bool {
-    let (zr, zi) = (&r.re, &r.im);
-    let (mut first, mut prev) = (0.0, 0.0);
-    for it in 0..12 {
-        let Some((m, xr, xi, dr, di)) = map(r, m0, x0r, x0i, ar, ai, period) else {
-            return false; // left the disc: not a cycle point
-        };
-        // Newton on g(z) = f^P(z) - z: step = g / (D - 1).
-        let rr = (zr[m] + xr) - (zr[m0] + x0r);
-        let ri = (zi[m] + xi) - (zi[m0] + x0i);
-        let (er, ei) = (dr - 1.0, di);
-        let den = er * er + ei * ei;
-        if den == 0.0 || !den.is_finite() {
-            return false;
-        }
-        let sr = (rr * er + ri * ei) / den;
-        let si = (ri * er - rr * ei) / den;
-        x0r -= sr;
-        x0i -= si;
-        let st = sr.abs() + si.abs();
-        if it == 0 {
-            first = st;
-        } else if st <= 1e-7 * first || st < 1e-300 {
-            return dr * dr + di * di < 1.0;
-        } else if it >= 2 && st > 0.5 * prev {
-            return false; // not converging quadratically: wrong period
-        }
-        prev = st;
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

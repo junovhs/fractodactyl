@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Frames inside deep minibrots now finish fast: points that settle onto an attracting cycle are recognised as interior after a few cycles instead of being iterated to the iteration cap (a 1e-29 PROB-22 frame: 3.0 s to 0.4 s).
+
 - Experimental `--gpu-perturb bla` applies shared guarded BLA blocks with derivative uncertainty and reports actual skipped work. It remains default-off, Heuristic and currently slower than CPU BLA; original plain CPU restart and unchanged output admission remain.
 
 - Film camera paths, saved places and keyframes now support decimal widths down to `1e-1000`, preserving exact destination centers. `--depth-cap` allows a smaller limit (default and maximum 1000 decades); deeper film requests are refused before rendering.

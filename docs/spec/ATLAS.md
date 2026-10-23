@@ -252,7 +252,9 @@ and stops at the first failure. Odd `k` (and `m = 0`, where `Z_0 = 0`) take a pl
   periodicity at the same iterates against the same save points: classes match the plain
   kernel's (FIX-02; letting blocks land past a save point and saving there instead
   compared against other iterates and classed some samples differently). The cap costs
-  a few blocks per save point (17 save points up to 2^17 iterates).
+  a few blocks per save point (17 save points up to 2^17 iterates). On the ordinary tier a save point that is not judgeable is taken at the
+  next judgeable iterate, and a near-return being confirmed caps blocks at its period
+  (PERF-08); blocks never cover a judgeable iterate, so both land on the same iterates.
 - *Error:* `|delta_{m+l} - (A delta_m + B dc)| <= alpha |delta_m| + beta |dc|`
   (exact arithmetic, proved by induction over merges; `crates/fd-kernel/src/bla.rs`
   tests it against plain perturbation). A deviation `e` in `z` at iterate `n` moves the
