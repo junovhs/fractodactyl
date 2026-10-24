@@ -129,14 +129,16 @@ fn render_inner(
     let plane = Plane::new(view, p.nx, p.ny)?;
     // DEC-19: valid fixed scope before dispatch. Keep Bound evidence on CPU;
     // mantissa/exponent transport is never replaced by an absolute rounded centre.
+    // The stripe column (STYL-09) is a CPU kernel column.
     if p.columns.has(Column::Bound)
+        || p.columns.has(Column::Stripe)
         || plane.tier == Tier::Scaled
         || plane.h_e < -800
         || plane.h_e > 100
         || p.nx as u64 * p.ny as u64 > 65535 * 64
     {
         eprintln!(
-            "fd gpu-perturb: frame declined (bound/scaled/range/grid); CPU restart from zero"
+            "fd gpu-perturb: frame declined (bound/stripe/scaled/range/grid); CPU restart from zero"
         );
         return fd_kernel::render_with(view, p, orbit);
     }
@@ -552,6 +554,7 @@ fn window_main(@builtin(global_invocation_id) id:vec3<u32>){
             columns: ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let (expected_h, expected) = fd_kernel::render(&view, &p).unwrap();
         for use_bla in [false, true] {

@@ -17,6 +17,7 @@ pub fn columns(c: &Compiled) -> ColumnSet {
             "de" => set.with(Column::De),
             "gradient" => set.with(Column::De).with(Column::Normal),
             "normal" | "tangent" => set.with(Column::Normal),
+            "stripe" => set.with(Column::Stripe),
             _ => set,
         };
     }
@@ -159,6 +160,7 @@ impl StyleRenderer {
                 Column::Nu => s.nu.as_ref().map(Vec::len),
                 Column::De => s.de.as_ref().map(Vec::len),
                 Column::Normal => s.normal.as_ref().map(Vec::len),
+                Column::Stripe => s.stripe.as_ref().map(Vec::len),
                 _ => None,
             };
             if len != Some(n) {
@@ -168,6 +170,7 @@ impl StyleRenderer {
         if s.nu.as_ref().is_some_and(|v| v.len() != n)
             || s.de.as_ref().is_some_and(|v| v.len() != n)
             || s.normal.as_ref().is_some_and(|v| v.len() != n)
+            || s.stripe.as_ref().is_some_and(|v| v.len() != n)
         {
             return Err("inconsistent style sample columns".into());
         }
@@ -216,11 +219,16 @@ impl StyleRenderer {
             let nu = s.nu.as_ref().map_or(0.0, |v| v[i]).to_bits();
             let de = s.de.as_ref().map_or(0.0, |v| v[i]);
             let normal = s.normal.as_ref().map_or(0, |v| v[i]);
+            // Bits 18..32: the stripe average quantised to 14 bits (STYL-09).
+            let stripe = s
+                .stripe
+                .as_ref()
+                .map_or(0, |v| (v[i].clamp(0.0, 1.0) * 16383.0).round() as u32);
             raw.extend([
                 nu as u32,
                 (nu >> 32) as u32,
                 de.to_bits(),
-                normal as u32 | ((s.class[i].0 as u32 & 3) << 16),
+                normal as u32 | ((s.class[i].0 as u32 & 3) << 16) | (stripe << 18),
             ]);
         }
         let mut params = vec![0u32; 12 + 64 * 4 + 12 + 64];

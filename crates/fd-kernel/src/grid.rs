@@ -6,6 +6,7 @@ use crate::reference::Reference;
 use crate::sample::{iterate, perturb_from, Binary64Exponent, Outcome, Skip, Start};
 use crate::series::{Series, SeriesConfig};
 use crate::store::{Row, Store};
+use crate::stripe::{NoTrace, Stripe, StripeParams, Trace, MAX_WINDOW};
 use crate::view::{Plane, Tier};
 use fd_samples::{Column, ColumnSet, Header, Samples, View, MINOR};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,6 +33,8 @@ pub struct Params {
     pub threads: usize,
     /// Force a tier instead of the cheapest valid one (refused where it is invalid).
     pub tier: Option<Tier>,
+    /// Window and frequency of the `Stripe` column (unused without it).
+    pub stripe: StripeParams,
 }
 
 /// Work counters for one render (BASE-03). Independent of the thread count.
@@ -124,10 +127,13 @@ pub fn overlay_escaped(
     states: &[Option<EscapedState>],
 ) -> Result<(), String> {
     if p.columns.has(Column::Bound)
+        || p.columns.has(Column::Stripe)
         || states.len() != samples.class.len()
         || states.len() != p.nx as usize * p.ny as usize
     {
-        return Err("escaped overlay needs matching unbounded sample grid".into());
+        return Err(
+            "escaped overlay needs a matching sample grid without bound or stripe columns".into(),
+        );
     }
     let (plane, _) = setup(view, p)?;
     let store = Store::new(&plane, p.ss);
@@ -307,10 +313,10 @@ impl Series {
                 let mut skip = Skip::default();
                 let (i, j) = (index % p.nx as usize, index / p.nx as usize);
                 let result = match (job.deriv, job.bla.is_some()) {
-                    (true, true) => job.one::<true, false, true>(i, j, &mut skip),
-                    (true, false) => job.one::<true, false, false>(i, j, &mut skip),
-                    (false, true) => job.one::<false, false, true>(i, j, &mut skip),
-                    (false, false) => job.one::<false, false, false>(i, j, &mut skip),
+                    (true, true) => job.one::<true, false, true>(i, j, &mut skip, &mut NoTrace),
+                    (true, false) => job.one::<true, false, false>(i, j, &mut skip, &mut NoTrace),
+                    (false, true) => job.one::<false, false, true>(i, j, &mut skip, &mut NoTrace),
+                    (false, false) => job.one::<false, false, false>(i, j, &mut skip, &mut NoTrace),
                 };
                 std::hint::black_box(result);
             }
@@ -484,24 +490,21 @@ fn run(
         job.mask = mask;
         job.series = series.filter(|s| s.n > 0);
         let (deriv, bounded, blas) = (job.deriv, !job.q.is_empty(), job.bla.is_some());
+        let stripe = cols.has(Column::Stripe).then_some(p.stripe);
         std::thread::scope(|sc| {
             for _ in 0..p.threads.clamp(1, p.ny as usize) {
                 sc.spawn(|| {
                     let (mut its, mut b, mut shift) = (0, BlaStats::default(), 0.0f64);
+                    let mut trace = stripe.map(Stripe::new);
                     loop {
                         // let-else drops the lock guard before the row is filled.
                         let Some(row) = queue.lock().unwrap().next() else {
                             break;
                         };
-                        let sh = &mut shift;
-                        its += match (deriv, bounded, blas) {
-                            (_, true, _) => job.fill::<true, true, false>(row, &mut b, sh),
-                            (true, false, false) => job.fill::<true, false, false>(row, &mut b, sh),
-                            (false, false, false) => {
-                                job.fill::<false, false, false>(row, &mut b, sh)
-                            }
-                            (true, false, true) => job.fill::<true, false, true>(row, &mut b, sh),
-                            (false, false, true) => job.fill::<false, false, true>(row, &mut b, sh),
+                        let kind = (deriv, bounded, blas);
+                        its += match trace.as_mut() {
+                            Some(t) => job.fill_kind(kind, row, &mut b, &mut shift, t),
+                            None => job.fill_kind(kind, row, &mut b, &mut shift, &mut NoTrace),
                         };
                     }
                     iterations.fetch_add(its, Ordering::Relaxed);
@@ -610,9 +613,9 @@ impl<'a> Job<'a> {
     pub(crate) fn outcome(&self, i: usize, j: usize) -> Outcome {
         let skip = &mut Skip::default();
         match (self.deriv, !self.q.is_empty()) {
-            (_, true) => self.one::<true, true, false>(i, j, skip).0,
-            (true, false) => self.one::<true, false, false>(i, j, skip).0,
-            (false, false) => self.one::<false, false, false>(i, j, skip).0,
+            (_, true) => self.one::<true, true, false>(i, j, skip, &mut NoTrace).0,
+            (true, false) => self.one::<true, false, false>(i, j, skip, &mut NoTrace).0,
+            (false, false) => self.one::<false, false, false>(i, j, skip, &mut NoTrace).0,
         }
     }
 
@@ -622,15 +625,18 @@ impl<'a> Job<'a> {
         i: usize,
         j: usize,
         skip: &mut Skip,
+        trace: &mut impl Trace,
     ) -> (Outcome, u64) {
-        let first = self.one_from::<D, B, L>(i, j, skip, true);
+        trace.begin();
+        let first = self.one_from::<D, B, L>(i, j, skip, true, trace);
         let prefix = self
             .series
             .filter(|_| !B && first != Outcome::Interior { n: 0 })
             .map_or(0, |s| s.n);
         let mut spent = first.iterations(self.max_iter) - prefix;
         let result = if prefix > 0 && first == Outcome::Unresolved {
-            let ordinary = self.one_from::<D, B, L>(i, j, skip, false);
+            trace.begin();
+            let ordinary = self.one_from::<D, B, L>(i, j, skip, false, trace);
             spent += ordinary.iterations(self.max_iter);
             ordinary
         } else {
@@ -649,6 +655,7 @@ impl<'a> Job<'a> {
         j: usize,
         skip: &mut Skip,
         use_series: bool,
+        trace: &mut impl Trace,
     ) -> Outcome {
         let pl = self.plane;
         let h = pl.h();
@@ -682,6 +689,7 @@ impl<'a> Job<'a> {
                     self.r2,
                     self.nucleus,
                     start(ar, ai),
+                    trace,
                 )
             }
             Tier::Fixed => perturb_from::<D, B, L>(
@@ -696,6 +704,7 @@ impl<'a> Job<'a> {
                 self.r2,
                 self.nucleus,
                 start(ux * h, uy * h),
+                trace,
             ),
             Tier::Scaled => iterate::<Binary64Exponent, D, false, L>(
                 self.r,
@@ -710,7 +719,26 @@ impl<'a> Job<'a> {
                 self.r2,
                 self.nucleus,
                 Start::default(),
+                trace,
             ),
+        }
+    }
+
+    /// [`Job::fill`] with the kernel variant for `(derivative, bounded, bla)`.
+    fn fill_kind(
+        &self,
+        kind: (bool, bool, bool),
+        row: Row,
+        b: &mut BlaStats,
+        sh: &mut f64,
+        t: &mut impl Trace,
+    ) -> u64 {
+        match kind {
+            (_, true, _) => self.fill::<true, true, false>(row, b, sh, t),
+            (true, false, false) => self.fill::<true, false, false>(row, b, sh, t),
+            (false, false, false) => self.fill::<false, false, false>(row, b, sh, t),
+            (true, false, true) => self.fill::<true, false, true>(row, b, sh, t),
+            (false, false, true) => self.fill::<false, false, true>(row, b, sh, t),
         }
     }
 
@@ -722,6 +750,7 @@ impl<'a> Job<'a> {
         mut row: Row,
         b: &mut BlaStats,
         shift: &mut f64,
+        trace: &mut impl Trace,
     ) -> u64 {
         let mut its = 0;
         for i in 0..row.class.len() {
@@ -729,7 +758,7 @@ impl<'a> Job<'a> {
                 continue;
             }
             let mut skip = Skip::default();
-            let (o, spent) = self.one::<D, B, L>(i, row.j, &mut skip);
+            let (o, spent) = self.one::<D, B, L>(i, row.j, &mut skip, trace);
             its += spent;
             if L {
                 b.blocks += skip.blocks;
@@ -740,6 +769,7 @@ impl<'a> Job<'a> {
                 *shift = shift.max(skip.shift);
             }
             self.store.put(&mut row, i, o);
+            row.set_stripe(i, trace.value());
         }
         its
     }
@@ -749,6 +779,13 @@ impl<'a> Job<'a> {
 pub(crate) fn setup(view: &View, p: &Params) -> Result<(Plane, Tier), String> {
     if p.ss == 0 || !p.nx.is_multiple_of(p.ss) || !p.ny.is_multiple_of(p.ss) {
         return Err("grid must be a whole number of pixels".into());
+    }
+    if p.columns.has(Column::Stripe)
+        && (!(1..=MAX_WINDOW).contains(&p.stripe.window) || !p.stripe.freq.is_finite())
+    {
+        return Err(format!(
+            "stripe window must be 1..={MAX_WINDOW} and the frequency finite"
+        ));
     }
     let plane = Plane::new(view, p.nx, p.ny)?;
     let tier = p.tier.unwrap_or(plane.tier);

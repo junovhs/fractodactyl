@@ -191,6 +191,7 @@ mod tests {
                     "scaled" => Some(Tier::Scaled),
                     _ => None,
                 },
+                stripe: Default::default(),
             };
             let (r, _) = reference(&view, &p).unwrap();
             assert_eq!(

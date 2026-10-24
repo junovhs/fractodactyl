@@ -298,6 +298,7 @@ mod tests {
                 columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
                 threads: 8,
                 tier: None,
+                stripe: Default::default(),
             };
             let orbit = reference(&view, &p).unwrap();
             let rho = crate::grid::bla_dc_max(&view, &p).unwrap();
@@ -394,6 +395,7 @@ mod tests {
             columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De, Column::Normal]),
             threads: 8,
             tier: None,
+            stripe: Default::default(),
         };
         let frames = include_str!("../../../docs/2026-10-20/series-frames/results/frames.txt");
         let mut report = String::from("frame,width,selected,bla_tail,baseline_s,auto_s,speed\n");
@@ -666,6 +668,7 @@ mod tests {
             columns: ColumnSet::of(&[Column::Class, Column::Nu, Column::De]),
             threads: 2,
             tier: None,
+            stripe: Default::default(),
         };
         let orbit = reference(&view, &p).unwrap();
         assert!(orbit.0.nucleus_period().is_some());
@@ -706,6 +709,7 @@ mod tests {
             columns: ColumnSet::of(&[Column::Nu, Column::De]),
             threads: 2,
             tier: None,
+            stripe: Default::default(),
         };
         let (_, sp, _) = render_with(&view, &p, None).unwrap();
         let orbit = reference(&view, &p).unwrap();

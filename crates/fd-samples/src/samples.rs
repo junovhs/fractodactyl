@@ -16,6 +16,8 @@ pub struct Samples {
     pub normal: Option<Vec<u16>>,
     /// Error bound on `nu`.
     pub bound: Option<Vec<f32>>,
+    /// Stripe average.
+    pub stripe: Option<Vec<f32>>,
 }
 
 impl Samples {
@@ -27,6 +29,7 @@ impl Samples {
             de: set.has(Column::De).then(|| vec![0.0; n]),
             normal: set.has(Column::Normal).then(|| vec![0; n]),
             bound: set.has(Column::Bound).then(|| vec![0.0; n]),
+            stripe: set.has(Column::Stripe).then(|| vec![0.0; n]),
         }
     }
 
@@ -38,6 +41,7 @@ impl Samples {
             (Column::De, self.de.is_some()),
             (Column::Normal, self.normal.is_some()),
             (Column::Bound, self.bound.is_some()),
+            (Column::Stripe, self.stripe.is_some()),
         ] {
             if on {
                 s = s.with(c);

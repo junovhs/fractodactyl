@@ -252,10 +252,12 @@ impl Compiler<'_> {
                 self.result.sources.insert(a[0].clone());
                 let (ty, expr) = match a[0].as_str() {
                     "de" => (Scalar, "de"),
-                    "escaped" => (Scalar, "select(0.0,1.0,(s.w>>16u)==0u)"),
-                    "interior" => (Scalar, "select(0.0,1.0,(s.w>>16u)==1u)"),
-                    "unresolved" => (Scalar, "select(0.0,1.0,(s.w>>16u)==2u)"),
+                    "escaped" => (Scalar, "select(0.0,1.0,((s.w>>16u)&3u)==0u)"),
+                    "interior" => (Scalar, "select(0.0,1.0,((s.w>>16u)&3u)==1u)"),
+                    "unresolved" => (Scalar, "select(0.0,1.0,((s.w>>16u)&3u)==2u)"),
                     "nu" => (Scalar, "local_nu"),
+                    // STYL-09: the stripe column, 14 bits above the class.
+                    "stripe" => (Scalar, "f32(s.w >> 18u) / 16383.0"),
                     "normal" => (Vector, "normal"),
                     "gradient" => (Vector, "-normal * (2.0 / (max(de, 1e-20) * 0.69314718))"),
                     "tangent" => (Vector, "vec2<f32>(-normal.y, normal.x)"),
@@ -267,7 +269,7 @@ impl Compiler<'_> {
                 // the normal turn once per distance-to-boundary (style_band's rule).
                 let rate = match a[0].as_str() {
                     "de" => "style_de_rate()",
-                    "nu" => "style_nu_rate(de)",
+                    "nu" | "stripe" => "style_nu_rate(de)",
                     "normal" | "tangent" => "1.0 / style_samples(de)",
                     "gradient" => "{SELF_MAG} * 2.0 / style_samples(de)",
                     "position" => "1.0 / f32(p.dims.z)",
@@ -391,7 +393,7 @@ impl Compiler<'_> {
                         r#"
 fn style_field(i: u32, position: vec2<f32>, style_j: f32) -> {ty} {{
     let s=samples[i];
-    if ((s.w >> 16u)!=0u) {{return {ty}(0.0);}}
+    if (((s.w >> 16u) & 3u)!=0u) {{return {ty}(0.0);}}
     let fields=style_fields(i);
     let de=fields.de;
     let normal=fields.normal;

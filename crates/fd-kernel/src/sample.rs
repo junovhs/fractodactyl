@@ -8,6 +8,7 @@ use crate::interior::{contracting, in_main_components};
 pub(crate) use crate::number::Binary64Exponent;
 use crate::number::{Arithmetic, Binary64};
 use crate::reference::Reference;
+use crate::stripe::{on, Snap, Trace};
 use fd_fixed::exp2i;
 
 const HI: f64 = 4294967296.0;
@@ -136,6 +137,7 @@ pub(crate) fn perturb<const D: bool, const B: bool, const L: bool>(
         r2,
         nucleus,
         Start::default(),
+        &mut crate::stripe::NoTrace,
     )
 }
 
@@ -155,8 +157,11 @@ pub(crate) fn perturb_from<const D: bool, const B: bool, const L: bool>(
     r2: f64,
     nucleus: Option<usize>,
     start: Start,
+    trace: &mut impl Trace,
 ) -> Outcome {
-    iterate::<Binary64, D, B, L>(r, q, bla, skip, c, ar, ai, 0, max_iter, r2, nucleus, start)
+    iterate::<Binary64, D, B, L>(
+        r, q, bla, skip, c, ar, ai, 0, max_iter, r2, nucleus, start, trace,
+    )
 }
 
 // DEC-24: one perturbation loop, instantiated for each arithmetic representation.
@@ -175,6 +180,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     r2: f64,
     nucleus: Option<usize>,
     start: Start,
+    trace: &mut impl Trace,
 ) -> Outcome {
     debug_assert!(!A::EXTENDED || (!B && c.is_none()));
     debug_assert!(start.n == 0 || (!A::EXTENDED && !B && (start.n as usize) < r.len() - 1));
@@ -222,7 +228,13 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
     // skipped them, so it declines the heuristic (DEC-10).
     let mut nucleus = if B || n > 0 { None } else { nucleus };
     let mut contraction = Contraction::default();
-    while n < max_iter {
+    // Stripe column (STYL-09): while `replaying`, the loop re-walks plainly from a block
+    // start to record the iterates the blocks skipped, up to `limit`; `escape` holds the
+    // blocks' escaped outcome and its iterate. Only scalars are tested per iterate.
+    let (mut replaying, mut limit) = (false, max_iter);
+    trace.start(n);
+    let mut escape: Option<(Outcome, u64, f64, f64)> = None;
+    while n < limit {
         // A block ends at the next Brent save point (or the return being confirmed) at the
         // latest, so BLA saves (and so judges periodicity against) exactly the iterates the
         // plain kernel does: blocks never cover a judgeable iterate (`EPS_MAX`), so a
@@ -231,7 +243,7 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             // At phase zero A=0; use the actual pixel's 2z rather than that
             // reference-only derivative when measuring a nucleus return.
             // FIX-03: on the extended tier the radius test uses the physical delta.
-            Some(t) if L && !B && (nucleus.is_none() || m != 0) => t.find(
+            Some(t) if L && !B && !replaying && (nucleus.is_none() || m != 0) => t.find(
                 m,
                 if A::EXTENDED {
                     (xr * xr + xi * xi) * scale * scale
@@ -252,6 +264,22 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
             _ => None,
         };
         if let Some((b, len)) = block {
+            if on(trace) {
+                trace.snap(
+                    Snap {
+                        m,
+                        n,
+                        xr,
+                        xi,
+                        delta_exp,
+                        scale,
+                        dc_r,
+                        dc_i,
+                        valid: 0,
+                    },
+                    n + len as u64,
+                );
+            }
             // delta' = A delta + B dc, (dz/dc)' = A dz/dc + B.
             let ((a_r, a_i), (b_r, b_i)) = (b.a, b.b);
             if nucleus.is_some() && n >= 1 {
@@ -338,13 +366,16 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         let (physical_r, physical_i) = (scale * xr, scale * xi);
         let (fr, fi) = (zr[m] + physical_r, zi[m] + physical_i);
         let f2 = fr * fr + fi * fi;
+        if on(trace) {
+            trace.record(n, fr, fi);
+        }
         if f2 > r2 {
             let (ez, ed) = if B {
                 (e + q[m] + 4.0 * U * f2.sqrt(), ed)
             } else {
                 (f64::INFINITY, f64::INFINITY)
             };
-            return Outcome::Escaped {
+            let escaped = Outcome::Escaped {
                 n,
                 zr: fr,
                 zi: fi,
@@ -354,8 +385,25 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 ez,
                 ed,
             };
+            if on(trace) {
+                if let Some((first, ..)) = escape {
+                    trace.finish(n, fr, fi, r2);
+                    return first;
+                }
+                if let Some(s) = trace.rewind(n) {
+                    // Interior tests are off during the replay: it only re-walks iterates
+                    // to an escape the blocks already found (or gives up 64 past it).
+                    escape = Some((escaped, n, fr, fi));
+                    (replaying, limit) = (true, max_iter.min(n + 64));
+                    (m, n, xr, xi, delta_exp, scale, dc_r, dc_i) =
+                        (s.m, s.n, s.xr, s.xi, s.delta_exp, s.scale, s.dc_r, s.dc_i);
+                    continue;
+                }
+                trace.finish(n, fr, fi, r2);
+            }
+            return escaped;
         }
-        if nucleus.is_some_and(|p| n == p as u64 + 1) {
+        if !replaying && nucleus.is_some_and(|p| n == p as u64 + 1) {
             if contraction.small() {
                 return Outcome::Interior { n };
             }
@@ -393,6 +441,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                     (xr, xi, delta_exp) = zero_step((xr, xi, delta_exp), (ar, ai, offset_exp));
                     scale = exp2i(delta_exp);
                     (m, n) = (1, n + 1);
+                    if on(trace) {
+                        trace.start(n); // this step's iterate is not recorded
+                    }
                 }
                 let factor = exp2i(offset_exp - delta_exp);
                 (dc_r, dc_i) = (ar * factor, ai * factor);
@@ -415,6 +466,9 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
                 let factor = exp2i(offset_exp - delta_exp);
                 (dc_r, dc_i) = (ar * factor, ai * factor);
             }
+        }
+        if on(trace) && replaying {
+            continue;
         }
         // Until the delta is resolvable next to Z, z == Z in f64 and a periodic
         // reference would look like a settled cycle: judge nothing yet.
@@ -518,6 +572,10 @@ pub(crate) fn iterate<A: Arithmetic, const D: bool, const B: bool, const L: bool
         if n == chk || (A::EXTENDED && n > chk) {
             (sr, si, sn, chk) = (fr, fi, n, chk * 2);
         }
+    }
+    if let Some((first, at, zr, zi)) = escape {
+        trace.finish(at, zr, zi, r2); // from what was recorded
+        return first;
     }
     Outcome::Unresolved
 }
@@ -678,10 +736,14 @@ mod tests {
                 columns: ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
                 threads: 1,
                 tier: None,
+                stripe: Default::default(),
             };
             let (header, samples) = crate::render(&view, &params).unwrap();
             let mut bytes = Vec::new();
             fd_samples::write(&mut bytes, &header, &samples).unwrap();
+            // The format minor (bytes 10..12) rose to 1 for the stripe column (STYL-09);
+            // the hashes guard the kernel's samples, recorded under minor 0.
+            bytes[10..12].copy_from_slice(&0u16.to_le_bytes());
             let hash = bytes.iter().fold(0xcbf29ce484222325u64, |h, b| {
                 (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
             });
@@ -744,6 +806,91 @@ mod tests {
         match (a, b) {
             (Outcome::Escaped { n: x, .. }, Outcome::Escaped { n: y, .. }) => assert_eq!(x, y),
             o => panic!("{o:?}"),
+        }
+    }
+
+    /// Stripe value of one sample with `bla` (or plain), and its outcome.
+    fn striped(r: &Reference, bla: Option<&Bla>, ar: f64, ai: f64) -> (Outcome, f32) {
+        let mut t = crate::stripe::Stripe::new(crate::stripe::StripeParams::default());
+        t.begin();
+        let skip = &mut Skip::default();
+        let o = match bla {
+            Some(_) => perturb_from::<true, false, true>(
+                r,
+                &[],
+                bla,
+                skip,
+                None,
+                ar,
+                ai,
+                100_000,
+                1e20,
+                r.nucleus_period(),
+                Start::default(),
+                &mut t,
+            ),
+            None => perturb_from::<true, false, false>(
+                r,
+                &[],
+                None,
+                skip,
+                None,
+                ar,
+                ai,
+                100_000,
+                1e20,
+                r.nucleus_period(),
+                Start::default(),
+                &mut t,
+            ),
+        };
+        (o, t.value())
+    }
+
+    #[test]
+    fn stripe_matches_direct_iteration_and_survives_bla_blocks() {
+        // Direct f64 iteration of a shallow sample: the last-16 average, interpolated.
+        let (cr, ci) = (-0.743, 0.1312);
+        let r = Reference::new(cr, ci, 100_000, 1e10);
+        let (ar, ai) = (2e-5, -1e-5);
+        let (mut zr, mut zi, mut terms) = (0.0f64, 0.0f64, Vec::new());
+        let want = loop {
+            (zr, zi) = (zr * zr - zi * zi + cr + ar, 2.0 * zr * zi + ci + ai);
+            terms.push(0.5 + 0.5 * (5.0 * zi.atan2(zr)).sin());
+            let f2 = zr * zr + zi * zi;
+            if f2 > 1e20 {
+                let n = terms.len();
+                let now = terms[n - 16..].iter().sum::<f64>() / 16.0;
+                let before = terms[n - 17..n - 1].iter().sum::<f64>() / 16.0;
+                let frac = (1.0 - (f2.ln() / 1e20f64.ln()).log2()).clamp(0.0, 1.0);
+                break before * (1.0 - frac) + now * frac;
+            }
+        };
+        let (_, got) = striped(&r, None, ar, ai);
+        assert!((f64::from(got) - want).abs() < 1e-4, "{got} {want}");
+
+        // BLA blocks skip iterates; the rewind replays them, and recording never
+        // changes the outcome.
+        let r = Reference::new(0.2501, 0.0, 100_000, 1e10);
+        let bla = Bla::build(&r, crate::bla::EPS_MAX, 2e-17).unwrap();
+        for (ar, ai) in [(1e-17, 0.0), (-1e-17, 1e-17), (0.0, -1.4e-17)] {
+            let (plain_o, plain) = striped(&r, None, ar, ai);
+            let (fast_o, fast) = striped(&r, Some(&bla), ar, ai);
+            let untraced = perturb::<true, false, true>(
+                &r,
+                &[],
+                Some(&bla),
+                &mut Skip::default(),
+                None,
+                ar,
+                ai,
+                100_000,
+                1e20,
+                r.nucleus_period(),
+            );
+            assert_eq!(fast_o, untraced);
+            assert!(matches!(plain_o, Outcome::Escaped { .. }));
+            assert!(plain > 0.0 && (plain - fast).abs() < 1e-4, "{plain} {fast}");
         }
     }
 
@@ -1011,6 +1158,7 @@ mod exponent_tests {
             r2,
             r.nucleus_period(),
             Start::default(),
+            &mut crate::stripe::NoTrace,
         )
     }
 

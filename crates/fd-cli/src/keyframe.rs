@@ -676,6 +676,7 @@ mod tests {
             columns: crate::render::columns("nu").unwrap(),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let mut k = Keyframes::new("0", "0", 4.0, (320, 180), 2, &p, None, None);
         k.cover_rotations(2.05).unwrap();
@@ -701,6 +702,7 @@ mod tests {
             columns: crate::render::columns("nu").unwrap(),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let k = Keyframes::new("0", "0", 4.0, (2, 2), 2, &p, None, None);
         assert_eq!(k.octave(4.0), 0);

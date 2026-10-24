@@ -323,7 +323,7 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){{
                     Kind::Color => format!("vec4<f32>(clean_color({}),0.0)", source.value),
                 };
                 if source.masked {
-                    format!("select(vec4<f32>(mark,0.0), {value}, vec4<bool>((s.w>>16u)==0u))")
+                    format!("select(vec4<f32>(mark,0.0), {value}, vec4<bool>(((s.w>>16u)&3u)==0u))")
                 } else {
                     value
                 }
@@ -350,7 +350,7 @@ struct Raster {{ {members} }}
 fn evaluate(i:u32,position:vec2<f32>,style_j:f32)->Raster {{
  let s=samples[i];
  var mark=vec3<f32>(0.0);
- if ((s.w>>16u)!=0u && (s.w>>16u)!=1u && p.dims.w==0u) {{mark=vec3<f32>(0.25,0.0,0.25);}}
+ if (((s.w>>16u)&3u)!=0u && ((s.w>>16u)&3u)!=1u && p.dims.w==0u) {{mark=vec3<f32>(0.25,0.0,0.25);}}
  let fields=style_fields(i);let de=fields.de;let normal=fields.normal;let local_nu=fields.local_nu;
  {body}
  return Raster({values});

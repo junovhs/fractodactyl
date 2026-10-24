@@ -556,7 +556,7 @@ impl Zone {
         else {
             return Err("zone constant exponents exceed the GPU's i32 range".into());
         };
-        let cols = p.columns.with(Column::Class);
+        let cols = p.columns.without(Column::Stripe).with(Column::Class);
         let mut hd = header(view, p, cols, &plane, tier);
         hd.kernel = format!("zone-vulkan-f64/1 P={}", self.period);
         Ok((hd, v, exps))
@@ -598,7 +598,7 @@ impl Zone {
         if !v.iter().all(|x| x.is_finite()) {
             return Err("wgpu mid zone constants are non-finite".into());
         }
-        let cols = p.columns.with(Column::Class);
+        let cols = p.columns.without(Column::Stripe).with(Column::Class);
         let mut hd = header(view, p, cols, &plane, tier);
         hd.kernel = format!("zone-mid-vulkan-f64/1 P={}", self.period);
         Ok((hd, v))
@@ -780,6 +780,7 @@ mod tests {
             columns: fd_samples::ColumnSet::of(columns),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         }
     }
 

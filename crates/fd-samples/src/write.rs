@@ -16,6 +16,7 @@ pub fn write<W: Write>(mut w: W, h: &Header, s: &Samples) -> Result<()> {
         s.de.as_ref().map(Vec::len),
         s.normal.as_ref().map(Vec::len),
         s.bound.as_ref().map(Vec::len),
+        s.stripe.as_ref().map(Vec::len),
     ];
     if lens.iter().flatten().any(|&l| l != n) {
         return Err(bad("column length does not match nx * ny"));
@@ -33,6 +34,9 @@ pub fn write<W: Write>(mut w: W, h: &Header, s: &Samples) -> Result<()> {
         put(&mut w, &mut buf, v.iter().map(|x| x.to_le_bytes()))?;
     }
     if let Some(v) = &s.bound {
+        put(&mut w, &mut buf, v.iter().map(|x| x.to_le_bytes()))?;
+    }
+    if let Some(v) = &s.stripe {
         put(&mut w, &mut buf, v.iter().map(|x| x.to_le_bytes()))?;
     }
     w.flush()

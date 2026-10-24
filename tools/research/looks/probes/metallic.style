@@ -1,0 +1,30 @@
+# Probe C (images 9, 10, 13): combed metal feathers. The stripe average (STYL-09) sets
+# the fibre pattern; light on the normal gives the relief; a cool tint in the grooves.
+version 1
+surface metal
+emission none
+black = color #000000
+steel = color #1c2128
+silver = color #d8dde4
+ice = color #6f9fd8
+zero = scalar 0
+lo = param 0.25
+hi = param 0.75
+stripe = source stripe
+normal = source normal
+de = source de
+fibre = smoothstep lo hi stripe
+base = mix steel silver fibre
+groove0 = sub hi fibre
+groove = clamp groove0 zero hi
+tint_gain = param 0.6
+tint_amount = mul groove tint_gain
+tinted = mix base ice tint_amount
+slope = param 1.6
+sun = vector -0.6 0.8
+relief = light normal slope sun
+lit = mul tinted relief
+edge_w = param 1.5
+near = boundary de edge_w
+metal = mul lit near
+none = mul black zero

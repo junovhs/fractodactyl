@@ -118,6 +118,7 @@ fn gpu_perturb_checkpoints() {
             columns: ColumnSet::of(&[Column::Nu]),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let (r, _) = reference(&view, &p).unwrap();
         let plane = Plane::new(&view, 32, 18).unwrap();
@@ -373,6 +374,7 @@ fn main(@builtin(global_invocation_id) id:vec3<u32>){let i=id.x;let a=24u*i;if(a
             columns: ColumnSet::of(&[Column::Nu]),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let (r, _) = reference(&view, &p).unwrap();
         let plane = Plane::new(&view, 128, 72).unwrap();

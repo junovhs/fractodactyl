@@ -57,6 +57,7 @@ pub fn load(path: &Path, threads: usize) -> Result<Case, String> {
         threads,
         columns: ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
         tier: None,
+        stripe: Default::default(),
     };
     let bits: u32 = number(fields[11])?;
     if params.nx == 0

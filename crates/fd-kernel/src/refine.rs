@@ -66,8 +66,10 @@ pub fn render_refined(
     let t = Instant::now();
     let reference = compute(view, &plane, tier, p)?;
     let reference_seconds = t.elapsed().as_secs_f64();
+    // The stripe column comes from the per-sample kernel only (STYL-09).
     let cols = p
         .columns
+        .without(Column::Stripe)
         .with(Column::Class)
         .with(Column::De)
         .with(Column::Bound);
@@ -247,6 +249,7 @@ mod tests {
             columns: ColumnSet::of(&[Column::Bound]),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let (_, s, _, r) = render_refined(&view, &p, 2, 1e6).unwrap();
         assert_eq!(r.dense.samples, 0, "no samples were copied");

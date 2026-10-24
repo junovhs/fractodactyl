@@ -284,6 +284,7 @@ mod tests {
             columns: crate::render::columns("nu,de,normal").unwrap(),
             threads: 2,
             tier: None,
+            stripe: Default::default(),
         };
         let (_, s) = render(&view, &p).unwrap();
         (s, w, h)
@@ -363,6 +364,7 @@ mod bench {
             columns: crate::render::columns("nu,de,normal").unwrap(),
             threads: 4,
             tier: None,
+            stripe: Default::default(),
         };
         let (_, s) = fd_kernel::render(&view, &p).unwrap();
         for _ in 0..3 {

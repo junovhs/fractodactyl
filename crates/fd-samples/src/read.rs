@@ -81,6 +81,11 @@ impl Reader {
         if want.has(Column::Bound) {
             s.bound = Some(self.col(Column::Bound, |b| f32::from_le_bytes(b.try_into().unwrap()))?);
         }
+        if want.has(Column::Stripe) {
+            s.stripe = Some(self.col(Column::Stripe, |b| {
+                f32::from_le_bytes(b.try_into().unwrap())
+            })?);
+        }
         debug_assert!(s.class.len() == n);
         Ok(s)
     }

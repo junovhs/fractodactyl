@@ -26,6 +26,7 @@ mod refine;
 mod sample;
 mod series;
 mod store;
+mod stripe;
 mod view;
 mod zone;
 
@@ -41,5 +42,6 @@ pub use reference::Reference;
 pub use refine::{render_refined, Phase, Refinement, DENSE, FALLBACK, FINAL, PREVIEW, SPARSE};
 pub use series::{Series, SeriesConfig};
 pub use store::external_escape_ok;
+pub use stripe::{StripeParams, MAX_WINDOW as STRIPE_MAX_WINDOW};
 pub use view::{Plane, Tier};
 pub use zone::{zone_covers, Zone};

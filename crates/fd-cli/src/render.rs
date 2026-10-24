@@ -2,15 +2,27 @@
 use crate::args::Args;
 use fd_kernel::{
     render_bla, render_refined, render_with, zone_covers, BlaStats, Params, Refinement, Stats,
-    Tier, Zone, FINAL,
+    StripeParams, Tier, Zone, FINAL,
 };
 use fd_samples::{write, Column, ColumnSet, View};
 use std::io::BufWriter;
 use std::time::Instant;
 
 /// Flags shared by `fd render` and `fd bench`.
-pub(crate) const FLAGS: [&str; 11] = [
-    "re", "im", "width", "size", "ss", "iter", "columns", "threads", "rotation", "kernel", "o",
+pub(crate) const FLAGS: [&str; 13] = [
+    "re",
+    "im",
+    "width",
+    "size",
+    "ss",
+    "iter",
+    "columns",
+    "threads",
+    "rotation",
+    "kernel",
+    "o",
+    "stripe-window",
+    "stripe-freq",
 ];
 
 pub(crate) fn run(argv: &[String]) -> Result<(), String> {
@@ -41,6 +53,14 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     let gpu_perturb = crate::perturb_gpu::enabled(a.str("gpu-perturb"))?;
     let out = a.need("o")?;
     let (view, p) = job(&a)?;
+    if p.columns.has(Column::Stripe)
+        && (gpu_perturb || a.str("zone").is_some() || a.str("refine").is_some())
+    {
+        return Err(
+            "the stripe column comes from the CPU perturbation kernel: not with --zone, --refine or --gpu-perturb"
+                .into(),
+        );
+    }
     // `--orbit ID`: a stored reference orbit for this exact centre instead of computing it.
     let orbit = match a.str("orbit") {
         Some(id) => Some(crate::orbit::load(&crate::chunk::store(&a)?, id, &view)?),
@@ -255,6 +275,16 @@ pub(crate) fn params(a: &Args) -> Result<Params, String> {
         columns: columns(a.str("columns").unwrap_or("nu,de,normal"))?,
         threads,
         tier: tier(a.str("kernel").unwrap_or("auto"))?,
+        stripe: stripe(a)?,
+    })
+}
+
+/// `--stripe-window K --stripe-freq k` (STYL-09; defaults 16 and 5).
+pub(crate) fn stripe(a: &Args) -> Result<StripeParams, String> {
+    let d = StripeParams::default();
+    Ok(StripeParams {
+        window: a.num("stripe-window", d.window)?,
+        freq: a.num("stripe-freq", d.freq)?,
     })
 }
 
@@ -279,18 +309,24 @@ fn tier(s: &str) -> Result<Option<Tier>, String> {
     }
 }
 
+/// `--columns a,b,...`; a leading `+` adds to the default `nu,de,normal`.
 pub(crate) fn columns(s: &str) -> Result<ColumnSet, String> {
-    s.split(',')
+    let (start, list) = match s.strip_prefix('+') {
+        Some(rest) => (columns("nu,de,normal")?, rest),
+        None => (ColumnSet::of(&[Column::Class]), s),
+    };
+    list.split(',')
         .filter(|c| !c.is_empty())
-        .try_fold(ColumnSet::of(&[Column::Class]), |set, c| {
+        .try_fold(start, |set, c| {
             let col = match c {
                 "nu" => Column::Nu,
                 "de" => Column::De,
                 "normal" => Column::Normal,
                 "bound" => Column::Bound,
+                "stripe" => Column::Stripe,
                 _ => {
                     return Err(format!(
-                        "--columns: unknown column {c:?} (nu, de, normal, bound)"
+                        "--columns: unknown column {c:?} (nu, de, normal, bound, stripe)"
                     ))
                 }
             };

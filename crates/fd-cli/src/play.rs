@@ -428,6 +428,7 @@ fn frame(
         columns: ColumnSet(fm.columns),
         threads,
         tier: None,
+        stripe: Default::default(),
     };
     for (name, pass) in looks {
         let need = pass.columns().with(fd_samples::Column::Class);

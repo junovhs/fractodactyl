@@ -470,6 +470,7 @@ fn render(query: &str, server: &Server) -> Result<Option<Image>, String> {
         },
         threads: server.threads,
         tier: None,
+        stripe: Default::default(),
     };
     let mut gpu = server.render.lock().unwrap_or_else(|e| e.into_inner());
     if generation < server.latest.load(Ordering::SeqCst) {

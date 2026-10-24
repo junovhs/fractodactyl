@@ -24,4 +24,4 @@ pub const MAGIC: [u8; 8] = *b"FDSAMPLE";
 /// Bumped for any change in the meaning or layout of existing fields.
 pub const MAJOR: u16 = 1;
 /// Bumped for additive changes (new optional columns) that old readers may ignore.
-pub const MINOR: u16 = 0;
+pub const MINOR: u16 = 1;

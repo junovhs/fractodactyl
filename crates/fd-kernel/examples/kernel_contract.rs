@@ -23,6 +23,7 @@ fn params(nx: u32, ny: u32, max_iter: u64, tier: Option<Tier>) -> Params {
         columns: ColumnSet::of(&[Column::Nu, Column::De, Column::Normal]),
         threads: 1,
         tier,
+        stripe: Default::default(),
     }
 }
 

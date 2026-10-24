@@ -84,7 +84,7 @@ fn style_weight(sample_xy: vec2<u32>, pixel: vec2<u32>) -> f32 {
 // GRAPH_HELPERS
 fn evaluate(i: u32, position: vec2<f32>, style_j: f32) -> Layer {
     let s = samples[i];
-    let kind = s.w >> 16u;
+    let kind = (s.w >> 16u) & 3u;
     if (kind != 0u) {
         var color = vec3<f32>(0.0);
         if (kind != 1u && p.dims.w == 0u) { color = vec3<f32>(0.25, 0.0, 0.25); }

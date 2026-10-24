@@ -676,7 +676,8 @@ impl Renderer {
         // After prepare: opening the device may have switched to the f32-only kernel.
         header.kernel = header.kernel.replace("vulkan-f64", self.mode.kernel_tag());
         let gpu = self.gpu.as_ref().unwrap();
-        let mut samples = Samples::alloc(count, p.columns.with(Column::Class));
+        let cols = p.columns.without(Column::Stripe).with(Column::Class);
+        let mut samples = Samples::alloc(count, cols);
         let t = Instant::now();
         let (execute, unpack) = gpu.dispatch(&constants, count, |raw| {
             let execute = t.elapsed();

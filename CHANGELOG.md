@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Style graphs can read a new `stripe` source: the combed fibre/feather texture from the last iterations before escape. Render the samples with `fd render`/`fd bench --columns +stripe` (`--stripe-window K`, default 16; `--stripe-freq k`, default 5); `fd film --style` adds it automatically when the graph uses it. It costs about 8% more render time and nothing when unused.
+
 - `fd film --style GRAPH.style` makes films with style-graph looks (the styling workspace's engine), with `--set` for its parameters and `--bloom` for glow.
 
 - Style graphs (`fd style`, the styling workspace) no longer speckle in dense filament areas: colours and lighting that change faster than a sample now show their average, about half as far from an exact render as before.

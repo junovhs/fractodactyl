@@ -255,6 +255,8 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         "gpu-kernel",
         "raw-dir",
         "jet-aa",
+        "stripe-window",
+        "stripe-freq",
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
@@ -454,6 +456,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             std::thread::available_parallelism().map_or(1, |n| n.get()),
         )?,
         tier: None,
+        stripe: Default::default(),
     };
     // STYL-10: --style shades with a style graph instead of a --look.
     let style = match a.str("style") {
@@ -478,6 +481,12 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         },
     };
     let style_failed = || style.as_ref().and_then(|s| s.error());
+    // STYL-09: a style graph reading `source stripe` gets the stripe column.
+    let mut p = p;
+    if look.columns().has(fd_samples::Column::Stripe) {
+        p.columns = p.columns.with(fd_samples::Column::Stripe);
+        p.stripe = crate::render::stripe(&a)?;
+    }
     base.aa = a.str("aa").is_none_or(|v| v == "on");
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     base.dither = a.str("dither").is_none_or(|v| v == "on");
@@ -1582,6 +1591,7 @@ mod tests {
             columns: fd_samples::ColumnSet::default(),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let mut report = Report::default();
         report
@@ -1839,6 +1849,7 @@ mod tests {
             columns: columns("nu,de,normal").unwrap(),
             threads: 1,
             tier: None,
+            stripe: Default::default(),
         };
         let look = fd_shade::by_name("studio").unwrap();
         let render = |begin: f64, end: f64| {
@@ -1890,6 +1901,7 @@ mod tests {
             columns: columns("nu,de,normal").unwrap(),
             threads: 4,
             tier: None,
+            stripe: Default::default(),
         };
         let deep = View {
             center_re: RE.into(),

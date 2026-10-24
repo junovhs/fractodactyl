@@ -26,7 +26,7 @@ All sections start on an 8-byte boundary; padding bytes are zero.
 |---:|---|---|
 | 0 | `[u8; 8]` | magic `FDSAMPLE` |
 | 8 | `u16` | major version (`1`) — a reader refuses other majors |
-| 10 | `u16` | minor version (`0`) — additive changes only |
+| 10 | `u16` | minor version (`1`; `0` before the `stripe` column) — additive changes only |
 | 12 | `u32` | column bitmask (below); bit 0 must be set |
 | 16 | `u32` | `nx`: samples per row |
 | 20 | `u32` | `ny`: rows |
@@ -63,13 +63,14 @@ separate, axis-aligned form: see ADDRESS.md.
 | 2 | `de` | `f32` | 4 | exterior distance estimate `2|z_n| ln|z_n| / |∂z_n/∂c|`, in output pixels |
 | 3 | `normal` | `u16` | 2 | screen-space angle of `z_n / (∂z_n/∂c)`, in turns × 65536 (x right, y down) |
 | 4 | `bound` | `f32` | 4 | absolute error bound on `nu`; only with evidence ≥ Bounded (0 otherwise; LOD.md) |
+| 5 | `stripe` | `f32` | 4 | stripe average: mean of `0.5 + 0.5 sin(k arg z_i)` over the last `K` iterates up to `z_n`, interpolated with `1 − log2(ln|z_n| / ln R)` from the window ending at `z_{n−1}` (minor 1; STYL-09) |
 
 `n` is the number of iterations taken when `|z_n|` first exceeds the escape radius.
 `nu`, `de` and `normal` are meaningful only for `Escaped` samples; writers store 0
 for the others. `nu` is `f64` because deep zooms reach millions of iterations, where
 `f32` would leave too few bits for the fractional part. `de` and `normal` drive shading
 only, so `f32` and a 16-bit angle (≈1e-4 rad) are well below what a pixel can show.
-All columns together cost 15 bytes per sample; omitted columns cost nothing.
+The v0 columns together cost 15 bytes per sample (19 with `stripe`); omitted columns cost nothing.
 
 The `de` value is the standard derivative estimate. Asymptotically the true distance
 lies within `[de/4, de]`, but in floating point it is a **heuristic**: it may guide
@@ -259,6 +260,7 @@ and `peak_rss_scope: "process"` because neither measurement nor reset is availab
 ```text
 fd render --re X --im Y --width W [--size WxH] [--ss N] [--iter N]
           [--columns nu,de,normal] [--threads N] [--rotation R]
+          [--stripe-window K] [--stripe-freq k]
           [--kernel auto|f64|fx|scaled] -o out.fds
 fd bench <render flags> [--runs N] [-o out.fds] [--oracle tools/oracle.py [--k K]]
 fd control PATH <render flags but the view> [--bla none|per-frame] [--runs N] [-o DIR] [--oracle tools/oracle.py [--every N] [--k K]]

@@ -12,6 +12,7 @@ pub(crate) struct Row<'a> {
     de: Option<&'a mut [f32]>,
     normal: Option<&'a mut [u16]>,
     bound: Option<&'a mut [f32]>,
+    stripe: Option<&'a mut [f32]>,
 }
 
 impl<'a> Row<'a> {
@@ -21,6 +22,7 @@ impl<'a> Row<'a> {
         let mut de = s.de.as_deref_mut().map(|v| v.chunks_mut(nx));
         let mut normal = s.normal.as_deref_mut().map(|v| v.chunks_mut(nx));
         let mut bound = s.bound.as_deref_mut().map(|v| v.chunks_mut(nx));
+        let mut stripe = s.stripe.as_deref_mut().map(|v| v.chunks_mut(nx));
         (s.class.chunks_mut(nx).enumerate())
             .map(|(j, class)| Row {
                 j,
@@ -29,8 +31,17 @@ impl<'a> Row<'a> {
                 de: de.as_mut().and_then(Iterator::next),
                 normal: normal.as_mut().and_then(Iterator::next),
                 bound: bound.as_mut().and_then(Iterator::next),
+                stripe: stripe.as_mut().and_then(Iterator::next),
             })
             .collect()
+    }
+
+    /// Store sample `i`'s stripe average, if the column is present.
+    #[inline]
+    pub(crate) fn set_stripe(&mut self, i: usize, v: f32) {
+        if let Some(s) = self.stripe.as_deref_mut() {
+            s[i] = v;
+        }
     }
 }
 

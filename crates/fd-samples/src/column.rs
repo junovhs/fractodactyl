@@ -17,16 +17,20 @@ pub enum Column {
     Normal = 3,
     /// `f32` absolute error bound on `nu`. Present only when evidence >= Bounded.
     Bound = 4,
+    /// `f32` stripe average over the last iterates before escape (STYL-09), in `[0, 1]`.
+    /// Escaped samples only.
+    Stripe = 5,
 }
 
 impl Column {
-    /// Every v1 column, in file (bit) order.
-    pub const ALL: [Column; 5] = [
+    /// Every known column, in file (bit) order.
+    pub const ALL: [Column; 6] = [
         Column::Class,
         Column::Nu,
         Column::De,
         Column::Normal,
         Column::Bound,
+        Column::Stripe,
     ];
 
     /// Bytes per element.
@@ -35,7 +39,7 @@ impl Column {
         match self {
             Column::Class => 1,
             Column::Nu => 8,
-            Column::De | Column::Bound => 4,
+            Column::De | Column::Bound | Column::Stripe => 4,
             Column::Normal => 2,
         }
     }
@@ -64,6 +68,11 @@ impl ColumnSet {
     #[inline]
     pub fn has(self, c: Column) -> bool {
         self.0 & c.bit() != 0
+    }
+
+    /// The set without `c`.
+    pub fn without(self, c: Column) -> ColumnSet {
+        ColumnSet(self.0 & !c.bit())
     }
 
     /// The set plus `c`.
