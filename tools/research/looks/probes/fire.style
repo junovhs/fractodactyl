@@ -1,0 +1,40 @@
+# Probe A (image 5): fire filaments on black. Hue from distance to the set, not iteration density.
+version 1
+surface lit
+emission glow
+black = color #000000
+red = color #c81400
+orange = color #ff7a10
+yellow = color #ffd84a
+white = color #fff6e8
+normal = source normal
+de = source de
+one = scalar 1
+k0_15 = scalar 0.15
+k0_55 = scalar 0.55
+k0_9 = scalar 0.9
+k1_0 = scalar 1.0
+half = scalar 0.5
+tau = scalar 6.2831853
+near_w = param 3
+near = boundary de near_w
+ld = log de
+ls = param 0.9
+lt = mul ld ls
+lc = cos lt
+lw0 = mul lc half
+w = add lw0 half
+s1 = smoothstep k0_15 k0_55 w
+s2 = smoothstep k0_55 k0_9 w
+c1 = mix red orange s1
+c2 = mix c1 yellow s2
+s3 = smoothstep k0_9 k1_0 w
+fire = mix c2 white s3
+slope = param 2.0
+sun = vector -0.7 0.7
+relief = light normal slope sun
+shaded = mul fire relief
+lit = mul shaded near
+gg = param 0.15
+glow0 = mul fire near
+glow = mul glow0 gg

@@ -272,6 +272,7 @@ impl StyleRenderer {
             include_str!("shade.wgsl")
                 .replace("// GRAPH_BODY", &graph.body)
                 .replace("// GRAPH_HELPERS", &graph.helpers)
+                .replace("1u; // GRAPH_TAPS", &format!("{}u;", graph.taps))
                 .replace(
                     "// GRAPH_RETURN",
                     &format!(

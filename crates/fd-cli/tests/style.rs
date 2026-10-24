@@ -439,6 +439,31 @@ fn inspect(text: &str, name: &str) -> std::process::Output {
 }
 
 #[test]
+fn fast_periodic_values_spread_over_their_cycle_and_constant_ones_do_not() {
+    use fd_shade::style::{Graph, STYLE_TAPS};
+    let head = "version 1\nsurface out\nemission out\nwhite = color #ffffff\n";
+    let compile = |body: &str| {
+        Graph::parse(&format!("{head}{body}"))
+            .unwrap()
+            .compile()
+            .unwrap()
+    };
+    // cos of log de turns faster than a sample near the boundary: spread over the taps.
+    let fast = compile("de = source de\nld = log de\nw = cos ld\nout = mul white w\n");
+    assert_eq!(fast.taps, STYLE_TAPS);
+    assert!(fast.body.contains("style_j"), "{}", fast.body);
+    // A lit normal is spread the same way.
+    let lit = compile(
+        "n = source normal\nk = scalar 2\nsun = vector 1 0\nl = light n k sun\nout = mul white l\n",
+    );
+    assert_eq!(lit.taps, STYLE_TAPS);
+    // A constant argument never changes between samples: one evaluation, no spread.
+    let still = compile("x = scalar 0.3\nw = cos x\nout = mul white w\n");
+    assert_eq!(still.taps, 1);
+    assert!(!still.body.contains("style_j"), "{}", still.body);
+}
+
+#[test]
 fn style_inspect_compiles_shared_reachable_work_and_rejects_invalid_graphs() {
     let graph="version 1\nsurface a\nemission b\nx = color #102030\ny = color #102030\na = add x y\nb = add x y\ndead = nonsense missing\n";
     let a = inspect(graph, "first");

@@ -17,6 +17,26 @@ struct Layer { surface: vec4<f32>, emission: vec4<f32> }
 fn style_phase(bits: vec2<u32>, frequency: f32) -> f32 {
     return bitcast<f32>(to_f32_bits(rem_euclid_1(mul_f64(from_f64(bits.x, bits.y), from_f32(bitcast<u32>(frequency))))));
 }
+// STYL-08 per-sample rates: de (graph units) as a distance in samples, and how far
+// de, nu and the normal move from one sample to the next.
+fn style_samples(de: f32) -> f32 {
+    return max(de,1e-30)*f32(p.dims.z)/max(p.clock.y,1.0);
+}
+fn style_de_rate() -> f32 {
+    return max(p.clock.y,1.0)/f32(p.dims.z);
+}
+fn style_nu_rate(de: f32) -> f32 {
+    return 2.0/(style_samples(de)*0.69314718);
+}
+fn style_rotate(v: vec2<f32>, angle: f32) -> vec2<f32> {
+    let c=cos(angle); let s=sin(angle);
+    return vec2<f32>(c*v.x-s*v.y, s*v.x+c*v.y);
+}
+// Phase-spread evaluations per sample; style_j runs over (-1/2, 1/2) in even steps.
+const STYLE_TAPS_N: u32 = 1u; // GRAPH_TAPS
+fn style_tap(t: u32) -> f32 {
+    return (f32(t)+0.5)/f32(STYLE_TAPS_N)-0.5;
+}
 fn style_band(bits: vec2<u32>, de: f32, frequency: f32, phase: f32) -> f32 {
     let per_sample=abs(frequency)*2.0/(max(de,1e-30)*0.69314718*f32(p.dims.z)/max(p.clock.y,1.0));
     return 0.5+0.5*cos(6.2831853*(style_phase(bits,frequency)+phase))*band_response(per_sample);
@@ -57,7 +77,7 @@ fn style_weight(sample_xy: vec2<u32>, pixel: vec2<u32>) -> f32 {
     return w.x*w.y;
 }
 // GRAPH_HELPERS
-fn evaluate(i: u32, position: vec2<f32>) -> Layer {
+fn evaluate(i: u32, position: vec2<f32>, style_j: f32) -> Layer {
     let s = samples[i];
     let kind = s.w >> 16u;
     if (kind != 0u) {
@@ -88,10 +108,12 @@ fn shade(@builtin(global_invocation_id) gid: vec3<u32>) {
             let xy=vec2<u32>(x,y);
             let weight=style_weight(xy,gid.xy);
             if (weight<=0.0) { continue; }
-            let c=evaluate(xy.y*p.dims.x+xy.x,(vec2<f32>(xy)+0.5)/f32(ss));
-            surface+=c.surface*weight;
-            emission+=c.emission*weight;
-            total+=weight;
+            for (var t=0u; t<STYLE_TAPS_N; t++) {
+                let c=evaluate(xy.y*p.dims.x+xy.x,(vec2<f32>(xy)+0.5)/f32(ss),style_tap(t));
+                surface+=c.surface*weight;
+                emission+=c.emission*weight;
+                total+=weight;
+            }
         }
     }
     let scale=1.0/max(total,1e-20);

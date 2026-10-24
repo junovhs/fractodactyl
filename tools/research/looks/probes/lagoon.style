@@ -1,0 +1,38 @@
+# Probe B (images 6/7): grey terraced far field, blue jewel filaments.
+version 1
+surface lit
+emission glow
+grey_d = color #2a2a2e
+grey_l = color #f2f2f2
+navy = color #08205a
+blue = color #1f6cff
+ice = color #bfe4ff
+normal = source normal
+de = source de
+time = source time
+one = scalar 1
+k0_7 = scalar 0.7
+k1_0 = scalar 1.0
+half = scalar 0.5
+zero = scalar 0
+bf = param 0.5
+step = band bf zero
+far = mix grey_d grey_l step
+near_w = param 6
+near = boundary de near_w
+ld = log de
+ls = param 1.3
+lt = mul ld ls
+lc = cos lt
+lw0 = mul lc half
+w = add lw0 half
+b1 = mix navy blue w
+s2 = smoothstep k0_7 k1_0 w
+jewel = mix b1 ice s2
+col = mix far jewel near
+slope = param 2.5
+sun = vector -0.6 0.8
+relief = light normal slope sun
+lit = mul col relief
+gg = param 0.0
+glow = mul col gg

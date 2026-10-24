@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- Style graphs (`fd style`, the styling workspace) no longer speckle in dense filament areas: colours and lighting that change faster than a sample now show their average, about half as far from an exact render as before.
+
 ## [0.10.0] - 2026-10-22
 
 - Films render deep non-zone stretches several times faster: `fd film` builds its per-frame BLA tables at a film tolerance (2^-26) that still passes the film check against the exact tolerance (a seahorse-valley slice: 27 s to 6 s). `--bla-eps E` on `fd film` and `fd control` chooses the tolerance; `fd control` keeps the exact 2^-50 by default.

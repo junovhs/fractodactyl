@@ -304,7 +304,8 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){{
                 "var<storage, read_write> hdr: array<Layer>;",
                 "var<storage, read_write> atlas: array<vec4<f32>>;",
             )
-            .replace("// GRAPH_HELPERS", &c.helpers);
+            .replace("// GRAPH_HELPERS", &c.helpers)
+            .replace("1u; // GRAPH_TAPS", &format!("{}u;", c.taps));
         let members = self
             .sources
             .iter()
@@ -346,7 +347,7 @@ fn apply(@builtin(global_invocation_id) gid:vec3<u32>){{
         format!(
             r#"{prefix}
 struct Raster {{ {members} }}
-fn evaluate(i:u32,position:vec2<f32>)->Raster {{
+fn evaluate(i:u32,position:vec2<f32>,style_j:f32)->Raster {{
  let s=samples[i];
  var mark=vec3<f32>(0.0);
  if ((s.w>>16u)!=0u && (s.w>>16u)!=1u && p.dims.w==0u) {{mark=vec3<f32>(0.25,0.0,0.25);}}
@@ -366,9 +367,11 @@ fn shade(@builtin(global_invocation_id) gid:vec3<u32>) {{
   let xy=vec2<u32>(x,y);
   let weight=style_weight(xy,gid.xy);
   if(weight<=0.0) {{continue;}}
+  for(var t=0u;t<STYLE_TAPS_N;t++) {{
   total+=weight;
-  let v=evaluate(xy.y*p.dims.x+xy.x,(vec2<f32>(xy)+0.5)/f32(ss));
+  let v=evaluate(xy.y*p.dims.x+xy.x,(vec2<f32>(xy)+0.5)/f32(ss),style_tap(t));
   {accum}
+  }}
  }}}}
  let index=gid.y*size.x+gid.x;
  {writes}
