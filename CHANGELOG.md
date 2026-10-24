@@ -12,6 +12,8 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- `fd film --style GRAPH.style` makes films with style-graph looks (the styling workspace's engine), with `--set` for its parameters and `--bloom` for glow.
+
 - Style graphs (`fd style`, the styling workspace) no longer speckle in dense filament areas: colours and lighting that change faster than a sample now show their average, about half as far from an exact render as before.
 
 ## [0.10.0] - 2026-10-22

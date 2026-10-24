@@ -26,6 +26,10 @@ pub trait Pass {
     /// Turn samples into an image at appearance `a` (time, animation, anti-aliasing).
     /// Must not recompute any fractal math.
     fn shade_with(&self, h: &Header, s: &Samples, a: &Appearance) -> Rgb8;
+    /// The next [`Pass::shade_with`] grids are `grid_pixels_per_output_pixel` times finer
+    /// than the output (keyframe films). Looks with pixel-sized features keep them in
+    /// output pixels; the default ignores it.
+    fn set_output_scale(&self, _grid_pixels_per_output_pixel: f64) {}
     /// [`Pass::shade_with`] at [`Appearance::STILL`]: the look as it always was.
     fn shade(&self, h: &Header, s: &Samples) -> Rgb8 {
         self.shade_with(h, s, &Appearance::STILL)

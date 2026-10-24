@@ -10,6 +10,7 @@ mod explore;
 mod film;
 #[cfg(test)]
 mod film_resample_wgpu;
+mod film_style;
 mod filmcheck;
 mod jetaa;
 mod keyframe;

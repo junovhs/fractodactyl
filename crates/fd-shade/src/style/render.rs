@@ -392,6 +392,17 @@ impl StyleRenderer {
         Ok(())
     }
 
+    /// Output pixels per sample-grid pixel (STYL-10): keyframe films shade grids finer
+    /// than the output, and graph distances (de, boundary widths, flow) are meant in
+    /// output pixels. 1 (the default) for grids at output resolution.
+    pub fn set_output_scale(&mut self, output_pixels_per_grid_pixel: f32) -> Result<(), String> {
+        if !(output_pixels_per_grid_pixel.is_finite() && output_pixels_per_grid_pixel > 0.0) {
+            return Err("style output scale must be positive".into());
+        }
+        self.params[10] = output_pixels_per_grid_pixel.to_bits();
+        Ok(())
+    }
+
     /// Update a named uniform without recompiling or reallocating resources.
     pub fn set_parameter(&mut self, name: &str, value: f32) -> Result<(), String> {
         if !value.is_finite() {

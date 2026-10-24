@@ -17,13 +17,18 @@ struct Layer { surface: vec4<f32>, emission: vec4<f32> }
 fn style_phase(bits: vec2<u32>, frequency: f32) -> f32 {
     return bitcast<f32>(to_f32_bits(rem_euclid_1(mul_f64(from_f64(bits.x, bits.y), from_f32(bitcast<u32>(frequency))))));
 }
+// Graph de is in output pixels: sample-grid pixels times the reconstruction
+// magnification and the output pixels per grid pixel (origin.z; 0 means 1, STYL-10).
+fn style_scale() -> f32 {
+    return max(p.clock.y,1.0)*select(bitcast<f32>(p.origin.z),1.0,p.origin.z==0u);
+}
 // STYL-08 per-sample rates: de (graph units) as a distance in samples, and how far
 // de, nu and the normal move from one sample to the next.
 fn style_samples(de: f32) -> f32 {
-    return max(de,1e-30)*f32(p.dims.z)/max(p.clock.y,1.0);
+    return max(de,1e-30)*f32(p.dims.z)/style_scale();
 }
 fn style_de_rate() -> f32 {
-    return max(p.clock.y,1.0)/f32(p.dims.z);
+    return style_scale()/f32(p.dims.z);
 }
 fn style_nu_rate(de: f32) -> f32 {
     return 2.0/(style_samples(de)*0.69314718);
@@ -38,11 +43,11 @@ fn style_tap(t: u32) -> f32 {
     return (f32(t)+0.5)/f32(STYLE_TAPS_N)-0.5;
 }
 fn style_band(bits: vec2<u32>, de: f32, frequency: f32, phase: f32) -> f32 {
-    let per_sample=abs(frequency)*2.0/(max(de,1e-30)*0.69314718*f32(p.dims.z)/max(p.clock.y,1.0));
+    let per_sample=abs(frequency)*2.0/(style_samples(de)*0.69314718);
     return 0.5+0.5*cos(6.2831853*(style_phase(bits,frequency)+phase))*band_response(per_sample);
 }
 fn style_light(normal: vec2<f32>, slope: f32, direction: vec2<f32>, de: f32) -> f32 {
-    let fade=tanh_bounded(max(de*f32(p.dims.z)/(0.7*max(p.clock.y,1.0)),0.0));
+    let fade=tanh_bounded(max(style_samples(de)/0.7,0.0));
     return 0.15+0.85*max(dot(normalize(vec3<f32>(normal*slope*fade,1.0)),normalize(vec3<f32>(direction,1.0))),0.0);
 }
 fn clean_color(c: vec3<f32>) -> vec3<f32> {
@@ -52,7 +57,7 @@ fn clean_color(c: vec3<f32>) -> vec3<f32> {
 struct SampleFields { de: f32, local_nu: f32, normal: vec2<f32> }
 fn style_fields(i: u32) -> SampleFields {
     let s=samples[i];
-    return SampleFields(max(bitcast<f32>(s.z),0.0)*max(p.clock.y,1.0),bitcast<f32>(to_f32_bits(add_f64(from_f64(s.x,s.y),from_f64(p.origin.x,p.origin.y ^ 0x80000000u)))),unit[s.w & 65535u]);
+    return SampleFields(max(bitcast<f32>(s.z),0.0)*style_scale(),bitcast<f32>(to_f32_bits(add_f64(from_f64(s.x,s.y),from_f64(p.origin.x,p.origin.y ^ 0x80000000u)))),unit[s.w & 65535u]);
 }
 // Reconstruction is shared by pointwise and image graphs. Integrate shaded
 // samples before any image passes, never interpolate nu/normals before lighting.

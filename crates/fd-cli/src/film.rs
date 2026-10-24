@@ -29,7 +29,7 @@ use std::time::Instant;
 const USAGE: &str = "usage: fd film (RE IM --to WIDTH | --place NAME [--to WIDTH (the place's)]) --mp4 FILE [--from W0 (4)] [--depth-cap DECADES (1000; maximum 1000)] [--fps F (60)] \
 [--json] [--seconds S | --rate DECADES_PER_S (0.15) | --speed FILE] [--twist TURNS (0) | --spin PEAK,ON,OFF | --spins FILE] [--ease on|off (off) | --ease-in S (0)] \
 [--size WxH (1920x1080)] [--ss N (2)] [--iter N (100000)] [--threads N] [--zone FILE] \
-[--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
+[--look L (studio)] [--preset LOOK (ice)] [look knobs as fd shade] [--style GRAPH.style [--set NAME=V,...] [--bloom A --bloom-radius R] (style-graph look instead of --look)] [--crf N (16)] [--x264 P (slow)] [--chroma 420|444 (420)] [--compare-every K (0)] \
 [--frames N|A..B|A..=B] [--raw-dir DIR (save lossless RGB24 frames)] [--keyframes M|off (2; M x oversized keyframe per 2x zoom; off renders every frame)] [--gpu on|off (accepted, ignored: the studio look always shades on wgpu)] \
 [--ease-out S] [--offset DRE,DIM (keyframes only)] [--t0 SECONDS (0)] [--jet-aa on|off (off; ss 2 from ~1-3 samples/px, FILM-16)] [--bla-eps E (2^-26 film tolerance; 8.881784197001252e-16 = exact)] [fd shade's appearance flags; film defaults --aa on --unresolved interior --dither on]";
 
@@ -258,6 +258,7 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
     ];
     known.extend(APPEARANCE_FLAGS);
     known.extend(LOOK_FLAGS);
+    known.extend(crate::film_style::STYLE_FLAGS);
     // Film always emits fd-film/1; accept an explicit --json for report consumers.
     let argv: Vec<_> = argv
         .iter()
@@ -454,12 +455,29 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         )?,
         tier: None,
     };
-    let look_name = a.str("look").unwrap_or("studio");
-    let mut base = appearance(&a)?;
-    let look = match passes(look_name, &a, &mut base)?.pop() {
-        Some((_, p)) if !look_name.contains(',') => p,
-        _ => return Err("fd film takes one --look".into()),
+    // STYL-10: --style shades with a style graph instead of a --look.
+    let style = match a.str("style") {
+        Some(_) if a.str("look").is_some() || a.str("preset").is_some() => {
+            return Err("--style replaces --look and --preset; give one".into())
+        }
+        Some(path) => Some(std::rc::Rc::new(crate::film_style::StyleLook::from_args(
+            &a, path,
+        )?)),
+        None => None,
     };
+    let look_name = match style {
+        Some(_) => "style",
+        None => a.str("look").unwrap_or("studio"),
+    };
+    let mut base = appearance(&a)?;
+    let look: Box<dyn fd_shade::Pass> = match &style {
+        Some(s) => Box::new(crate::film_style::SharedStyle(s.clone())),
+        None => match passes(look_name, &a, &mut base)?.pop() {
+            Some((_, p)) if !look_name.contains(',') => p,
+            _ => return Err("fd film takes one --look".into()),
+        },
+    };
+    let style_failed = || style.as_ref().and_then(|s| s.error());
     base.aa = a.str("aa").is_none_or(|v| v == "on");
     base.unresolved_interior = a.str("unresolved").is_none_or(|v| v == "interior");
     base.dither = a.str("dither").is_none_or(|v| v == "on");
@@ -580,6 +598,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
         .map_err(|e| format!("studio look needs a wgpu adapter: {e}"))?;
         eprintln!("fd film: wgpu GPU shading on {device}");
     }
+    if let Some(s) = &style {
+        eprintln!("fd film: style graph shading on {}", s.device_name());
+    }
     if keys.is_none() && offset != (0.0, 0.0) {
         return Err("--offset needs --keyframes".into());
     }
@@ -683,6 +704,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
                 },
             )?;
             let frame_seconds = t.elapsed().as_secs_f64();
+            if let Some(e) = style_failed() {
+                return Err(format!("--style: {e}"));
+            }
             let t = Instant::now();
             if let Some(dir) = raw_dir {
                 std::fs::write(format!("{dir}/frame-{f:06}.rgb"), &img.data)
@@ -743,6 +767,9 @@ pub(crate) fn run(argv: &[String]) -> Result<(), String> {
             },
         );
         r.shade += t.elapsed().as_secs_f64();
+        if let Some(e) = style_failed() {
+            return Err(format!("--style: {e}"));
+        }
         let t = Instant::now();
         if let Some(dir) = raw_dir {
             std::fs::write(format!("{dir}/frame-{f:06}.rgb"), &img.data)

@@ -415,8 +415,12 @@ impl<'a> Keyframes<'a> {
             return Ok(&self.output);
         }
         let t_shade = std::time::Instant::now();
+        // An output pixel spans this many keyframe samples (STYL-10).
+        look.set_output_scale(f64::from(zo) * owidth as f64 / ow as f64);
         self.shaded[0] = look.shade_with(&outer.2, &outer.3, &sa);
+        look.set_output_scale(f64::from(zi) * iwidth as f64 / ow as f64);
         self.shaded[1] = look.shade_with(&inner.2, &inner.3, &sa);
+        look.set_output_scale(1.0);
         self.sample_shade_seconds += t_shade.elapsed().as_secs_f64();
         let t_resample = std::time::Instant::now();
         resample(&r, &self.shaded, &self.lut, &mut self.output);

@@ -629,3 +629,51 @@ fn film_frames_forms() {
     fs::remove_dir_all(dir).unwrap();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn film_style_graph_renders_and_excludes_look() {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("fd-styl10-{}-{stamp}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let style = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../looks/styles/celestial.style");
+    let film = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_fd"))
+            .args([
+                "film",
+                "-0.75",
+                "0.1",
+                "--from",
+                "4",
+                "--to",
+                "2",
+                "--seconds",
+                "1",
+                "--fps",
+                "2",
+                "--size",
+                "32x18",
+                "--iter",
+                "64",
+                "--x264",
+                "ultrafast",
+                "--style",
+            ])
+            .arg(&style)
+            .arg("--mp4")
+            .arg(dir.join("style.mp4"))
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let refused = film(&["--look", "studio"]);
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--style replaces --look"));
+    checked(film(&[]), "style film");
+    let rgb = decoded_rgb(&dir.join("style.mp4"));
+    assert_eq!(rgb.len(), 2 * 32 * 18 * 3);
+    assert!(rgb.iter().any(|&v| v > 16), "style film is blank");
+    fs::remove_dir_all(&dir).unwrap();
+}
